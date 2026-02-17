@@ -1,0 +1,37 @@
+{
+  "name": "hive",
+  "version": "0.1.0",
+  "description": "Multi-user autonomous task orchestration system",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:generate": "drizzle-kit generate",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.6.0",
+    "@azure/keyvault-secrets": "^4.9.0",
+    "@azure/msal-node": "^2.16.0",
+    "connect-pg-simple": "^10.0.0",
+    "drizzle-orm": "^0.38.0",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "htmx.org": "^2.0.0",
+    "pg": "^8.13.0",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "tailwindcss": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/connect-pg-simple": "^7.0.3",
+    "@types/express": "^5.0.0",
+    "@types/express-session": "^1.18.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.30.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
