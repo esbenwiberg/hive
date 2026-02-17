@@ -1,17 +1,30 @@
 import { ConfidentialClientApplication } from "@azure/msal-node";
 import logger from "../logger.js";
 
-const clientId = process.env.ENTRA_CLIENT_ID ?? "";
-const clientSecret = process.env.ENTRA_CLIENT_SECRET ?? "";
-const tenantId = process.env.ENTRA_TENANT_ID ?? "";
+let msalClient: ConfidentialClientApplication | null = null;
 
-const msalClient = new ConfidentialClientApplication({
-  auth: {
-    clientId,
-    clientSecret,
-    authority: `https://login.microsoftonline.com/${tenantId}`,
-  },
-});
+function getMsalClient(): ConfidentialClientApplication {
+  if (msalClient) return msalClient;
+
+  const clientId = process.env.ENTRA_CLIENT_ID;
+  const clientSecret = process.env.ENTRA_CLIENT_SECRET;
+  const tenantId = process.env.ENTRA_TENANT_ID;
+
+  if (!clientId || !clientSecret || !tenantId) {
+    throw new Error(
+      "Missing required Entra ID env vars: ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET, ENTRA_TENANT_ID",
+    );
+  }
+
+  msalClient = new ConfidentialClientApplication({
+    auth: {
+      clientId,
+      clientSecret,
+      authority: `https://login.microsoftonline.com/${tenantId}`,
+    },
+  });
+  return msalClient;
+}
 
 const SCOPES = ["openid", "profile", "email"];
 
@@ -25,7 +38,7 @@ export interface EntraUserProfile {
  * Builds an authorization URL for the Entra ID login flow.
  */
 export async function getAuthUrl(redirectUri: string): Promise<string> {
-  const url = await msalClient.getAuthCodeUrl({
+  const url = await getMsalClient().getAuthCodeUrl({
     scopes: SCOPES,
     redirectUri,
   });
@@ -39,7 +52,7 @@ export async function handleCallback(
   code: string,
   redirectUri: string,
 ): Promise<EntraUserProfile> {
-  const result = await msalClient.acquireTokenByCode({
+  const result = await getMsalClient().acquireTokenByCode({
     code,
     scopes: SCOPES,
     redirectUri,
@@ -65,6 +78,6 @@ export async function handleCallback(
 /**
  * Clears the MSAL token cache.
  */
-export async function logout(): Promise<void> {
-  msalClient.clearCache();
+export function logout(): void {
+  getMsalClient().clearCache();
 }

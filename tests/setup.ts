@@ -7,10 +7,9 @@ import { beforeAll, afterAll } from "vitest";
 
 const { Pool } = pg;
 
-// Use DATABASE_URL from env, falling back to the dev database
 const connectionString =
   process.env.DATABASE_URL ??
-  "postgresql://hive:hive@localhost:5432/hive";
+  "postgresql://hive:hive@localhost:5432/hive_test";
 
 export const pool = new Pool({ connectionString });
 export const db = drizzle(pool, { schema });
@@ -23,10 +22,15 @@ export async function cleanupTables(): Promise<void> {
   await db.execute(sql`TRUNCATE users, sessions CASCADE`);
 }
 
-beforeAll(async () => {
-  await drizzleMigrate(db, { migrationsFolder: "./drizzle" });
-});
+/**
+ * Call this in DB test files to set up migrations and teardown the pool.
+ */
+export function useTestDb(): void {
+  beforeAll(async () => {
+    await drizzleMigrate(db, { migrationsFolder: "./drizzle" });
+  });
 
-afterAll(async () => {
-  await pool.end();
-});
+  afterAll(async () => {
+    await pool.end();
+  });
+}

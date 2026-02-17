@@ -4,7 +4,7 @@ import { getAuthUrl, handleCallback } from "../auth/entra.js";
 import { requireAuth, injectUser } from "../auth/middleware.js";
 import { findOrCreateByEntraOid } from "../db/queries/users.js";
 import { layout } from "./views/layout.js";
-import { badge, card } from "./views/components.js";
+import { badge, card, escapeHtml } from "./views/components.js";
 import logger from "../logger.js";
 
 const app = express();
@@ -17,9 +17,9 @@ app.use(injectUser);
 
 // ── Auth routes ──────────────────────────────────────────────────────────────
 
-app.get("/auth/login", async (_req, res, next) => {
+app.get("/auth/login", async (req, res, next) => {
   try {
-    const redirectUri = `${_req.protocol}://${_req.get("host")}/auth/callback`;
+    const redirectUri = `${req.protocol}://${req.get("host")}/auth/callback`;
     const url = await getAuthUrl(redirectUri);
     res.redirect(url);
   } catch (err) {
@@ -83,7 +83,7 @@ app.get("/", requireAuth, (req, res) => {
   const content = card(
     `<div class="space-y-4">
       <div class="flex items-center gap-3">
-        <h2 class="text-2xl font-bold text-slate-50">Welcome, ${user.displayName}</h2>
+        <h2 class="text-2xl font-bold text-slate-50">Welcome, ${escapeHtml(user.displayName)}</h2>
         ${roleBadge}
       </div>
       <p class="text-slate-400 leading-relaxed">

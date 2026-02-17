@@ -17,13 +17,18 @@ declare module "express-session" {
 
 const PgStore = connectPgSimple(session);
 
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret && process.env.NODE_ENV === "production") {
+  throw new Error("SESSION_SECRET environment variable is required in production");
+}
+
 const sessionMiddleware = session({
   store: new PgStore({
     pool,
     tableName: "sessions",
     createTableIfMissing: false,
   }),
-  secret: process.env.SESSION_SECRET ?? "change-me",
+  secret: sessionSecret ?? "dev-only-secret",
   resave: false,
   saveUninitialized: false,
   cookie: {

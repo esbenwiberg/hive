@@ -1,3 +1,5 @@
+import { escapeHtml } from "./components.js";
+
 // Full-page HTML layout shell
 
 export interface SessionUser {
@@ -51,6 +53,8 @@ const navLinks: { label: string; href: string; icon: string }[] = [
 ];
 
 function sidebar(user: SessionUser): string {
+  const safeName = escapeHtml(user.displayName);
+  const safeRole = escapeHtml(user.role);
   const initials = getInitials(user.displayName);
 
   const links = navLinks
@@ -89,8 +93,8 @@ function sidebar(user: SessionUser): string {
           ${initials}
         </div>
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-medium text-slate-50">${user.displayName}</p>
-          <span class="inline-flex items-center rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">${user.role}</span>
+          <p class="truncate text-sm font-medium text-slate-50">${safeName}</p>
+          <span class="inline-flex items-center rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">${safeRole}</span>
         </div>
       </div>
       <a href="/auth/logout"

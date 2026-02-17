@@ -1,5 +1,17 @@
 // Design-system component helpers — return HTML strings
 
+const ESC: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+export function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (ch) => ESC[ch]);
+}
+
 export function button(
   label: string,
   opts?: {
@@ -43,7 +55,7 @@ export function badge(
     slate: "bg-slate-400/10 text-slate-400 ring-slate-400/20",
   };
 
-  return `<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${colors[c]}">${text}</span>`;
+  return `<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${colors[c]}">${escapeHtml(text)}</span>`;
 }
 
 export function card(

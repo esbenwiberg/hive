@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { db, cleanupTables } from "../setup.js";
+import { db, cleanupTables, useTestDb } from "../setup.js";
 
 // Mock src/db/connection.js so that findOrCreateByEntraOid uses our test db/pool
 vi.mock("../../src/db/connection.js", async () => {
@@ -11,6 +11,8 @@ vi.mock("../../src/db/connection.js", async () => {
 const { findOrCreateByEntraOid } = await import(
   "../../src/db/queries/users.js"
 );
+
+useTestDb();
 
 describe("findOrCreateByEntraOid", () => {
   beforeEach(async () => {
