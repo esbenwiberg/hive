@@ -19,7 +19,7 @@ export const db = drizzle(pool, { schema });
  * Call this in beforeEach() blocks to get a clean slate between tests.
  */
 export async function cleanupTables(): Promise<void> {
-  await db.execute(sql`TRUNCATE users, sessions CASCADE`);
+  await db.execute(sql`TRUNCATE users, sessions, tasks, repos CASCADE`);
 }
 
 /**

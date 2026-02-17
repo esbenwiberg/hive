@@ -1,13 +1,22 @@
+import path from "node:path";
 import express from "express";
 import sessionMiddleware from "../auth/session.js";
 import { getAuthUrl, handleCallback } from "../auth/entra.js";
-import { requireAuth, injectUser } from "../auth/middleware.js";
+import { injectUser } from "../auth/middleware.js";
 import { findOrCreateByEntraOid } from "../db/queries/users.js";
-import { layout } from "./views/layout.js";
-import { badge, card, escapeHtml } from "./views/components.js";
 import logger from "../logger.js";
+import dashboardRouter from "./routes/dashboard.js";
+import taskRouter from "./routes/tasks.js";
+import profileRouter from "./routes/profile.js";
 
 const app = express();
+
+// ── Static files ────────────────────────────────────────────────────────────
+
+// Static files: resolve from project root so it works whether running
+// compiled JS from dist/ or source TS via tsx from src/.
+const publicDir = path.resolve("src", "dashboard", "public");
+app.use("/public", express.static(publicDir));
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json());
@@ -15,7 +24,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
 app.use(injectUser);
 
-// ── Auth routes ──────────────────────────────────────────────────────────────
+// ── Auth routes (public) ────────────────────────────────────────────────────
 
 app.get("/auth/login", async (req, res, next) => {
   try {
@@ -74,28 +83,10 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-// ── Protected routes ─────────────────────────────────────────────────────────
+// ── Protected routes (routers) ──────────────────────────────────────────────
 
-app.get("/", requireAuth, (req, res) => {
-  const user = req.session.user!;
-  const roleBadge = badge(user.role, "amber");
-
-  const content = card(
-    `<div class="space-y-4">
-      <div class="flex items-center gap-3">
-        <h2 class="text-2xl font-bold text-slate-50">Welcome, ${escapeHtml(user.displayName)}</h2>
-        ${roleBadge}
-      </div>
-      <p class="text-slate-400 leading-relaxed">
-        The Hive is a multi-user autonomous task orchestration system.
-        It ingests issues, plans execution, dispatches AI coding agents,
-        reviews their output, and tracks costs &mdash; all from this dashboard.
-      </p>
-    </div>`,
-    { padding: "spacious" },
-  );
-
-  res.send(layout("Dashboard", content, user));
-});
+app.use("/", dashboardRouter);
+app.use("/", taskRouter);
+app.use("/", profileRouter);
 
 export default app;

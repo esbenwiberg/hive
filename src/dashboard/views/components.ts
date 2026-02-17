@@ -111,3 +111,214 @@ export function input(
     class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
 </div>`;
 }
+
+// ── Stat Card ───────────────────────────────────────────────────────────────
+
+export function statCard(
+  label: string,
+  value: string | number,
+  opts?: { icon?: string; color?: string },
+): string {
+  const color = opts?.color ?? "slate";
+  const iconHtml = opts?.icon
+    ? `<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-${color}-400/10 text-${color}-400">${opts.icon}</div>`
+    : "";
+
+  return `<div class="rounded-xl border border-slate-700 bg-slate-800 p-5">
+  <div class="flex items-center gap-4">
+    ${iconHtml}
+    <div>
+      <p class="text-sm font-medium text-slate-400">${escapeHtml(label)}</p>
+      <p class="mt-1 text-2xl font-semibold text-slate-50">${escapeHtml(String(value))}</p>
+    </div>
+  </div>
+</div>`;
+}
+
+// ── Table ───────────────────────────────────────────────────────────────────
+
+export function table(headers: string[], rows: string[][]): string {
+  const ths = headers
+    .map(
+      (h) =>
+        `<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">${escapeHtml(h)}</th>`,
+    )
+    .join("");
+
+  const trs = rows
+    .map((row) => {
+      const tds = row
+        .map(
+          (cell) =>
+            `<td class="whitespace-nowrap px-4 py-3 text-sm text-slate-300">${cell}</td>`,
+        )
+        .join("");
+      return `<tr class="hover:bg-slate-800/50">${tds}</tr>`;
+    })
+    .join("");
+
+  return `<div class="overflow-x-auto">
+  <table class="min-w-full divide-y divide-slate-700">
+    <thead class="bg-slate-800/50">
+      <tr>${ths}</tr>
+    </thead>
+    <tbody class="divide-y divide-slate-700">${trs}</tbody>
+  </table>
+</div>`;
+}
+
+// ── Modal ───────────────────────────────────────────────────────────────────
+
+export function modal(id: string, title: string, bodyHtml: string): string {
+  return `<div id="${id}" class="fixed inset-0 z-50 hidden">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" onclick="document.getElementById('${id}').classList.add('hidden')"></div>
+  <!-- Panel -->
+  <div class="fixed inset-0 flex items-center justify-center p-4">
+    <div class="relative w-full max-w-lg rounded-xl border border-slate-700 bg-slate-800 shadow-xl">
+      <div class="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+        <h3 class="text-lg font-semibold text-slate-50">${escapeHtml(title)}</h3>
+        <button onclick="document.getElementById('${id}').classList.add('hidden')"
+                class="rounded-lg p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-50">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div class="px-6 py-4">${bodyHtml}</div>
+    </div>
+  </div>
+</div>`;
+}
+
+// ── Pipeline Steps ──────────────────────────────────────────────────────────
+
+export function pipelineSteps(currentStatus: string): string {
+  const steps = [
+    { key: "pending", label: "Route" },
+    { key: "enriching", label: "Enrich" },
+    { key: "ready", label: "Gate" },
+    { key: "executing", label: "Execute" },
+    { key: "reviewing", label: "Review" },
+    { key: "done", label: "Done" },
+  ];
+
+  const order = steps.map((s) => s.key);
+  const currentIdx = order.indexOf(currentStatus);
+
+  // Map some statuses to their closest pipeline step
+  const statusMap: Record<string, number> = {
+    pending: 0,
+    queued: 0,
+    enriching: 1,
+    ready: 2,
+    approved: 2,
+    executing: 3,
+    reviewing: 4,
+    done: 5,
+    merged: 5,
+    failed: -1,
+    rejected: -1,
+    cancelled: -1,
+    rework: 3,
+  };
+
+  const activeIdx = statusMap[currentStatus] ?? -1;
+
+  const stepHtml = steps
+    .map((step, i) => {
+      let dotClasses: string;
+      let labelClasses: string;
+
+      if (i === activeIdx) {
+        // Current step
+        dotClasses = "h-3 w-3 rounded-full bg-amber-400 ring-4 ring-amber-400/20";
+        labelClasses = "text-xs font-medium text-amber-400";
+      } else if (i < activeIdx) {
+        // Completed step
+        dotClasses = "h-3 w-3 rounded-full bg-emerald-400";
+        labelClasses = "text-xs font-medium text-emerald-400";
+      } else {
+        // Future step
+        dotClasses = "h-3 w-3 rounded-full bg-slate-600";
+        labelClasses = "text-xs font-medium text-slate-500";
+      }
+
+      const connectorBefore =
+        i > 0
+          ? `<div class="h-0.5 w-full ${i <= activeIdx ? "bg-emerald-400" : "bg-slate-600"}"></div>`
+          : "";
+
+      return `<div class="flex flex-1 flex-col items-center gap-1.5">
+      <div class="flex w-full items-center">
+        ${connectorBefore}
+        <div class="${dotClasses}"></div>
+        ${i < steps.length - 1 ? `<div class="h-0.5 w-full ${i < activeIdx ? "bg-emerald-400" : "bg-slate-600"}"></div>` : ""}
+      </div>
+      <span class="${labelClasses}">${step.label}</span>
+    </div>`;
+    })
+    .join("");
+
+  return `<div class="flex items-start">${stepHtml}</div>`;
+}
+
+// ── Select ──────────────────────────────────────────────────────────────────
+
+export function select(
+  name: string,
+  label: string,
+  options: { value: string; label: string }[],
+  selected?: string,
+): string {
+  const optionHtml = options
+    .map(
+      (o) =>
+        `<option value="${escapeHtml(o.value)}"${o.value === selected ? " selected" : ""}>${escapeHtml(o.label)}</option>`,
+    )
+    .join("");
+
+  return `<div class="space-y-1.5">
+  <label for="${name}" class="block text-sm font-medium text-slate-300">${escapeHtml(label)}</label>
+  <select id="${name}" name="${name}"
+    class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">
+    ${optionHtml}
+  </select>
+</div>`;
+}
+
+// ── Textarea ────────────────────────────────────────────────────────────────
+
+export function textarea(
+  name: string,
+  label: string,
+  opts?: { required?: boolean; placeholder?: string; rows?: number },
+): string {
+  const rows = opts?.rows ?? 4;
+  const required = opts?.required ? " required" : "";
+  const placeholder = opts?.placeholder
+    ? ` placeholder="${escapeHtml(opts.placeholder)}"`
+    : "";
+
+  return `<div class="space-y-1.5">
+  <label for="${name}" class="block text-sm font-medium text-slate-300">${escapeHtml(label)}</label>
+  <textarea id="${name}" name="${name}" rows="${rows}"${required}${placeholder}
+    class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"></textarea>
+</div>`;
+}
+
+// ── Empty State ─────────────────────────────────────────────────────────────
+
+export function emptyState(message: string, actionHtml?: string): string {
+  const action = actionHtml
+    ? `<div class="mt-4">${actionHtml}</div>`
+    : "";
+
+  return `<div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-700 py-12 px-6">
+  <svg class="h-12 w-12 text-slate-600" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125 2.25 2.25m0 0 2.25-2.25M12 13.875V7.5M3.75 7.5h16.5" />
+  </svg>
+  <p class="mt-3 text-sm text-slate-400">${escapeHtml(message)}</p>
+  ${action}
+</div>`;
+}

@@ -1,0 +1,314 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { db, cleanupTables, useTestDb } from "../setup.js";
+
+// Mock src/db/connection.js so that query functions use our test db/pool
+vi.mock("../../src/db/connection.js", async () => {
+  const setup = await import("../setup.js");
+  return { db: setup.db, pool: setup.pool };
+});
+
+// Import AFTER the mock is registered
+const { findOrCreateByEntraOid } = await import(
+  "../../src/db/queries/users.js"
+);
+const { findOrCreate: findOrCreateRepo } = await import(
+  "../../src/db/queries/repos.js"
+);
+const { create, getById, list, updateStatus, countByStatus } = await import(
+  "../../src/db/queries/tasks.js"
+);
+
+useTestDb();
+
+// Helper to set up a user + repo for task creation
+async function seedUserAndRepo() {
+  const user = await findOrCreateByEntraOid(
+    "oid-test",
+    "test@example.com",
+    "Test User",
+  );
+  const repo = await findOrCreateRepo("github", "acme/widget");
+  return { user, repo };
+}
+
+describe("tasks queries", () => {
+  beforeEach(async () => {
+    await cleanupTables();
+  });
+
+  // ── create ──────────────────────────────────────────────────────────────
+
+  describe("create", () => {
+    it("creates a task with generated id and pending status", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      const task = await create({
+        title: "Fix login bug",
+        body: "The login form crashes on submit",
+        source: "manual",
+        repoId: repo.id,
+        createdBy: user.id,
+      });
+
+      expect(task).toBeDefined();
+      expect(task.id).toMatch(/^HIVE-\d{8}-[0-9a-f]{4}$/);
+      expect(task.title).toBe("Fix login bug");
+      expect(task.body).toBe("The login form crashes on submit");
+      expect(task.source).toBe("manual");
+      expect(task.status).toBe("pending");
+      expect(task.repoId).toBe(repo.id);
+      expect(task.createdBy).toBe(user.id);
+      expect(task.createdAt).toBeTruthy();
+    });
+
+    it("accepts optional type, size, and workflow", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      const task = await create({
+        title: "Add dark mode",
+        body: "Support dark theme",
+        source: "github-issue",
+        type: "feature",
+        size: "medium",
+        workflow: "flow",
+        repoId: repo.id,
+        createdBy: user.id,
+      });
+
+      expect(task.type).toBe("feature");
+      expect(task.size).toBe("medium");
+      expect(task.workflow).toBe("flow");
+    });
+  });
+
+  // ── getById ─────────────────────────────────────────────────────────────
+
+  describe("getById", () => {
+    it("returns the task when it exists", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const created = await create({
+        title: "Test task",
+        body: "body",
+        source: "manual",
+        repoId: repo.id,
+        createdBy: user.id,
+      });
+
+      const found = await getById(created.id);
+
+      expect(found).toBeDefined();
+      expect(found!.id).toBe(created.id);
+      expect(found!.title).toBe("Test task");
+    });
+
+    it("returns undefined for a nonexistent id", async () => {
+      const found = await getById("HIVE-00000000-0000");
+      expect(found).toBeUndefined();
+    });
+  });
+
+  // ── list ────────────────────────────────────────────────────────────────
+
+  describe("list", () => {
+    it("returns all tasks with default pagination", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      await create({ title: "Task 1", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Task 2", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      const result = await list();
+
+      expect(result.tasks).toHaveLength(2);
+      expect(result.total).toBe(2);
+    });
+
+    it("filters by status", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      const t1 = await create({ title: "Task 1", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Task 2", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      // Move t1 to queued
+      await updateStatus(t1.id, "queued");
+
+      const result = await list({ status: "queued" });
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].id).toBe(t1.id);
+      expect(result.total).toBe(1);
+    });
+
+    it("filters by repoId", async () => {
+      const { user } = await seedUserAndRepo();
+      const { findOrCreate: findOrCreateRepo2 } = await import(
+        "../../src/db/queries/repos.js"
+      );
+      const repo2 = await findOrCreateRepo2("github", "acme/other");
+
+      const repo1 = await findOrCreateRepo("github", "acme/widget");
+      await create({ title: "Task in repo1", body: "b", source: "manual", repoId: repo1.id, createdBy: user.id });
+      await create({ title: "Task in repo2", body: "b", source: "manual", repoId: repo2.id, createdBy: user.id });
+
+      const result = await list({ repoId: repo1.id });
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].title).toBe("Task in repo1");
+    });
+
+    it("filters by createdBy", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const user2 = await findOrCreateByEntraOid(
+        "oid-other",
+        "other@example.com",
+        "Other User",
+      );
+
+      await create({ title: "Task by user1", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Task by user2", body: "b", source: "manual", repoId: repo.id, createdBy: user2.id });
+
+      const result = await list({ createdBy: user.id });
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].title).toBe("Task by user1");
+    });
+
+    it("filters by text search on title (case-insensitive)", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      await create({ title: "Fix login bug", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Add dark mode", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Fix signup flow", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      const result = await list({ search: "fix" });
+      expect(result.tasks).toHaveLength(2);
+      expect(result.total).toBe(2);
+    });
+
+    it("supports pagination with limit and offset", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      for (let i = 1; i <= 5; i++) {
+        await create({ title: `Task ${i}`, body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      }
+
+      const page1 = await list({}, 2, 0);
+      expect(page1.tasks).toHaveLength(2);
+      expect(page1.total).toBe(5);
+
+      const page2 = await list({}, 2, 2);
+      expect(page2.tasks).toHaveLength(2);
+      expect(page2.total).toBe(5);
+
+      const page3 = await list({}, 2, 4);
+      expect(page3.tasks).toHaveLength(1);
+      expect(page3.total).toBe(5);
+    });
+
+    it("combines multiple filters", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      const t1 = await create({ title: "Fix login bug", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Add dark mode", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      await updateStatus(t1.id, "queued");
+
+      const result = await list({ status: "queued", search: "login" });
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].id).toBe(t1.id);
+    });
+  });
+
+  // ── updateStatus ────────────────────────────────────────────────────────
+
+  describe("updateStatus", () => {
+    it("transitions pending -> queued", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "Test", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      const updated = await updateStatus(task.id, "queued");
+
+      expect(updated.status).toBe("queued");
+      expect(new Date(updated.updatedAt!).getTime()).toBeGreaterThanOrEqual(
+        new Date(task.updatedAt!).getTime(),
+      );
+    });
+
+    it("throws on invalid transition (pending -> executing)", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "Test", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      await expect(updateStatus(task.id, "executing")).rejects.toThrow(
+        "Invalid transition from 'pending' to 'executing'",
+      );
+    });
+
+    it("throws when task not found", async () => {
+      await expect(updateStatus("HIVE-00000000-0000", "queued")).rejects.toThrow(
+        "Task HIVE-00000000-0000 not found",
+      );
+    });
+
+    it("sets approvedBy when transitioning to approved", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "Test", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      // pending -> queued -> enriching -> ready -> approved
+      await updateStatus(task.id, "queued");
+      await updateStatus(task.id, "enriching");
+      await updateStatus(task.id, "ready", user.id);
+      const approved = await updateStatus(task.id, "approved", user.id);
+
+      expect(approved.status).toBe("approved");
+      expect(approved.approvedBy).toBe(user.id);
+    });
+
+    it("sets approvedBy when transitioning to ready", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "Test", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      await updateStatus(task.id, "queued");
+      await updateStatus(task.id, "enriching");
+      const ready = await updateStatus(task.id, "ready", user.id);
+
+      expect(ready.status).toBe("ready");
+      expect(ready.approvedBy).toBe(user.id);
+    });
+
+    it("allows full lifecycle: pending -> ... -> merged", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "Full lifecycle", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      await updateStatus(task.id, "queued");
+      await updateStatus(task.id, "enriching");
+      await updateStatus(task.id, "ready");
+      await updateStatus(task.id, "approved", user.id);
+      await updateStatus(task.id, "executing");
+      await updateStatus(task.id, "reviewing");
+      await updateStatus(task.id, "done");
+      const merged = await updateStatus(task.id, "merged");
+
+      expect(merged.status).toBe("merged");
+    });
+  });
+
+  // ── countByStatus ───────────────────────────────────────────────────────
+
+  describe("countByStatus", () => {
+    it("returns empty object when no tasks exist", async () => {
+      const counts = await countByStatus();
+      expect(counts).toEqual({});
+    });
+
+    it("returns correct counts grouped by status", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      const t1 = await create({ title: "Task 1", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Task 2", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Task 3", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      // Move t1 to queued
+      await updateStatus(t1.id, "queued");
+
+      const counts = await countByStatus();
+      expect(counts.pending).toBe(2);
+      expect(counts.queued).toBe(1);
+    });
+  });
+});
