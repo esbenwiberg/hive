@@ -203,6 +203,24 @@ resource entraClientSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   }
 }
 
+// ── Container App Environment ────────────────────────────────────────────────
+// Always created (even before image is pushed) so it's ready when needed.
+var containerAppEnvName = '${environmentName}-env'
+
+resource containerAppEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: containerAppEnvName
+  location: location
+  properties: {
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logAnalytics.properties.customerId
+        sharedKey: logAnalytics.listKeys().primarySharedKey
+      }
+    }
+  }
+}
+
 // ── Container App Module ─────────────────────────────────────────────────────
 // Conditional: skipped on first run (before image is pushed to ACR)
 module containerApp 'container-app.bicep' = if (deployContainerApp) {
@@ -210,8 +228,7 @@ module containerApp 'container-app.bicep' = if (deployContainerApp) {
   params: {
     location: location
     environmentName: environmentName
-    logAnalyticsWorkspaceId: logAnalytics.id
-    logAnalyticsSharedKey: logAnalytics.listKeys().primarySharedKey
+    containerAppEnvironmentId: containerAppEnv.id
     acrLoginServer: acr.properties.loginServer
     acrAdminUsername: acr.listCredentials().username
     acrAdminPassword: acr.listCredentials().passwords[0].value

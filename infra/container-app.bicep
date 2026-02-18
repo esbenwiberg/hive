@@ -1,4 +1,4 @@
-// ── container-app.bicep ── Container App Environment and Container App ───────
+// ── container-app.bicep ── Container App (environment created by main.bicep) ──
 
 @description('Azure region for all resources')
 param location string
@@ -6,12 +6,8 @@ param location string
 @description('Environment name used to derive resource names')
 param environmentName string
 
-@description('Resource ID of the Log Analytics workspace')
-param logAnalyticsWorkspaceId string
-
-@secure()
-@description('Log Analytics workspace shared key')
-param logAnalyticsSharedKey string
+@description('Resource ID of the Container App Environment')
+param containerAppEnvironmentId string
 
 @description('ACR login server (e.g. myacr.azurecr.io)')
 param acrLoginServer string
@@ -37,23 +33,8 @@ param managedIdentityId string
 param managedIdentityClientId string
 
 // ── Derived names ────────────────────────────────────────────────────────────
-var containerAppEnvName = '${environmentName}-env'
 var containerAppName = environmentName
-
-// ── Container App Environment ────────────────────────────────────────────────
-resource containerAppEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: containerAppEnvName
-  location: location
-  properties: {
-    appLogsConfiguration: {
-      destination: 'log-analytics'
-      logAnalyticsConfiguration: {
-        customerId: reference(logAnalyticsWorkspaceId, '2023-09-01').customerId
-        sharedKey: logAnalyticsSharedKey
-      }
-    }
-  }
-}
+var containerAppEnvDefaultDomain = reference(containerAppEnvironmentId, '2024-03-01').defaultDomain
 
 // ── Container App ────────────────────────────────────────────────────────────
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
@@ -66,7 +47,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
     }
   }
   properties: {
-    managedEnvironmentId: containerAppEnv.id
+    managedEnvironmentId: containerAppEnvironmentId
     configuration: {
       ingress: {
         external: true
@@ -148,7 +129,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'REDIRECT_URI'
-              value: 'https://${containerAppName}.${containerAppEnv.properties.defaultDomain}/auth/callback'
+              value: 'https://${containerAppName}.${containerAppEnvDefaultDomain}/auth/callback'
             }
             {
               name: 'AZURE_KEYVAULT_URI'
