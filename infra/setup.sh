@@ -293,6 +293,17 @@ fi
 # ── 6. Deploy Container App (needs image in ACR) ────────────────────────────
 step "6/9 — Deploying Container App"
 
+# Wait for Container App Environment to finish any pending operations
+echo "  Waiting for environment to stabilize..."
+for i in {1..12}; do
+  ENV_STATE=$(az containerapp env show --name "${ENVIRONMENT_NAME}-env" --resource-group "$RESOURCE_GROUP" --query properties.provisioningState -o tsv 2>/dev/null || echo "NotFound")
+  if [[ "$ENV_STATE" == "Succeeded" ]]; then
+    break
+  fi
+  sleep 10
+done
+ok "Environment ready (state: $ENV_STATE)"
+
 BICEP_PARAMS_FULL=(
   "postgresAdminPassword=$POSTGRES_ADMIN_PASSWORD"
   "environmentName=$ENVIRONMENT_NAME"
