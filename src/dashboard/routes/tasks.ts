@@ -5,7 +5,8 @@ import * as taskQueries from "../../db/queries/tasks.js";
 import * as repoQueries from "../../db/queries/repos.js";
 import { recordDecision } from "../../db/queries/gate-decisions.js";
 import type { TaskFilters } from "../../domain/types.js";
-import { isValidTaskType, isValidTaskSize } from "../../domain/types.js";
+import { isValidTaskType, isValidTaskSize, TaskStatus } from "../../domain/types.js";
+import { canTransition } from "../../domain/state-machine.js";
 import {
   taskListPage,
   taskListPartial,
@@ -91,9 +92,15 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       return;
     }
 
+    const trimmedBody = typeof body === "string" ? body.trim() : "";
+    if (trimmedBody.length > 10000) {
+      res.status(400).send("Description must be 10,000 characters or fewer");
+      return;
+    }
+
     await taskQueries.create({
       title: title.trim(),
-      body: body || "",
+      body: trimmedBody,
       source: "user",
       type: type || undefined,
       size: size || undefined,
@@ -140,6 +147,27 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
     const id = req.params.id as string;
     const { targetStatus } = req.body;
     const user = req.session.user!;
+
+    if (!targetStatus || typeof targetStatus !== "string") {
+      res.status(400).send("targetStatus is required");
+      return;
+    }
+
+    const ALL_STATUSES: Set<string> = new Set(Object.values(TaskStatus));
+    if (!ALL_STATUSES.has(targetStatus)) {
+      res.status(400).send("Invalid target status");
+      return;
+    }
+
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+    if (!canTransition(task.status, targetStatus)) {
+      res.status(400).send(`Cannot transition from ${task.status} to ${targetStatus}`);
+      return;
+    }
 
     const updated = await taskQueries.updateStatus(id, targetStatus, user.id);
 

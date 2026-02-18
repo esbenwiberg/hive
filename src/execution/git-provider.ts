@@ -5,6 +5,10 @@ import { parseAdoRepoName, createPullRequest } from "../integrations/azure-devop
 
 // ── Helper ──────────────────────────────────────────────────────────────────
 
+function redactArgs(args: string[]): string[] {
+  return args.map(a => a.replace(/https:\/\/[^@]+@/, "https://***@"));
+}
+
 /**
  * Runs a git command via execFile and returns stdout.
  * Prevents credential prompts by setting GIT_TERMINAL_PROMPT=0.
@@ -20,7 +24,7 @@ function execGit(args: string[], cwd: string): Promise<string> {
       },
       (error, stdout, stderr) => {
         if (error) {
-          logger.error({ args, cwd, stderr: stderr.toString() }, "git command failed");
+          logger.error({ args: redactArgs(args), cwd, stderr: stderr.toString() }, "git command failed");
           reject(error);
           return;
         }
@@ -57,11 +61,14 @@ export class GitHubProvider implements GitProvider {
     creds: GitCredentials,
   ): Promise<void> {
     const url = `https://x-access-token:${creds.token}@github.com/${repoFullName}.git`;
+    const sanitizedUrl = `https://github.com/${repoFullName}.git`;
     logger.info({ repoFullName, branch, targetDir }, "Cloning GitHub repo");
     await execGit(
       ["clone", "--branch", branch, "--single-branch", url, targetDir],
       process.cwd(),
     );
+    // Strip embedded token from .git/config to avoid credentials persisting on disk
+    await execGit(["remote", "set-url", "origin", sanitizedUrl], targetDir);
   }
 
   async createBranch(repoDir: string, branchName: string): Promise<void> {
@@ -82,10 +89,18 @@ export class GitHubProvider implements GitProvider {
   ): Promise<void> {
     // Set the remote URL with embedded token to authenticate the push
     const remoteUrl = await execGit(["remote", "get-url", "origin"], repoDir);
-    const authedUrl = remoteUrl.replace(
-      /https:\/\/[^@]*@/,
-      `https://x-access-token:${creds.token}@`,
-    );
+    let authedUrl: string;
+    if (remoteUrl.includes("@")) {
+      authedUrl = remoteUrl.replace(
+        /https:\/\/[^@]*@/,
+        `https://x-access-token:${creds.token}@`,
+      );
+    } else {
+      authedUrl = remoteUrl.replace(
+        /https:\/\//,
+        `https://x-access-token:${creds.token}@`,
+      );
+    }
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
 
     logger.info({ repoDir, branch }, "Pushing branch");
@@ -102,8 +117,13 @@ export class GitHubProvider implements GitProvider {
   ): Promise<string> {
     logger.info({ repoFullName, head, base, title }, "Creating GitHub PR");
 
+    const [owner, repo] = repoFullName.split("/");
+    if (!owner || !repo) {
+      throw new Error(`Invalid GitHub repo format: "${repoFullName}" (expected owner/repo)`);
+    }
+
     const response = await fetch(
-      `https://api.github.com/repos/${repoFullName}/pulls`,
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
       {
         method: "POST",
         headers: {
@@ -144,11 +164,14 @@ export class AzureDevOpsProvider implements GitProvider {
     }
 
     const url = `https://${creds.token}@dev.azure.com/${org}/${project}/_git/${repo}`;
+    const sanitizedUrl = `https://dev.azure.com/${org}/${project}/_git/${repo}`;
     logger.info({ repoFullName, branch, targetDir }, "Cloning Azure DevOps repo");
     await execGit(
       ["clone", "--branch", branch, "--single-branch", url, targetDir],
       process.cwd(),
     );
+    // Strip embedded token from .git/config to avoid credentials persisting on disk
+    await execGit(["remote", "set-url", "origin", sanitizedUrl], targetDir);
   }
 
   async createBranch(repoDir: string, branchName: string): Promise<void> {

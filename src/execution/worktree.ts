@@ -45,7 +45,8 @@ export async function createWorktree(
   const dirName = `${branch.replace(/\//g, "-")}-${Date.now()}`;
   const worktreePath = `${WORKTREE_BASE}/${dirName}`;
 
-  await mkdir(worktreePath, { recursive: true });
+  // Ensure the parent directory exists; git clone will create worktreePath itself
+  await mkdir(WORKTREE_BASE, { recursive: true });
 
   const gitProvider = getGitProvider(provider);
   await gitProvider.clone(repoFullName, worktreePath, defaultBranch, creds);

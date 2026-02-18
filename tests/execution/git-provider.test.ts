@@ -77,12 +77,14 @@ describe("GitHubProvider", () => {
   // ── clone ──────────────────────────────────────────────────────────────────
 
   describe("clone", () => {
-    it("constructs correct URL with embedded token", async () => {
+    it("constructs correct URL with embedded token and strips it after clone", async () => {
       setupExecFileSuccess();
 
       await provider.clone("acme/widget", "/tmp/clone", "main", githubCreds);
 
-      expect(mockExecFile).toHaveBeenCalledTimes(1);
+      expect(mockExecFile).toHaveBeenCalledTimes(2);
+
+      // First call: clone with embedded token
       const [cmd, args, opts] = mockExecFile.mock.calls[0];
       expect(cmd).toBe("git");
       expect(args).toEqual([
@@ -94,6 +96,16 @@ describe("GitHubProvider", () => {
         "/tmp/clone",
       ]);
       expect(opts.env.GIT_TERMINAL_PROMPT).toBe("0");
+
+      // Second call: strip token from remote URL
+      const [cmd2, args2] = mockExecFile.mock.calls[1];
+      expect(cmd2).toBe("git");
+      expect(args2).toEqual([
+        "remote",
+        "set-url",
+        "origin",
+        "https://github.com/acme/widget.git",
+      ]);
     });
 
     it("rejects when git clone fails", async () => {
@@ -261,12 +273,14 @@ describe("AzureDevOpsProvider", () => {
   });
 
   describe("clone", () => {
-    it("constructs correct Azure DevOps URL with token", async () => {
+    it("constructs correct Azure DevOps URL with token and strips it after clone", async () => {
       setupExecFileSuccess();
 
       await provider.clone("myorg/myproject/myrepo", "/tmp/clone", "main", azureCreds);
 
-      expect(mockExecFile).toHaveBeenCalledTimes(1);
+      expect(mockExecFile).toHaveBeenCalledTimes(2);
+
+      // First call: clone with embedded token
       const [cmd, args] = mockExecFile.mock.calls[0];
       expect(cmd).toBe("git");
       expect(args).toEqual([
@@ -276,6 +290,16 @@ describe("AzureDevOpsProvider", () => {
         "--single-branch",
         "https://ado-token-456@dev.azure.com/myorg/myproject/_git/myrepo",
         "/tmp/clone",
+      ]);
+
+      // Second call: strip token from remote URL
+      const [cmd2, args2] = mockExecFile.mock.calls[1];
+      expect(cmd2).toBe("git");
+      expect(args2).toEqual([
+        "remote",
+        "set-url",
+        "origin",
+        "https://dev.azure.com/myorg/myproject/_git/myrepo",
       ]);
     });
 

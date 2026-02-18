@@ -25,11 +25,51 @@ app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
 app.use(injectUser);
 
+// ── CSRF protection (Origin check) ───────────────────────────────────────────
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method !== "POST") {
+    next();
+    return;
+  }
+
+  const origin = req.headers["origin"] ?? req.headers["referer"];
+  if (!origin) {
+    res.status(403).send("Forbidden: missing Origin header");
+    return;
+  }
+
+  try {
+    const originHost = new URL(origin as string).host;
+    const expectedHost = req.get("host");
+    if (originHost !== expectedHost) {
+      res.status(403).send("Forbidden: Origin mismatch");
+      return;
+    }
+  } catch {
+    res.status(403).send("Forbidden: invalid Origin header");
+    return;
+  }
+
+  next();
+});
+
 // ── Auth routes (public) ────────────────────────────────────────────────────
+
+function getRedirectUri(req: Request): string {
+  if (process.env.REDIRECT_URI) {
+    return process.env.REDIRECT_URI;
+  }
+  // Fallback for local dev only — never use Host header in production
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("REDIRECT_URI environment variable is required in production");
+  }
+  return `${req.protocol}://${req.get("host")}/auth/callback`;
+}
 
 app.get("/auth/login", async (req, res, next) => {
   try {
-    const redirectUri = `${req.protocol}://${req.get("host")}/auth/callback`;
+    const redirectUri = getRedirectUri(req);
     const url = await getAuthUrl(redirectUri);
     res.redirect(url);
   } catch (err) {
@@ -45,7 +85,7 @@ app.get("/auth/callback", async (req, res, next) => {
       return;
     }
 
-    const redirectUri = `${req.protocol}://${req.get("host")}/auth/callback`;
+    const redirectUri = getRedirectUri(req);
     const profile = await handleCallback(code, redirectUri);
     const user = await findOrCreateByEntraOid(
       profile.oid,
@@ -68,12 +108,13 @@ app.get("/auth/callback", async (req, res, next) => {
   }
 });
 
-app.get("/auth/logout", (req, res, next) => {
+app.post("/auth/logout", (req, res, next) => {
   req.session.destroy((err) => {
     if (err) {
       next(err);
       return;
     }
+    res.clearCookie("connect.sid");
     res.redirect("/");
   });
 });

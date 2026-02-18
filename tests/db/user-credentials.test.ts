@@ -47,7 +47,7 @@ describe("user-credentials queries", () => {
       expect(row.userId).toBe(user.id);
       expect(row.provider).toBe("github");
       expect(row.vaultSecretId).toBe("vault-secret-123");
-      expect(row.label).toBeNull();
+      expect(row.label).toBe("default");
       expect(row.createdAt).toBeTruthy();
     });
 

@@ -108,14 +108,24 @@ export async function runPipeline(taskId: string): Promise<void> {
     try {
       const { executeTask, executeEpic } = await import("../execution/worker.js");
 
+      let result;
       if (postGateTask.workflow === "epic") {
-        await executeEpic(taskId);
+        result = await executeEpic(taskId);
       } else {
-        await executeTask(taskId);
+        result = await executeTask(taskId);
       }
+
+      if (!result.success) {
+        // executeTask already handled its own status transitions internally;
+        // don't call failTask to avoid double-transition.
+        logger.warn({ taskId, error: result.error }, "Pipeline: execution returned failure");
+        return;
+      }
+
       logger.info({ taskId }, "Pipeline: execution complete");
     } catch (err) {
-      logger.error({ taskId, err }, "Pipeline: execution failed");
+      // Only call failTask if executeTask threw (didn't handle the failure itself)
+      logger.error({ taskId, err }, "Pipeline: execution failed unexpectedly");
       await failTask(taskId, err);
       return;
     }

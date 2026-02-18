@@ -27,16 +27,26 @@ function getReviewPrompt(): string {
  */
 async function getGitDiff(worktreePath: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "--stat", "HEAD~1..HEAD"], { cwd: worktreePath });
-    const { stdout: fullDiff } = await execFileAsync("git", ["diff", "HEAD~1..HEAD"], { cwd: worktreePath, maxBuffer: 1024 * 1024 });
+    // Find the merge-base with the default branch to capture all commits on the feature branch
+    const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "origin/HEAD", "HEAD"], { cwd: worktreePath });
+    const base = mergeBase.trim();
+    const { stdout } = await execFileAsync("git", ["diff", "--stat", `${base}..HEAD`], { cwd: worktreePath });
+    const { stdout: fullDiff } = await execFileAsync("git", ["diff", `${base}..HEAD`], { cwd: worktreePath, maxBuffer: 1024 * 1024 });
     return `${stdout}\n\n${fullDiff}`;
   } catch {
-    // If no commits yet or single commit, diff against empty tree
+    // Fallback: try HEAD~1 for repos without origin/HEAD configured
     try {
-      const { stdout } = await execFileAsync("git", ["diff", "--cached"], { cwd: worktreePath });
-      return stdout;
+      const { stdout } = await execFileAsync("git", ["diff", "--stat", "HEAD~1..HEAD"], { cwd: worktreePath });
+      const { stdout: fullDiff } = await execFileAsync("git", ["diff", "HEAD~1..HEAD"], { cwd: worktreePath, maxBuffer: 1024 * 1024 });
+      return `${stdout}\n\n${fullDiff}`;
     } catch {
-      return "(no diff available)";
+      // If no commits yet or single commit, diff against empty tree
+      try {
+        const { stdout } = await execFileAsync("git", ["diff", "--cached"], { cwd: worktreePath });
+        return stdout;
+      } catch {
+        return "(no diff available)";
+      }
     }
   }
 }
@@ -46,10 +56,18 @@ async function getGitDiff(worktreePath: string): Promise<string> {
  */
 async function getChangedFiles(worktreePath: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD~1..HEAD"], { cwd: worktreePath });
+    const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "origin/HEAD", "HEAD"], { cwd: worktreePath });
+    const base = mergeBase.trim();
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", `${base}..HEAD`], { cwd: worktreePath });
     return stdout.trim().split("\n").filter(Boolean);
   } catch {
-    return [];
+    // Fallback: try HEAD~1 for repos without origin/HEAD configured
+    try {
+      const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD~1..HEAD"], { cwd: worktreePath });
+      return stdout.trim().split("\n").filter(Boolean);
+    } catch {
+      return [];
+    }
   }
 }
 

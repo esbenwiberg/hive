@@ -52,14 +52,16 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     throw new Error(`Budget exhausted for user ${task.createdBy}`);
   }
 
-  // Transition to executing
-  await updateStatus(taskId, "executing");
-
+  // Fallback to gate model when no task-specific model is configured
   const model = task.model ?? config.models.gate;
   const branchName = `hive/${taskId}`;
   let worktree: WorktreeInfo | undefined;
 
+  // Register first so if it fails, task status hasn't changed yet
   await register(taskId, "worker", model, "executing");
+
+  // Transition to executing
+  await updateStatus(taskId, "executing");
 
   try {
     // Create worktree
@@ -133,7 +135,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         branchName,
         repo.defaultBranch ?? "main",
         task.title,
-        `${task.body}\n\n---\nTask: ${taskId}`,
+        `## Task Description\n\n${task.body}\n\n---\n_Automated by Hive - Task ${taskId}_`,
         creds,
       );
 
@@ -250,7 +252,7 @@ export async function executeEpic(taskId: string): Promise<WorkerResult> {
       })
       .where(eq(tasks.id, taskId));
 
-    // Transition to done (milestones created — they'll flow through the pipeline independently)
+    // State machine requires executing -> reviewing -> done; no actual review for epics
     await updateStatus(taskId, "reviewing");
     await updateStatus(taskId, "done");
 

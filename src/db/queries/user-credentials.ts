@@ -45,7 +45,7 @@ export async function create(
       userId,
       provider,
       vaultSecretId,
-      label: label ?? null,
+      label: label ?? "default",
     })
     .onConflictDoUpdate({
       target: [userCredentials.userId, userCredentials.provider, userCredentials.label],

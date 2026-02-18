@@ -39,7 +39,7 @@ export const userCredentials = pgTable(
       .references(() => users.id),
     provider: text("provider").notNull(),
     vaultSecretId: text("vault_secret_id").notNull(),
-    label: text("label"),
+    label: text("label").default("default"),
     createdAt: timestamp("created_at", tz).defaultNow(),
   },
   (t) => [unique().on(t.userId, t.provider, t.label)],
@@ -63,45 +63,54 @@ export const repos = pgTable(
 
 // ── tasks ──────────────────────────────────────────────────────────────────
 
-export const tasks = pgTable("tasks", {
-  id: text("id").primaryKey(),
-  createdBy: integer("created_by")
-    .notNull()
-    .references(() => users.id),
-  approvedBy: integer("approved_by").references(() => users.id),
-  repoId: integer("repo_id")
-    .notNull()
-    .references(() => repos.id),
-  source: text("source").notNull(),
-  status: text("status").notNull(),
-  type: text("type"),
-  severity: text("severity"),
-  title: text("title").notNull(),
-  body: text("body").notNull(),
-  size: text("size"),
-  workflow: text("workflow"),
-  model: text("model"),
-  maxTurns: integer("max_turns"),
-  maxBudgetUsd: numeric("max_budget_usd", { precision: 10, scale: 2 }),
-  enrichment: jsonb("enrichment"),
-  gateVerdict: text("gate_verdict"),
-  gateReasoning: text("gate_reasoning"),
-  executionAttempts: integer("execution_attempts").default(0),
-  prUrl: text("pr_url"),
-  failureReason: text("failure_reason"),
-  reworkCount: integer("rework_count").default(0),
-  reworkHistory: jsonb("rework_history").default([]),
-  retryInstructions: text("retry_instructions"),
-  epicId: text("epic_id"),
-  milestoneIndex: integer("milestone_index"),
-  milestoneTotal: integer("milestone_total"),
-  blueprint: text("blueprint"),
-  previewPort: integer("preview_port"),
-  previewStatus: text("preview_status"),
-  previewStartedAt: timestamp("preview_started_at", tz),
-  createdAt: timestamp("created_at", tz).defaultNow(),
-  updatedAt: timestamp("updated_at", tz).defaultNow(),
-});
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: text("id").primaryKey(),
+    createdBy: integer("created_by")
+      .notNull()
+      .references(() => users.id),
+    approvedBy: integer("approved_by").references(() => users.id),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id),
+    source: text("source").notNull(),
+    status: text("status").notNull(),
+    type: text("type"),
+    severity: text("severity"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    size: text("size"),
+    workflow: text("workflow"),
+    model: text("model"),
+    maxTurns: integer("max_turns"),
+    maxBudgetUsd: numeric("max_budget_usd", { precision: 10, scale: 2 }),
+    enrichment: jsonb("enrichment"),
+    gateVerdict: text("gate_verdict"),
+    gateReasoning: text("gate_reasoning"),
+    executionAttempts: integer("execution_attempts").default(0),
+    prUrl: text("pr_url"),
+    failureReason: text("failure_reason"),
+    reworkCount: integer("rework_count").default(0),
+    reworkHistory: jsonb("rework_history").default([]),
+    retryInstructions: text("retry_instructions"),
+    epicId: text("epic_id"),
+    milestoneIndex: integer("milestone_index"),
+    milestoneTotal: integer("milestone_total"),
+    blueprint: text("blueprint"),
+    previewPort: integer("preview_port"),
+    previewStatus: text("preview_status"),
+    previewStartedAt: timestamp("preview_started_at", tz),
+    createdAt: timestamp("created_at", tz).defaultNow(),
+    updatedAt: timestamp("updated_at", tz).defaultNow(),
+  },
+  (t) => [
+    index("tasks_status_idx").on(t.status),
+    index("tasks_repo_id_idx").on(t.repoId),
+    index("tasks_created_by_idx").on(t.createdBy),
+    index("tasks_created_at_idx").on(t.createdAt),
+  ],
+);
 
 // ── costs ──────────────────────────────────────────────────────────────────
 
