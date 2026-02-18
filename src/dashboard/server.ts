@@ -9,6 +9,10 @@ import logger from "../logger.js";
 import dashboardRouter from "./routes/dashboard.js";
 import taskRouter from "./routes/tasks.js";
 import profileRouter from "./routes/profile.js";
+import costsRouter from "./routes/costs.js";
+import settingsRouter from "./routes/settings.js";
+import producersRouter from "./routes/producers.js";
+import promptsRouter from "./routes/prompts.js";
 
 const app = express();
 
@@ -130,6 +134,10 @@ app.get("/api/health", (_req, res) => {
 app.use("/", dashboardRouter);
 app.use("/", taskRouter);
 app.use("/", profileRouter);
+app.use("/", costsRouter);
+app.use("/", settingsRouter);
+app.use("/", producersRouter);
+app.use("/", promptsRouter);
 
 // ── Error handler ────────────────────────────────────────────────────────────
 

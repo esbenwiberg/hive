@@ -1,6 +1,31 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, gte, lte } from "drizzle-orm";
 import { db } from "../connection.js";
 import { costs, users } from "../schema.js";
+
+// ── Shared types ────────────────────────────────────────────────────────────
+
+export interface DateRange {
+  from?: Date;
+  to?: Date;
+}
+
+export interface DailyBreakdownRow {
+  date: string;
+  totalUsd: number;
+  count: number;
+}
+
+export interface BreakdownRow {
+  dimension: string;
+  totalUsd: number;
+  count: number;
+}
+
+export interface MonthlySummaryRow {
+  month: string;
+  totalUsd: number;
+  count: number;
+}
 
 /**
  * Records a cost entry for an API call.
@@ -99,4 +124,239 @@ export async function checkBudget(
 
   const todaySpent = await getTodayTotal(userId);
   return budget - todaySpent;
+}
+
+// ── Helper: build date-range conditions ─────────────────────────────────────
+
+function dateConditions(range?: DateRange) {
+  const conds = [];
+  if (range?.from) {
+    conds.push(gte(costs.createdAt, range.from));
+  }
+  if (range?.to) {
+    conds.push(lte(costs.createdAt, range.to));
+  }
+  return conds;
+}
+
+// ── Aggregation queries ─────────────────────────────────────────────────────
+
+/**
+ * Returns the all-time total cost (USD) across all users.
+ */
+export async function getAllTimeTotal(): Promise<number> {
+  const [row] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+    })
+    .from(costs);
+
+  return parseFloat(row.total);
+}
+
+/**
+ * Returns the total cost (USD) for the current calendar month (UTC).
+ */
+export async function getMonthTotal(): Promise<number> {
+  const [row] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+    })
+    .from(costs)
+    .where(
+      sql`${costs.createdAt} >= date_trunc('month', now() AT TIME ZONE 'UTC')`,
+    );
+
+  return parseFloat(row.total);
+}
+
+/**
+ * Daily cost breakdown for the last N days (default 30).
+ * Returns one row per day with total USD and entry count.
+ */
+export async function getDailyBreakdown(
+  days: number = 30,
+  range?: DateRange,
+): Promise<DailyBreakdownRow[]> {
+  const conds = dateConditions(range);
+
+  // If no explicit range, default to last N days
+  if (!range?.from) {
+    conds.push(
+      sql`${costs.createdAt} >= now() - make_interval(days => ${days})`,
+    );
+  }
+
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
+  const rows = await db
+    .select({
+      date: sql<string>`to_char(${costs.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+      totalUsd: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(costs)
+    .where(where)
+    .groupBy(
+      sql`to_char(${costs.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+    )
+    .orderBy(
+      sql`to_char(${costs.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+    );
+
+  return rows.map((r) => ({
+    date: r.date,
+    totalUsd: parseFloat(r.totalUsd),
+    count: r.count,
+  }));
+}
+
+/**
+ * Cost breakdown grouped by user (joins users table for display name).
+ */
+export async function getBreakdownByUser(
+  range?: DateRange,
+): Promise<BreakdownRow[]> {
+  const conds = dateConditions(range);
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
+  const rows = await db
+    .select({
+      dimension: sql<string>`coalesce(${users.displayName}, 'unknown')`,
+      totalUsd: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(costs)
+    .leftJoin(users, eq(costs.userId, users.id))
+    .where(where)
+    .groupBy(users.displayName)
+    .orderBy(sql`sum(${costs.costUsd}) desc`);
+
+  return rows.map((r) => ({
+    dimension: r.dimension,
+    totalUsd: parseFloat(r.totalUsd),
+    count: r.count,
+  }));
+}
+
+/**
+ * Cost breakdown grouped by repo. Coalesces NULL repo to 'unknown'.
+ */
+export async function getBreakdownByRepo(
+  range?: DateRange,
+): Promise<BreakdownRow[]> {
+  const conds = dateConditions(range);
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
+  const rows = await db
+    .select({
+      dimension: sql<string>`coalesce(${costs.repo}, 'unknown')`,
+      totalUsd: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(costs)
+    .where(where)
+    .groupBy(sql`coalesce(${costs.repo}, 'unknown')`)
+    .orderBy(sql`sum(${costs.costUsd}) desc`);
+
+  return rows.map((r) => ({
+    dimension: r.dimension,
+    totalUsd: parseFloat(r.totalUsd),
+    count: r.count,
+  }));
+}
+
+/**
+ * Cost breakdown grouped by agent name.
+ */
+export async function getBreakdownByAgent(
+  range?: DateRange,
+): Promise<BreakdownRow[]> {
+  const conds = dateConditions(range);
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
+  const rows = await db
+    .select({
+      dimension: costs.agent,
+      totalUsd: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(costs)
+    .where(where)
+    .groupBy(costs.agent)
+    .orderBy(sql`sum(${costs.costUsd}) desc`);
+
+  return rows.map((r) => ({
+    dimension: r.dimension,
+    totalUsd: parseFloat(r.totalUsd),
+    count: r.count,
+  }));
+}
+
+/**
+ * Cost breakdown grouped by model.
+ */
+export async function getBreakdownByModel(
+  range?: DateRange,
+): Promise<BreakdownRow[]> {
+  const conds = dateConditions(range);
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
+  const rows = await db
+    .select({
+      dimension: costs.model,
+      totalUsd: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(costs)
+    .where(where)
+    .groupBy(costs.model)
+    .orderBy(sql`sum(${costs.costUsd}) desc`);
+
+  return rows.map((r) => ({
+    dimension: r.dimension,
+    totalUsd: parseFloat(r.totalUsd),
+    count: r.count,
+  }));
+}
+
+/**
+ * Monthly cost summary for the last N months (default 12).
+ * Returns one row per month with total USD and entry count.
+ */
+export async function getMonthlySummary(
+  months: number = 12,
+  range?: DateRange,
+): Promise<MonthlySummaryRow[]> {
+  const conds = dateConditions(range);
+
+  // If no explicit range, default to last N months
+  if (!range?.from) {
+    conds.push(
+      sql`${costs.createdAt} >= now() - make_interval(months => ${months})`,
+    );
+  }
+
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
+  const rows = await db
+    .select({
+      month: sql<string>`to_char(${costs.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM')`,
+      totalUsd: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(costs)
+    .where(where)
+    .groupBy(
+      sql`to_char(${costs.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM')`,
+    )
+    .orderBy(
+      sql`to_char(${costs.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM')`,
+    );
+
+  return rows.map((r) => ({
+    month: r.month,
+    totalUsd: parseFloat(r.totalUsd),
+    count: r.count,
+  }));
 }

@@ -44,3 +44,20 @@ export async function getById(id: number) {
 export async function listAll() {
   return db.select().from(repos);
 }
+
+/**
+ * Updates the `settings` JSONB column for a repo.
+ * Returns the updated repo row, or undefined if the repo was not found.
+ */
+export async function updateSettings(
+  repoId: number,
+  settings: Record<string, unknown>,
+) {
+  const [repo] = await db
+    .update(repos)
+    .set({ settings, updatedAt: new Date() })
+    .where(eq(repos.id, repoId))
+    .returning();
+
+  return repo;
+}
