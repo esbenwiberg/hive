@@ -14,6 +14,8 @@ import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktr
 import { getGitProvider } from "./git-provider.js";
 import { reviewChanges } from "./review-gate.js";
 import { refineTask } from "../agents/refiner.js";
+import { parseHiveYaml } from "../hive-yaml.js";
+import { previewManager } from "./preview/manager.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import type { WorkerResult, WorktreeInfo } from "../domain/types.js";
@@ -174,7 +176,20 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
       logger.info({ taskId, prUrl }, "Task execution complete — PR created");
 
-      return { success: true, prUrl, branch: branchName, reviewResult };
+      // Attempt to start preview environment if configured
+      let previewUrl: string | undefined;
+      try {
+        const previewConfig = parseHiveYaml(worktree.path);
+        if (previewConfig && config.preview.enabled) {
+          const previewInfo = await previewManager.startPreview(taskId, worktree.path, previewConfig);
+          previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
+          logger.info({ taskId, previewUrl }, "Preview environment started");
+        }
+      } catch (previewErr) {
+        logger.warn({ taskId, err: previewErr }, "Failed to start preview — continuing without");
+      }
+
+      return { success: true, prUrl, previewUrl, branch: branchName, reviewResult };
     }
 
     if (reviewResult.verdict === "rework" && (task.reworkCount ?? 0) < MAX_REWORK_CYCLES) {
@@ -221,7 +236,13 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     return { success: false, error: reason };
   } finally {
     if (worktree) {
-      await cleanupWorktree(worktree);
+      // Worktree cleanup deferred — preview manager owns cleanup when preview stops.
+      const activePreview = previewManager.getPreviewInfo(taskId);
+      if (!activePreview) {
+        await cleanupWorktree(worktree);
+      } else {
+        logger.info({ taskId }, "Worktree cleanup deferred — preview is active");
+      }
     }
     await unregister(taskId);
   }

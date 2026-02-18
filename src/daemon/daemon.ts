@@ -18,6 +18,7 @@ import { runRetrospective } from "../agents/retrospective.js";
 import { applyMonthlyDecay, archiveStale } from "../db/queries/learnings.js";
 import { curateLearnings } from "../agents/keeper.js";
 import { getConfig, setConfig } from "../domain/config.js";
+import { cleanupExpiredPreviews } from "./preview-cleanup.js";
 import type { Producer, ProducerContext } from "../producers/base.js";
 
 interface DaemonOptions {
@@ -34,6 +35,7 @@ const DEFAULT_PRODUCER_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
 const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1_000; // 24 hours
 const RETROSPECTIVE_MIN_GAP_MS = 7 * 24 * 60 * 60 * 1_000; // 7 days
 const DECAY_MIN_GAP_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
+const PREVIEW_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const DRAIN_POLL_MS = 500;
 const MAX_DRAIN_TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
 
@@ -57,6 +59,7 @@ export class Daemon {
   private readonly producerSchedulers: Scheduler[] = [];
   private readonly retrospectiveScheduler: Scheduler;
   private readonly decayScheduler: Scheduler;
+  private readonly previewCleanupScheduler: Scheduler;
   private stopping = false;
 
   constructor(opts?: DaemonOptions) {
@@ -70,6 +73,7 @@ export class Daemon {
     this.scheduler = new Scheduler(this.pollIntervalMs, () => this._tick());
     this.retrospectiveScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._retrospectiveTick());
     this.decayScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._decayTick());
+    this.previewCleanupScheduler = new Scheduler(PREVIEW_CLEANUP_INTERVAL_MS, () => cleanupExpiredPreviews());
   }
 
   async start(): Promise<void> {
@@ -113,6 +117,9 @@ export class Daemon {
     // Start decay scheduler (24h interval)
     this.decayScheduler.start();
 
+    // Start preview cleanup scheduler (60s interval)
+    this.previewCleanupScheduler.start();
+
     logger.info(
       {
         maxConcurrent: this.maxConcurrent,
@@ -135,6 +142,7 @@ export class Daemon {
 
     this.retrospectiveScheduler.stop();
     this.decayScheduler.stop();
+    this.previewCleanupScheduler.stop();
     this.scheduler.stop();
 
     // Wait for in-flight tasks to drain

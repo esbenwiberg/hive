@@ -34,12 +34,29 @@ export interface EnricherEntry {
   enabled: boolean;
 }
 
+export interface DockerHostConfig {
+  ip: string;
+  port: number;
+  tls_cert_vault_secret: string;
+  tls_key_vault_secret: string;
+  tls_ca_vault_secret: string;
+}
+
+export interface PreviewSettings {
+  enabled: boolean;
+  max_concurrent: number;
+  cleanup_timeout_minutes: number;
+  docker_host: DockerHostConfig;
+  port_range: [number, number];
+}
+
 export interface AutonomousConfig {
   classification: ClassificationConfig;
   gate: GateConfig;
   budget: BudgetConfig;
   models: ModelConfig;
   enrichers: EnricherEntry[];
+  preview: PreviewSettings;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -55,6 +72,19 @@ const DEFAULTS: AutonomousConfig = {
     outputCostPerM: 15,
   },
   enrichers: [],
+  preview: {
+    enabled: true,
+    max_concurrent: 3,
+    cleanup_timeout_minutes: 30,
+    docker_host: {
+      ip: "",
+      port: 2376,
+      tls_cert_vault_secret: "docker-tls-cert",
+      tls_key_vault_secret: "docker-tls-key",
+      tls_ca_vault_secret: "docker-tls-ca",
+    },
+    port_range: [4001, 4099],
+  },
 };
 
 // ── Loader ───────────────────────────────────────────────────────────────────
@@ -77,6 +107,8 @@ export function loadConfig(
     return { ...DEFAULTS };
   }
 
+  const rawPreview = raw.preview as Partial<PreviewSettings> | undefined;
+
   const config: AutonomousConfig = {
     classification: {
       ...DEFAULTS.classification,
@@ -97,6 +129,17 @@ export function loadConfig(
     enrichers: Array.isArray(raw.enrichers)
       ? (raw.enrichers as EnricherEntry[])
       : DEFAULTS.enrichers,
+    preview: {
+      ...DEFAULTS.preview,
+      ...rawPreview,
+      docker_host: {
+        ...DEFAULTS.preview.docker_host,
+        ...(rawPreview?.docker_host as Partial<DockerHostConfig> | undefined),
+      },
+      port_range: Array.isArray(rawPreview?.port_range)
+        ? (rawPreview.port_range as [number, number])
+        : DEFAULTS.preview.port_range,
+    },
   };
 
   return config;

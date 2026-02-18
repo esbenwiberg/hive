@@ -36,6 +36,13 @@ const mockConfig = {
     outputCostPerM: 15,
   },
   enrichers: [] as Array<{ name: string; enabled: boolean }>,
+  preview: {
+    enabled: true,
+    max_concurrent: 3,
+    cleanup_timeout_minutes: 30,
+    docker_host: { ip: "", port: 2376, tls_cert_vault_secret: "", tls_key_vault_secret: "", tls_ca_vault_secret: "" },
+    port_range: [4001, 4099] as [number, number],
+  },
 };
 
 vi.mock("../../src/domain/autonomous-config.js", () => ({
@@ -84,6 +91,25 @@ vi.mock("../../src/execution/review-gate.js", () => ({
 const mockRefineTask = vi.fn();
 vi.mock("../../src/agents/refiner.js", () => ({
   refineTask: mockRefineTask,
+}));
+
+// Mock hive-yaml parser
+const mockParseHiveYaml = vi.fn();
+vi.mock("../../src/hive-yaml.js", () => ({
+  parseHiveYaml: mockParseHiveYaml,
+}));
+
+// Mock preview manager
+const mockStartPreview = vi.fn();
+const mockGetPreviewInfo = vi.fn();
+const mockStopPreview = vi.fn();
+
+vi.mock("../../src/execution/preview/manager.js", () => ({
+  previewManager: {
+    startPreview: mockStartPreview,
+    getPreviewInfo: mockGetPreviewInfo,
+    stopPreview: mockStopPreview,
+  },
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
@@ -246,6 +272,8 @@ describe("executeTask", () => {
     mockGitProvider.push.mockResolvedValue(undefined);
     mockGitProvider.createPR.mockResolvedValue("https://github.com/acme/widget/pull/1");
     mockRefineTask.mockResolvedValue("Refined instructions");
+    mockParseHiveYaml.mockReturnValue(null);
+    mockGetPreviewInfo.mockReturnValue(undefined);
   });
 
   // ── Happy path: approved → executing → reviewing → done with PR ──────────
@@ -409,6 +437,103 @@ describe("executeTask", () => {
     const final = await getById(task.id);
     expect(final!.status).toBe("failed");
     expect(final!.failureReason).toBe("Unexpected API failure");
+  });
+
+  // ── Preview lifecycle ────────────────────────────────────────────────────
+
+  it("starts preview when hive.yaml has preview config and preview is enabled", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+
+    const samplePreviewConfig = { type: "process" as const, port: 3000, start_command: "npm start" };
+    mockParseHiveYaml.mockReturnValue(samplePreviewConfig);
+    mockStartPreview.mockResolvedValueOnce({
+      taskId: task.id,
+      type: "process",
+      port: 4001,
+      host: "localhost",
+      worktreePath: sampleWorktree.path,
+      startedAt: new Date(),
+    });
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(true);
+    expect(result.previewUrl).toBe("http://localhost:4001");
+    expect(mockStartPreview).toHaveBeenCalledWith(task.id, sampleWorktree.path, samplePreviewConfig);
+  });
+
+  it("does not start preview when parseHiveYaml returns null", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+    mockParseHiveYaml.mockReturnValue(null);
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(true);
+    expect(result.previewUrl).toBeUndefined();
+    expect(mockStartPreview).not.toHaveBeenCalled();
+  });
+
+  it("still creates PR when preview start fails", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+
+    const samplePreviewConfig = { type: "process" as const, port: 3000, start_command: "npm start" };
+    mockParseHiveYaml.mockReturnValue(samplePreviewConfig);
+    mockStartPreview.mockRejectedValueOnce(new Error("Docker not available"));
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(true);
+    expect(result.prUrl).toBe("https://github.com/acme/widget/pull/1");
+    expect(result.previewUrl).toBeUndefined();
+  });
+
+  it("does not clean up worktree when preview is active", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+
+    const samplePreviewConfig = { type: "process" as const, port: 3000, start_command: "npm start" };
+    mockParseHiveYaml.mockReturnValue(samplePreviewConfig);
+    mockStartPreview.mockResolvedValueOnce({
+      taskId: task.id,
+      type: "process",
+      port: 4001,
+      host: "localhost",
+      worktreePath: sampleWorktree.path,
+      startedAt: new Date(),
+    });
+
+    // getPreviewInfo returns info during finally block — preview is active
+    mockGetPreviewInfo.mockReturnValue({
+      taskId: task.id,
+      type: "process",
+      port: 4001,
+      host: "localhost",
+      worktreePath: sampleWorktree.path,
+      startedAt: new Date(),
+    });
+
+    await executeTask(task.id);
+
+    expect(mockCleanupWorktree).not.toHaveBeenCalled();
+  });
+
+  it("cleans up worktree when no preview is active", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+    mockParseHiveYaml.mockReturnValue(null);
+    mockGetPreviewInfo.mockReturnValue(undefined);
+
+    await executeTask(task.id);
+
+    expect(mockCleanupWorktree).toHaveBeenCalledWith(sampleWorktree);
   });
 
   // ── Cost recording ───────────────────────────────────────────────────────

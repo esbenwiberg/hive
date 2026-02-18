@@ -131,6 +131,12 @@ vi.mock("../../src/domain/config.js", () => ({
   setConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock preview cleanup (imported by daemon)
+const mockCleanupExpiredPreviews = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../src/daemon/preview-cleanup.js", () => ({
+  cleanupExpiredPreviews: mockCleanupExpiredPreviews,
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 const { Daemon } = await import("../../src/daemon/daemon.js");

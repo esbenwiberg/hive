@@ -26,3 +26,20 @@ enrichers:
     enabled: true
   - name: dependencies
     enabled: true
+
+preview:
+  # Whether preview environments are enabled
+  enabled: true
+  # Maximum number of concurrent preview environments
+  max_concurrent: 3
+  # Minutes before an idle preview is cleaned up
+  cleanup_timeout_minutes: 30
+  # Docker host configuration for remote Docker
+  docker_host:
+    ip: ""
+    port: 2376
+    tls_cert_vault_secret: docker-tls-cert
+    tls_key_vault_secret: docker-tls-key
+    tls_ca_vault_secret: docker-tls-ca
+  # Port range for preview environments [start, end]
+  port_range: [4001, 4099]

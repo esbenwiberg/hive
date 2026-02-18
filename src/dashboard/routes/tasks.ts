@@ -11,7 +11,11 @@ import {
   taskListPage,
   taskListPartial,
   taskDetailPanel,
+  previewSection,
 } from "../views/tasks.js";
+import { previewManager } from "../../execution/preview/manager.js";
+import { cleanupWorktree } from "../../execution/worktree.js";
+import logger from "../../logger.js";
 
 const router = Router();
 
@@ -193,6 +197,69 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       }),
     );
     res.send(taskListPartial(tasks, counts));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/tasks/:id/preview/stop ─ Stop preview ─────────────────────
+
+router.post("/api/tasks/:id/preview/stop", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+
+    const info = previewManager.getPreviewInfo(id);
+
+    await previewManager.stopPreview(id);
+
+    // Clean up worktree if we have path info
+    if (info?.worktreePath) {
+      try {
+        await cleanupWorktree({ path: info.worktreePath, branch: "", repoFullName: "", provider: "", createdAt: new Date() });
+      } catch (err) {
+        logger.warn({ taskId: id, err }, "Failed to cleanup worktree after preview stop");
+      }
+    }
+
+    // Refresh task from DB to get updated status
+    const updated = await taskQueries.getById(id);
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: "Preview stopped", type: "success" } }),
+    );
+    res.send(updated ? previewSection(updated) : "");
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/tasks/:id/preview/extend ─ Extend preview timeout ─────────
+
+router.post("/api/tasks/:id/preview/extend", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+
+    await previewManager.extendPreview(id);
+
+    // Refresh task from DB
+    const updated = await taskQueries.getById(id);
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: "Preview lifetime extended", type: "success" } }),
+    );
+    res.send(updated ? previewSection(updated) : "");
   } catch (err) {
     next(err);
   }

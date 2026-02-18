@@ -221,6 +221,64 @@ function gateDecisionSection(task: TaskRow): string {
   </div>`;
 }
 
+// ── Preview section ─────────────────────────────────────────────────────
+
+function previewStatusBadge(status: string): string {
+  const colors: Record<string, "amber" | "emerald" | "red" | "slate"> = {
+    starting: "amber",
+    running: "emerald",
+    failed: "red",
+    stopped: "slate",
+  };
+  return badge(status, colors[status] ?? "slate");
+}
+
+export function previewSection(task: TaskRow): string {
+  if (!task.previewStatus) {
+    return "";
+  }
+
+  const badgeHtml = previewStatusBadge(task.previewStatus);
+
+  let content = "";
+
+  if (task.previewStatus === "running" && task.previewPort) {
+    content = `<div class="flex items-center gap-2 mb-3">
+        ${badgeHtml}
+        <a href="/preview/${escapeHtml(task.id)}/" target="_blank" rel="noopener"
+           class="text-amber-400 hover:text-amber-300 underline text-sm">Open Preview</a>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        ${button("Stop Preview", {
+          variant: "danger",
+          attrs: `hx-post="/api/tasks/${escapeHtml(task.id)}/preview/stop" hx-target="#preview-section" hx-swap="innerHTML"`,
+        })}
+        ${button("Extend", {
+          variant: "secondary",
+          attrs: `hx-post="/api/tasks/${escapeHtml(task.id)}/preview/extend" hx-target="#preview-section" hx-swap="innerHTML"`,
+        })}
+      </div>`;
+  } else if (task.previewStatus === "starting") {
+    content = `<div class="flex items-center gap-2">
+        ${badgeHtml}
+        <span class="text-sm text-slate-400">Starting...</span>
+      </div>`;
+  } else if (task.previewStatus === "failed") {
+    content = `<div class="flex items-center gap-2">
+        ${badgeHtml}
+      </div>`;
+  } else if (task.previewStatus === "stopped") {
+    content = `<div class="flex items-center gap-2">
+        ${badgeHtml}
+      </div>`;
+  }
+
+  return `<h4 class="text-sm font-medium text-slate-400 mb-2">Preview</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      ${content}
+    </div>`;
+}
+
 // ── Exported views ──────────────────────────────────────────────────────────
 
 /**
@@ -372,6 +430,9 @@ export function taskDetailPanel(task: TaskRow): string {
 
     <!-- Gate Decision -->
     ${gateDecisionSection(task)}
+
+    <!-- Preview -->
+    ${task.previewStatus ? `<div id="preview-section">${previewSection(task)}</div>` : ""}
 
     <!-- Actions -->
     ${

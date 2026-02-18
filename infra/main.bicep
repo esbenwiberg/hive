@@ -13,6 +13,16 @@ param postgresAdminPassword string
 @description('Container image tag to deploy')
 param containerImageTag string = 'latest'
 
+@description('Whether to deploy the Docker host VM for preview environments')
+param deployDockerHost bool = true
+
+@secure()
+@description('SSH public key for Docker host VM admin access')
+param dockerHostAdminSshPublicKey string = ''
+
+@description('Source address prefix allowed to reach Docker host (CIDR or * for dev)')
+param dockerHostAllowedSourceAddressPrefix string = '*'
+
 // ── Derived names ────────────────────────────────────────────────────────────
 var sanitizedEnvName = replace(environmentName, '-', '')
 var acrName = '${sanitizedEnvName}acr'
@@ -176,8 +186,22 @@ module containerApp 'container-app.bicep' = {
   }
 }
 
+// ── Docker Host VM Module ───────────────────────────────────────────────────
+module dockerHost 'docker-host.bicep' = if (deployDockerHost) {
+  name: 'docker-host'
+  params: {
+    location: location
+    environmentName: environmentName
+    adminSshPublicKey: dockerHostAdminSshPublicKey
+    keyVaultName: keyVault.name
+    allowedSourceAddressPrefix: dockerHostAllowedSourceAddressPrefix
+  }
+}
+
 // ── Outputs ──────────────────────────────────────────────────────────────────
 output containerAppFqdn string = containerApp.outputs.containerAppFqdn
 output acrLoginServer string = acr.properties.loginServer
 output keyVaultUri string = keyVault.properties.vaultUri
 output postgresServerFqdn string = postgresServer.properties.fullyQualifiedDomainName
+output dockerHostPublicIp string = deployDockerHost ? dockerHost.outputs.vmPublicIp : ''
+output dockerHostPrivateIp string = deployDockerHost ? dockerHost.outputs.vmPrivateIp : ''

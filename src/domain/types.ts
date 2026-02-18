@@ -145,10 +145,13 @@ export interface GitCredentials {
 export interface WorkerResult {
   success: boolean;
   prUrl?: string;
+  previewUrl?: string;
   branch?: string;
   reviewResult?: ReviewGateResult;
   error?: string;
 }
+
+export type PreviewStatus = "starting" | "running" | "failed" | "stopped";
 
 export interface MilestoneSpec {
   title: string;
