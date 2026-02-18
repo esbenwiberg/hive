@@ -9,6 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./infra/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hive"]
       interval: 5s
@@ -22,6 +23,8 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
+    volumes:
+      - repos:/repos
     environment:
       DATABASE_URL: postgresql://hive:hive@postgres:5432/hive
       SESSION_SECRET: dev-secret-change-me
@@ -29,6 +32,19 @@ services:
       ENTRA_CLIENT_ID:
       ENTRA_CLIENT_SECRET:
       ENTRA_TENANT_ID:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PORT: 3000
+      LOG_LEVEL: debug
+      # Uncomment to enable daemon mode (background task processing)
+      # HIVE_MODE: daemon
+      HIVE_MAX_WORKERS: 2
+      HIVE_POLL_MS: 5000
+      HIVE_PRODUCER_INTERVAL_MS: 60000
+      HIVE_DAEMON_USER_ID:
+      HIVE_WORKTREE_DIR: /repos
+      HIVE_DEFAULT_REPO_ID:
+      REDIRECT_URI: http://localhost:3000/auth/callback
 
 volumes:
   pgdata:
+  repos:
