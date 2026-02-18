@@ -163,13 +163,18 @@ echo ""
 
 # ── 1. Resource Group ────────────────────────────────────────────────────────
 step "1/8 — Creating resource group"
+TAG_ARGS=()
+if [[ -n "$TAGS" ]]; then
+  TAG_ARGS=(--tags $TAGS)
+fi
 if az group show --name "$RESOURCE_GROUP" &>/dev/null; then
-  ok "Resource group '$RESOURCE_GROUP' already exists"
-else
-  TAG_ARGS=()
-  if [[ -n "$TAGS" ]]; then
-    TAG_ARGS=(--tags $TAGS)
+  if [[ ${#TAG_ARGS[@]} -gt 0 ]]; then
+    az group update --name "$RESOURCE_GROUP" "${TAG_ARGS[@]}" -o none
+    ok "Resource group '$RESOURCE_GROUP' already exists — updated tags"
+  else
+    ok "Resource group '$RESOURCE_GROUP' already exists"
   fi
+else
   az group create --name "$RESOURCE_GROUP" --location "$LOCATION" "${TAG_ARGS[@]}" -o none
   ok "Created resource group '$RESOURCE_GROUP' in $LOCATION"
 fi
