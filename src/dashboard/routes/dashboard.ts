@@ -5,7 +5,7 @@ import * as taskQueries from "../../db/queries/tasks.js";
 import { getTodayTotalGlobal } from "../../db/queries/costs.js";
 import { db } from "../../db/connection.js";
 import { activeAgents } from "../../db/schema.js";
-import { dashboardPage } from "../views/dashboard.js";
+import { dashboardPage, activeAgentsFragment } from "../views/dashboard.js";
 
 const router = Router();
 
@@ -23,6 +23,17 @@ router.get("/", requireAuth, async (req: Request, res: Response, next: NextFunct
     ]);
 
     res.send(dashboardPage(counts, recentTasks, agents, user, todayCost));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/agents ─ Active agents partial (HTMX polling) ──────────────────
+
+router.get("/api/agents", requireAuth, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agents = await db.select().from(activeAgents);
+    res.send(activeAgentsFragment(agents));
   } catch (err) {
     next(err);
   }

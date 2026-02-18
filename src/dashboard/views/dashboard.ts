@@ -78,29 +78,30 @@ function recentTasksSection(tasks: TaskRow[]): string {
 
 // ── Active agents section ───────────────────────────────────────────────────
 
-function activeAgentsSection(agents: ActiveAgentRow[]): string {
-  if (agents.length === 0) {
-    return card(
-      emptyState("No active agents"),
-      { title: "Active Agents" },
-    );
-  }
+/**
+ * Renders the active agents section. Exported so the partial endpoint
+ * can return just this fragment for HTMX polling.
+ */
+export function activeAgentsFragment(agents: ActiveAgentRow[]): string {
+  const inner = agents.length === 0
+    ? emptyState("No active agents")
+    : table(
+        ["Task", "Agent", "Model", "Phase", "Started"],
+        agents.map((a) => [
+          `<span class="font-mono text-xs text-slate-400">${escapeHtml(a.taskId)}</span>`,
+          `<span class="text-slate-50">${escapeHtml(a.agent)}</span>`,
+          `<span class="text-xs text-slate-400">${escapeHtml(a.model)}</span>`,
+          a.phase ? statusBadge(a.phase) : `<span class="text-slate-500">-</span>`,
+          a.startedAt
+            ? `<span class="text-xs text-slate-400">${escapeHtml(new Date(a.startedAt).toLocaleString())}</span>`
+            : "-",
+        ]),
+      );
 
-  const headers = ["Task", "Agent", "Model", "Phase", "Started"];
-  const rows = agents.map((a) => [
-    `<span class="font-mono text-xs text-slate-400">${escapeHtml(a.taskId)}</span>`,
-    `<span class="text-slate-50">${escapeHtml(a.agent)}</span>`,
-    `<span class="text-xs text-slate-400">${escapeHtml(a.model)}</span>`,
-    a.phase ? statusBadge(a.phase) : `<span class="text-slate-500">-</span>`,
-    a.startedAt
-      ? `<span class="text-xs text-slate-400">${escapeHtml(new Date(a.startedAt).toLocaleString())}</span>`
-      : "-",
-  ]);
-
-  return card(table(headers, rows), {
+  return `<div id="active-agents" hx-get="/api/agents" hx-trigger="every 5s" hx-swap="outerHTML">${card(inner, {
     title: "Active Agents",
     padding: "compact",
-  });
+  })}</div>`;
 }
 
 // ── Exported view ───────────────────────────────────────────────────────────
@@ -128,7 +129,7 @@ export function dashboardPage(
   <!-- Two-column layout -->
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
     ${recentTasksSection(recentTasks)}
-    ${activeAgentsSection(activeAgents)}
+    ${activeAgentsFragment(activeAgents)}
   </div>
 </div>`;
 
