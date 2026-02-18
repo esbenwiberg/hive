@@ -328,29 +328,72 @@ Migrations in `drizzle/`. Auto-run on startup via `src/db/migrate.ts`.
 
 ## Deployment
 
-### Azure Resources (Bicep)
+### One-command setup
+
+The setup script creates everything — resource group, Entra ID app, all Azure infrastructure, Key Vault secrets, GitHub Actions service principal with OIDC, and deploys the first container image:
+
+```bash
+./infra/setup.sh \
+  --anthropic-key sk-ant-... \
+  --github-repo esbenwiberg/hive
+```
+
+With preview environments:
+
+```bash
+./infra/setup.sh \
+  --anthropic-key sk-ant-... \
+  --github-repo esbenwiberg/hive \
+  --deploy-docker-host \
+  --docker-host-ssh-key ~/.ssh/id_rsa.pub
+```
+
+Run `./infra/setup.sh --help` for all options. The script is re-runnable — it skips resources that already exist.
+
+To tear everything down:
+
+```bash
+./infra/teardown.sh
+```
+
+### What gets created
+
+| Resource | Purpose | Tier |
+|----------|---------|------|
+| Resource Group | Container for all resources | — |
+| Container App | The Hive application | 1 vCPU / 2GB |
+| PostgreSQL Flexible Server | Database | Burstable B1ms, 32GB |
+| Key Vault | API keys, git tokens, TLS certs | Standard |
+| Container Registry | Docker images | Basic |
+| Log Analytics | Container logs + metrics | PerGB2018 |
+| Managed Identity | ACR pull + Key Vault access | — |
+| Entra ID App | User authentication (OAuth) | — |
+| GitHub Actions SP | CI/CD with OIDC (no stored secrets) | — |
+| Docker Host VM | Preview environments (optional) | B2s |
+
+### Manual Bicep deployment
+
+If you prefer to run Bicep directly:
 
 ```bash
 az deployment group create \
   -g the-hive \
   -f infra/main.bicep \
-  -p infra/parameters.json \
-  -p postgresAdminPassword='<password>' \
-  -p dockerHostAdminSshPublicKey='<ssh-pub-key>'
+  -p postgresAdminPassword='<password>'
 ```
 
-Provisions:
-- **Container App** — 1 vCPU / 2GB, always-on, external ingress on :3000
-- **PostgreSQL Flexible Server** — Burstable B1ms, 32GB storage
-- **Key Vault** — Stores user git tokens, API keys, Docker TLS certs
-- **Container Registry** — Basic tier for Docker images
-- **Log Analytics** — Container logs and metrics
-- **Docker Host VM** (optional) — B2s Ubuntu for preview environments
+Then seed Key Vault secrets manually — see `infra/setup.sh` for the full list.
 
 ### CI/CD
 
-- **PRs** → `ci.yml` runs TypeScript check + full test suite
-- **Merge to main** → `deploy.yml` builds Docker image, pushes to ACR, updates Container App, verifies health check
+After setup, every push to `main` automatically:
+
+1. Runs TypeScript check + full test suite
+2. Builds Docker image and pushes to ACR
+3. Updates Container App to the new revision
+4. Verifies health check passes
+
+PRs run the test suite via `ci.yml`.
 
 ### Estimated monthly cost
 
