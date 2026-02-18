@@ -8,9 +8,6 @@
     "environmentName": {
       "value": "the-hive"
     },
-    "postgresAdminPassword": {
-      "value": ""
-    },
     "containerImageTag": {
       "value": "latest"
     }
