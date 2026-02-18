@@ -25,7 +25,8 @@ param dockerHostAllowedSourceAddressPrefix string = '*'
 
 // ── Derived names ────────────────────────────────────────────────────────────
 var sanitizedEnvName = replace(environmentName, '-', '')
-var acrName = '${sanitizedEnvName}acr'
+var uniqueSuffix = uniqueString(resourceGroup().id)
+var acrName = '${sanitizedEnvName}${take(uniqueSuffix, 6)}'
 var keyVaultName = '${environmentName}-kv'
 var postgresServerName = '${environmentName}-pg'
 var logAnalyticsName = '${environmentName}-logs'
@@ -98,21 +99,23 @@ resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-pr
   }
 }
 
-resource postgresSSLConfig 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-12-01-preview' = {
-  parent: postgresServer
-  name: 'require_secure_transport'
-  properties: {
-    value: 'ON'
-    source: 'user-override'
-  }
-}
-
 resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-12-01-preview' = {
   parent: postgresServer
   name: 'hive'
   properties: {
     charset: 'UTF8'
     collation: 'en_US.utf8'
+  }
+}
+
+// Applied after database creation to avoid ServerIsBusy race condition
+resource postgresSSLConfig 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-12-01-preview' = {
+  parent: postgresServer
+  name: 'require_secure_transport'
+  dependsOn: [postgresDatabase]
+  properties: {
+    value: 'ON'
+    source: 'user-override'
   }
 }
 
@@ -200,6 +203,7 @@ module dockerHost 'docker-host.bicep' = if (deployDockerHost) {
 
 // ── Outputs ──────────────────────────────────────────────────────────────────
 output containerAppFqdn string = containerApp.outputs.containerAppFqdn
+output acrName string = acr.name
 output acrLoginServer string = acr.properties.loginServer
 output keyVaultUri string = keyVault.properties.vaultUri
 output postgresServerFqdn string = postgresServer.properties.fullyQualifiedDomainName

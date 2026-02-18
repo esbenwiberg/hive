@@ -130,8 +130,6 @@ fi
 ok "All prerequisites met"
 
 # ── Resolve derived values ───────────────────────────────────────────────────
-SANITIZED_NAME=$(echo "$ENVIRONMENT_NAME" | tr -d '-')
-ACR_NAME="${SANITIZED_NAME}acr"
 KEY_VAULT_NAME="${ENVIRONMENT_NAME}-kv"
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 TENANT_ID=$(az account show --query tenantId -o tsv)
@@ -150,7 +148,6 @@ echo "  Resource Group:  $RESOURCE_GROUP"
 echo "  Location:        $LOCATION"
 echo "  Subscription:    $SUBSCRIPTION_ID"
 echo "  Tenant:          $TENANT_ID"
-echo "  ACR:             $ACR_NAME"
 echo "  Key Vault:       $KEY_VAULT_NAME"
 echo "  Docker Host:     $DEPLOY_DOCKER_HOST"
 if [[ -n "$TAGS" ]]; then
@@ -231,6 +228,7 @@ DEPLOY_OUTPUT=$(az deployment group create \
   --query properties.outputs -o json)
 
 CONTAINER_APP_FQDN=$(echo "$DEPLOY_OUTPUT" | jq -r '.containerAppFqdn.value')
+ACR_NAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.acrName.value')
 ACR_LOGIN_SERVER=$(echo "$DEPLOY_OUTPUT" | jq -r '.acrLoginServer.value')
 KV_URI=$(echo "$DEPLOY_OUTPUT" | jq -r '.keyVaultUri.value')
 PG_FQDN=$(echo "$DEPLOY_OUTPUT" | jq -r '.postgresServerFqdn.value')
