@@ -51,6 +51,7 @@ DOCKER_HOST_SSH_KEY=""
 DOCKER_HOST_ALLOWED_CIDR="*"
 SKIP_FIRST_DEPLOY="false"
 SKIP_GITHUB="false"
+TAGS=""
 
 # ── Parse arguments ──────────────────────────────────────────────────────────
 usage() {
@@ -69,6 +70,7 @@ Optional:
   --deploy-docker-host        Deploy Docker host VM for preview environments
   --docker-host-ssh-key PATH  Path to SSH public key for Docker host
   --docker-host-cidr CIDR     Allowed source CIDR for Docker host (default: *)
+  --tags 'key=val key2=val2'  Tags for the resource group (required by some policies)
   --skip-first-deploy         Skip building and deploying the first container image
   --skip-github               Skip GitHub secrets/variables setup
   --help                      Show this help
@@ -76,6 +78,10 @@ Optional:
 Examples:
   # Minimal — just the essentials:
   $0 --anthropic-key sk-ant-xxx --github-repo esbenwiberg/hive
+
+  # With resource group tags (required by some Azure policies):
+  $0 --anthropic-key sk-ant-xxx --github-repo esbenwiberg/hive \\
+     --tags 'project=the-hive environment=production'
 
   # Full — with preview environments:
   $0 --anthropic-key sk-ant-xxx --github-repo esbenwiberg/hive \\
@@ -98,6 +104,7 @@ while [[ $# -gt 0 ]]; do
     --deploy-docker-host)   DEPLOY_DOCKER_HOST="true"; shift ;;
     --docker-host-ssh-key)  DOCKER_HOST_SSH_KEY="$2"; shift 2 ;;
     --docker-host-cidr)     DOCKER_HOST_ALLOWED_CIDR="$2"; shift 2 ;;
+    --tags)                 TAGS="$2"; shift 2 ;;
     --skip-first-deploy)    SKIP_FIRST_DEPLOY="true"; shift ;;
     --skip-github)          SKIP_GITHUB="true"; shift ;;
     --help)                 usage ;;
@@ -146,6 +153,9 @@ echo "  Tenant:          $TENANT_ID"
 echo "  ACR:             $ACR_NAME"
 echo "  Key Vault:       $KEY_VAULT_NAME"
 echo "  Docker Host:     $DEPLOY_DOCKER_HOST"
+if [[ -n "$TAGS" ]]; then
+  echo "  Tags:            $TAGS"
+fi
 if [[ "$SKIP_GITHUB" == "false" ]]; then
   echo "  GitHub Repo:     $GITHUB_REPO"
 fi
@@ -156,7 +166,11 @@ step "1/8 — Creating resource group"
 if az group show --name "$RESOURCE_GROUP" &>/dev/null; then
   ok "Resource group '$RESOURCE_GROUP' already exists"
 else
-  az group create --name "$RESOURCE_GROUP" --location "$LOCATION" -o none
+  TAG_ARGS=()
+  if [[ -n "$TAGS" ]]; then
+    TAG_ARGS=(--tags $TAGS)
+  fi
+  az group create --name "$RESOURCE_GROUP" --location "$LOCATION" "${TAG_ARGS[@]}" -o none
   ok "Created resource group '$RESOURCE_GROUP' in $LOCATION"
 fi
 
