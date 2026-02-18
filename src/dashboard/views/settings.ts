@@ -147,9 +147,10 @@ export function repoSettingsCard(repo: RepoRow): string {
   }
 
   // Edit form for per-repo settings (HTMX POST)
+  const safeId = escapeHtml(String(repo.id));
   const form = `<form class="mt-4 space-y-3 border-t border-slate-700 pt-4"
-    hx-post="/settings/repos/${repo.id}"
-    hx-target="#repo-card-${repo.id}"
+    hx-post="/settings/repos/${safeId}"
+    hx-target="#repo-card-${safeId}"
     hx-swap="outerHTML">
     ${select(`gateMode_${repo.id}`, "Gate Mode Override", [
       { value: "", label: "-- Use Global Default --" },
@@ -180,7 +181,7 @@ export function repoSettingsCard(repo: RepoRow): string {
     </div>
     ${form}`;
 
-  return `<div id="repo-card-${repo.id}">${card(inner, {
+  return `<div id="repo-card-${safeId}">${card(inner, {
     title: repo.fullName,
     padding: "compact",
   })}</div>`;

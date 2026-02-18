@@ -16,6 +16,7 @@ const router = Router();
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const VALID_TABS = new Set<SettingsTab>(["global", "repos"]);
+const VALID_GATE_MODES = new Set(["ai", "human", "auto"]);
 
 function isValidTab(value: unknown): value is SettingsTab {
   return typeof value === "string" && VALID_TABS.has(value as SettingsTab);
@@ -76,19 +77,33 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
     // Gate mode override
     const gateModeKey = `gateMode_${repoId}`;
     if (body[gateModeKey] && body[gateModeKey] !== "") {
+      if (!VALID_GATE_MODES.has(body[gateModeKey])) {
+        res.status(400).send("Invalid gateMode. Must be one of: ai, human, auto");
+        return;
+      }
       settings.gateMode = body[gateModeKey];
     }
 
     // Per-task budget
     const perTaskMaxKey = `perTaskMax_${repoId}`;
     if (body[perTaskMaxKey] && body[perTaskMaxKey] !== "") {
-      settings.perTaskMax = Number(body[perTaskMaxKey]);
+      const val = Number(body[perTaskMaxKey]);
+      if (Number.isNaN(val) || val < 0) {
+        res.status(400).send("Invalid perTaskMax. Must be a non-negative number");
+        return;
+      }
+      settings.perTaskMax = val;
     }
 
     // Daily budget
     const dailyBudgetKey = `dailyBudget_${repoId}`;
     if (body[dailyBudgetKey] && body[dailyBudgetKey] !== "") {
-      settings.dailyBudget = Number(body[dailyBudgetKey]);
+      const val = Number(body[dailyBudgetKey]);
+      if (Number.isNaN(val) || val < 0) {
+        res.status(400).send("Invalid dailyBudget. Must be a non-negative number");
+        return;
+      }
+      settings.dailyBudget = val;
     }
 
     const updated = await repoQueries.updateSettings(repoId, settings);

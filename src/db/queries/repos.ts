@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../connection.js";
 import { repos } from "../schema.js";
 
@@ -55,7 +55,7 @@ export async function updateSettings(
 ) {
   const [repo] = await db
     .update(repos)
-    .set({ settings, updatedAt: new Date() })
+    .set({ settings: sql`COALESCE(${repos.settings}, '{}'::jsonb) || ${JSON.stringify(settings)}::jsonb`, updatedAt: new Date() })
     .where(eq(repos.id, repoId))
     .returning();
 

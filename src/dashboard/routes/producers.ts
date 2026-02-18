@@ -73,6 +73,11 @@ router.post("/api/producers/:name/config", requireRole("admin"), async (req: Req
     }
 
     const body = req.body as Record<string, unknown>;
+    const serialized = JSON.stringify(body);
+    if (serialized.length > 10_240) {
+      res.status(400).send("Config payload too large (max 10KB)");
+      return;
+    }
     await setConfig(`producer.${name}.config`, body);
 
     res.setHeader(
