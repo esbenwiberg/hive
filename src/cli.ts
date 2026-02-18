@@ -23,7 +23,13 @@ async function runDaemon(): Promise<void> {
   const server = app.listen(PORT);
 
   const maxConcurrent = parseInt(process.env.HIVE_MAX_WORKERS ?? "5", 10);
+  if (!Number.isFinite(maxConcurrent) || maxConcurrent < 1) {
+    throw new Error(`Invalid HIVE_MAX_WORKERS: ${process.env.HIVE_MAX_WORKERS}`);
+  }
   const pollIntervalMs = parseInt(process.env.HIVE_POLL_MS ?? "5000", 10);
+  if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 100) {
+    throw new Error(`Invalid HIVE_POLL_MS: ${process.env.HIVE_POLL_MS}`);
+  }
 
   const daemon = new Daemon({ maxConcurrent, pollIntervalMs });
   await daemon.start();
@@ -32,17 +38,22 @@ async function runDaemon(): Promise<void> {
     logger.info({ signal }, "Shutting down");
     await daemon.stop();
     server.close(() => {
-      pool.end().then(() => {
-        logger.info("Shutdown complete");
-        process.exit(0);
-      });
+      pool.end()
+        .then(() => {
+          logger.info("Shutdown complete");
+          process.exit(0);
+        })
+        .catch((err) => {
+          logger.error(err, "Error closing pool");
+          process.exit(1);
+        });
     });
   };
 
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
-  logger.info({ maxConcurrent, pollIntervalMs, port: PORT }, "Daemon started");
+  logger.info({ port: PORT }, "CLI: server and daemon ready");
 }
 
 runDaemon().catch((err) => {

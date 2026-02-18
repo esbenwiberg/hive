@@ -10,6 +10,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   ],
   [TaskStatus.QUEUED]: [
     TaskStatus.ENRICHING,
+    TaskStatus.FAILED,
     TaskStatus.CANCELLED,
   ],
   [TaskStatus.ENRICHING]: [

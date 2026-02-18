@@ -51,7 +51,7 @@ export class Daemon {
         await updateStatus(task.id, "failed");
         logger.info(
           { taskId: task.id, previousStatus: task.status },
-          `Daemon: stale task transitioned to failed (was stuck in ${task.status})`,
+          "Daemon: stale task transitioned to failed",
         );
       } catch (err) {
         logger.warn(
@@ -124,6 +124,9 @@ export class Daemon {
       },
     );
 
+    // Cache budget lookups within a single tick to avoid redundant DB queries
+    const budgetCache = new Map<number, number>();
+
     for (const task of candidates) {
       if (this.stopping) return;
       if (this.activeTaskIds.size >= this.maxConcurrent) return;
@@ -141,16 +144,19 @@ export class Daemon {
         continue;
       }
 
-      // Budget guard
-      let remaining: number;
-      try {
-        remaining = await checkBudget(task.createdBy);
-      } catch (err) {
-        logger.warn(
-          { taskId: task.id, userId: task.createdBy, err },
-          "Daemon: budget check failed, skipping task",
-        );
-        continue;
+      // Budget guard (cached per user within this tick)
+      let remaining = budgetCache.get(task.createdBy);
+      if (remaining === undefined) {
+        try {
+          remaining = await checkBudget(task.createdBy);
+          budgetCache.set(task.createdBy, remaining);
+        } catch (err) {
+          logger.warn(
+            { taskId: task.id, userId: task.createdBy, err },
+            "Daemon: budget check failed, skipping task",
+          );
+          continue;
+        }
       }
 
       if (remaining <= 0) {
@@ -186,6 +192,11 @@ export class Daemon {
         logger.info(
           { taskId: task.id, success: result.success },
           "Daemon: rework execution completed",
+        );
+      } else {
+        logger.warn(
+          { taskId: task.id, status: task.status },
+          "Daemon: unexpected task status in dispatch, skipping",
         );
       }
     } catch (err) {
