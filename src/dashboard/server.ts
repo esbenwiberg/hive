@@ -18,6 +18,11 @@ import previewRouter from "../execution/preview/proxy.js";
 
 const app = express();
 
+// Trust the reverse proxy (Azure Container Apps terminates TLS at the ingress).
+// Without this, express-session's secure cookies won't be set because Express
+// sees the connection as plain HTTP.
+app.set("trust proxy", 1);
+
 // ── Static files ────────────────────────────────────────────────────────────
 
 // Static files: resolve from project root so it works whether running
