@@ -94,3 +94,65 @@ export interface TaskFilters {
   createdBy?: number;
   search?: string;
 }
+
+// ── Execution Types ────────────────────────────────────────────────────────
+
+export interface WorktreeInfo {
+  path: string;
+  branch: string;
+  repoFullName: string;
+  provider: string;
+  createdAt: Date;
+}
+
+export interface ReviewFinding {
+  severity: "critical" | "major" | "minor" | "info";
+  file: string;
+  line?: number;
+  message: string;
+  category: string;
+}
+
+export interface SecurityFinding {
+  severity: "critical" | "high" | "medium" | "low";
+  type: string;
+  description: string;
+  file?: string;
+}
+
+export interface VerificationResult {
+  testsRun: boolean;
+  testsPassed: boolean;
+  lintClean: boolean;
+  buildSucceeded: boolean;
+  notes: string[];
+}
+
+export interface ReviewGateResult {
+  verdict: "pass" | "rework" | "fail";
+  findings: ReviewFinding[];
+  securityFindings: SecurityFinding[];
+  verification: VerificationResult;
+  costUsd: number;
+}
+
+export interface GitCredentials {
+  provider: string;
+  token: string;
+  username?: string;
+}
+
+export interface WorkerResult {
+  success: boolean;
+  prUrl?: string;
+  branch?: string;
+  reviewResult?: ReviewGateResult;
+  error?: string;
+}
+
+export interface MilestoneSpec {
+  title: string;
+  body: string;
+  index: number;
+  total: number;
+}

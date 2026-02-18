@@ -1,0 +1,275 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { eq } from "drizzle-orm";
+import logger from "../logger.js";
+import { callClaude } from "../agents/sdk.js";
+import { getById as getTask, updateStatus } from "../db/queries/tasks.js";
+import { getById as getRepo } from "../db/queries/repos.js";
+import { recordCost, checkBudget } from "../db/queries/costs.js";
+import { register, unregister } from "../db/queries/active-agents.js";
+import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktree.js";
+import { getGitProvider } from "./git-provider.js";
+import { reviewChanges } from "./review-gate.js";
+import { refineTask } from "../agents/refiner.js";
+import { db } from "../db/connection.js";
+import { tasks } from "../db/schema.js";
+import type { WorkerResult, WorktreeInfo } from "../domain/types.js";
+
+const MAX_REWORK_CYCLES = 2;
+
+let flowPrompt: string | undefined;
+function getFlowPrompt(): string {
+  if (!flowPrompt) {
+    flowPrompt = readFileSync(resolve("prompts/flow.md"), "utf-8");
+  }
+  return flowPrompt;
+}
+
+function estimateCostUsd(inputTokens: number, outputTokens: number): number {
+  const config = getAutonomousConfig();
+  return (inputTokens * config.models.inputCostPerM + outputTokens * config.models.outputCostPerM) / 1_000_000;
+}
+
+/**
+ * Executes a single flow task: creates worktree, runs Claude agent, reviews, pushes PR.
+ * Handles rework cycles up to MAX_REWORK_CYCLES.
+ */
+export async function executeTask(taskId: string): Promise<WorkerResult> {
+  const startTime = Date.now();
+  const config = getAutonomousConfig();
+
+  // Load task and repo
+  const task = await getTask(taskId);
+  if (!task) throw new Error(`Task ${taskId} not found`);
+
+  const repo = await getRepo(task.repoId);
+  if (!repo) throw new Error(`Repo ${task.repoId} not found for task ${taskId}`);
+
+  // Check budget
+  const remaining = await checkBudget(task.createdBy);
+  if (remaining <= 0) {
+    throw new Error(`Budget exhausted for user ${task.createdBy}`);
+  }
+
+  // Transition to executing
+  await updateStatus(taskId, "executing");
+
+  const model = task.model ?? config.models.gate;
+  const branchName = `hive/${taskId}`;
+  let worktree: WorktreeInfo | undefined;
+
+  await register(taskId, "worker", model, "executing");
+
+  try {
+    // Create worktree
+    worktree = await createWorktree(
+      repo.fullName,
+      repo.provider,
+      branchName,
+      repo.defaultBranch ?? "main",
+      task.createdBy,
+    );
+
+    // Build prompt for Claude
+    const enrichmentStr = task.enrichment
+      ? `\n## Enrichment Context\n${JSON.stringify(task.enrichment, null, 2)}`
+      : "";
+
+    const retryStr = task.retryInstructions
+      ? `\n## Retry Instructions (address this feedback)\n${task.retryInstructions}`
+      : "";
+
+    const userPrompt = [
+      `## Task: ${task.title}`,
+      ``,
+      task.body,
+      enrichmentStr,
+      retryStr,
+      ``,
+      `## Working Directory`,
+      worktree.path,
+      ``,
+      `## Branch`,
+      branchName,
+    ].join("\n");
+
+    // Call Claude (the "implementation" step)
+    const response = await callClaude({
+      prompt: userPrompt,
+      model,
+      systemPrompt: getFlowPrompt(),
+    });
+
+    const implCostUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+    const implDurationMs = Date.now() - startTime;
+    await recordCost(taskId, task.createdBy, "worker", model, implCostUsd, 1, implDurationMs);
+
+    // Increment execution attempts
+    await db
+      .update(tasks)
+      .set({
+        executionAttempts: (task.executionAttempts ?? 0) + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, taskId));
+
+    // Transition to reviewing
+    await updateStatus(taskId, "reviewing");
+
+    // Run review gate
+    const reviewResult = await reviewChanges(taskId, worktree);
+
+    if (reviewResult.verdict === "pass") {
+      // Push and create PR
+      const creds = await resolveGitCredentials(task.createdBy, repo.provider);
+      const gitProvider = getGitProvider(repo.provider);
+
+      await gitProvider.commitAll(worktree.path, `${task.title}\n\nTask: ${taskId}`);
+      await gitProvider.push(worktree.path, branchName, creds);
+
+      const prUrl = await gitProvider.createPR(
+        repo.fullName,
+        branchName,
+        repo.defaultBranch ?? "main",
+        task.title,
+        `${task.body}\n\n---\nTask: ${taskId}`,
+        creds,
+      );
+
+      // Update task with PR URL and transition to done
+      await db
+        .update(tasks)
+        .set({ prUrl, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+
+      await updateStatus(taskId, "done");
+
+      logger.info({ taskId, prUrl }, "Task execution complete — PR created");
+
+      return { success: true, prUrl, branch: branchName, reviewResult };
+    }
+
+    if (reviewResult.verdict === "rework" && (task.reworkCount ?? 0) < MAX_REWORK_CYCLES) {
+      // Transition to rework, refine, and the daemon will re-execute
+      await updateStatus(taskId, "rework");
+      await refineTask(taskId, reviewResult);
+
+      logger.info({ taskId, reworkCount: (task.reworkCount ?? 0) + 1 }, "Task sent for rework");
+
+      return { success: false, branch: branchName, reviewResult, error: "Sent for rework" };
+    }
+
+    // Fail: either verdict is "fail" or max rework exceeded
+    const reason = reviewResult.verdict === "fail"
+      ? "Review gate failed: critical issues found"
+      : `Max rework cycles (${MAX_REWORK_CYCLES}) exceeded`;
+
+    await db
+      .update(tasks)
+      .set({ failureReason: reason, updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+
+    await updateStatus(taskId, "failed");
+
+    logger.warn({ taskId, reason }, "Task execution failed");
+
+    return { success: false, branch: branchName, reviewResult, error: reason };
+
+  } catch (err) {
+    // On unexpected error, try to transition to failed
+    const reason = err instanceof Error ? err.message : String(err);
+    logger.error({ taskId, err }, "Worker: unexpected error");
+
+    try {
+      await db
+        .update(tasks)
+        .set({ failureReason: reason, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+      await updateStatus(taskId, "failed");
+    } catch (transitionErr) {
+      logger.error({ taskId, transitionErr }, "Worker: could not transition to failed");
+    }
+
+    return { success: false, error: reason };
+  } finally {
+    if (worktree) {
+      await cleanupWorktree(worktree);
+    }
+    await unregister(taskId);
+  }
+}
+
+/**
+ * Executes an epic task: decomposes into milestones and creates child tasks.
+ */
+export async function executeEpic(taskId: string): Promise<WorkerResult> {
+  // Import here to avoid circular dependency
+  const { decomposeEpic } = await import("../agents/decomposer.js");
+
+  const task = await getTask(taskId);
+  if (!task) throw new Error(`Task ${taskId} not found`);
+  if (task.workflow !== "epic") throw new Error(`Task ${taskId} is not an epic`);
+
+  await updateStatus(taskId, "executing");
+  await register(taskId, "worker", "system", "decomposing");
+
+  try {
+    const milestones = await decomposeEpic(taskId);
+
+    // Create child tasks for each milestone
+    const { create: createTask } = await import("../db/queries/tasks.js");
+
+    for (const milestone of milestones) {
+      const child = await createTask({
+        title: milestone.title,
+        body: milestone.body,
+        source: `epic:${taskId}`,
+        repoId: task.repoId,
+        createdBy: task.createdBy,
+      });
+
+      // Set epic metadata
+      await db
+        .update(tasks)
+        .set({
+          epicId: taskId,
+          milestoneIndex: milestone.index,
+          milestoneTotal: milestone.total,
+          workflow: "flow",
+        })
+        .where(eq(tasks.id, child.id));
+    }
+
+    // Store the decomposition plan
+    await db
+      .update(tasks)
+      .set({
+        blueprint: JSON.stringify(milestones),
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, taskId));
+
+    // Transition to done (milestones created — they'll flow through the pipeline independently)
+    await updateStatus(taskId, "reviewing");
+    await updateStatus(taskId, "done");
+
+    logger.info({ taskId, milestoneCount: milestones.length }, "Epic decomposed into milestones");
+
+    return { success: true };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    try {
+      await db
+        .update(tasks)
+        .set({ failureReason: reason, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+      await updateStatus(taskId, "failed");
+    } catch {
+      // swallow
+    }
+    return { success: false, error: reason };
+  } finally {
+    await unregister(taskId);
+  }
+}

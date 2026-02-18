@@ -1,0 +1,531 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { cleanupTables, useTestDb } from "../setup.js";
+
+// ── Mocks ────────────────────────────────────────────────────────────────────
+
+// Mock the SDK so we never call the real Anthropic API
+vi.mock("../../src/agents/sdk.js", () => ({
+  callClaude: vi.fn(),
+}));
+
+// Mock db/connection.js so queries use our test database
+vi.mock("../../src/db/connection.js", async () => {
+  const setup = await import("../setup.js");
+  return { db: setup.db, pool: setup.pool };
+});
+
+// Mock the logger so tests don't produce output
+vi.mock("../../src/logger.js", () => ({
+  default: {
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
+// Mock the autonomous config
+const mockConfig = {
+  classification: { defaultType: "improvement", defaultSize: "medium" },
+  gate: { mode: "auto" as string },
+  budget: { dailyDefault: 100, perTaskMax: 25 },
+  models: {
+    router: "claude-sonnet-4-20250514",
+    gate: "claude-sonnet-4-20250514",
+    inputCostPerM: 3,
+    outputCostPerM: 15,
+  },
+  enrichers: [] as Array<{ name: string; enabled: boolean }>,
+};
+
+vi.mock("../../src/domain/autonomous-config.js", () => ({
+  getAutonomousConfig: () => mockConfig,
+  loadConfig: () => mockConfig,
+}));
+
+// Mock node:fs for prompt loading
+vi.mock("node:fs", () => ({
+  readFileSync: vi.fn(() => "You are an implementation agent."),
+  rm: vi.fn(),
+  mkdir: vi.fn(),
+}));
+
+// Mock worktree functions
+const mockCreateWorktree = vi.fn();
+const mockCleanupWorktree = vi.fn();
+const mockResolveGitCredentials = vi.fn();
+
+vi.mock("../../src/execution/worktree.js", () => ({
+  createWorktree: mockCreateWorktree,
+  cleanupWorktree: mockCleanupWorktree,
+  resolveGitCredentials: mockResolveGitCredentials,
+}));
+
+// Mock git provider
+const mockGitProvider = {
+  clone: vi.fn(),
+  createBranch: vi.fn(),
+  commitAll: vi.fn(),
+  push: vi.fn(),
+  createPR: vi.fn(),
+};
+
+vi.mock("../../src/execution/git-provider.js", () => ({
+  getGitProvider: () => mockGitProvider,
+}));
+
+// Mock review gate
+const mockReviewChanges = vi.fn();
+vi.mock("../../src/execution/review-gate.js", () => ({
+  reviewChanges: mockReviewChanges,
+}));
+
+// Mock refiner
+const mockRefineTask = vi.fn();
+vi.mock("../../src/agents/refiner.js", () => ({
+  refineTask: mockRefineTask,
+}));
+
+// ── Imports (after mocks) ────────────────────────────────────────────────────
+
+const { callClaude } = await import("../../src/agents/sdk.js");
+const { executeTask, executeEpic } = await import(
+  "../../src/execution/worker.js"
+);
+const { findOrCreateByEntraOid } = await import(
+  "../../src/db/queries/users.js"
+);
+const { findOrCreate: findOrCreateRepo } = await import(
+  "../../src/db/queries/repos.js"
+);
+const {
+  create: createTask,
+  getById,
+  updateStatus,
+} = await import("../../src/db/queries/tasks.js");
+const { listActive } = await import(
+  "../../src/db/queries/active-agents.js"
+);
+
+import type { ReviewGateResult, WorktreeInfo } from "../../src/domain/types.js";
+
+const mockCallClaude = callClaude as ReturnType<typeof vi.fn>;
+
+useTestDb();
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const sampleWorktree: WorktreeInfo = {
+  path: "/tmp/hive-worktrees/hive-test-123",
+  branch: "hive/test-123",
+  repoFullName: "acme/widget",
+  provider: "github",
+  createdAt: new Date(),
+};
+
+const passReviewResult: ReviewGateResult = {
+  verdict: "pass",
+  findings: [],
+  securityFindings: [],
+  verification: {
+    testsRun: true,
+    testsPassed: true,
+    lintClean: true,
+    buildSucceeded: true,
+    notes: [],
+  },
+  costUsd: 0.001,
+};
+
+const reworkReviewResult: ReviewGateResult = {
+  verdict: "rework",
+  findings: [
+    { severity: "major", file: "src/auth.ts", line: 42, message: "Missing null check", category: "correctness" },
+  ],
+  securityFindings: [],
+  verification: {
+    testsRun: true,
+    testsPassed: false,
+    lintClean: true,
+    buildSucceeded: true,
+    notes: ["2 tests failed"],
+  },
+  costUsd: 0.001,
+};
+
+const failReviewResult: ReviewGateResult = {
+  verdict: "fail",
+  findings: [
+    { severity: "critical", file: "src/db.ts", line: 10, message: "SQL injection", category: "correctness" },
+  ],
+  securityFindings: [
+    { severity: "critical", type: "injection", description: "Raw SQL query with user input", file: "src/db.ts" },
+  ],
+  verification: {
+    testsRun: false,
+    testsPassed: false,
+    lintClean: false,
+    buildSucceeded: false,
+    notes: ["Build failed"],
+  },
+  costUsd: 0.001,
+};
+
+async function seedApprovedTask() {
+  const user = await findOrCreateByEntraOid(
+    "oid-worker-test",
+    "worker@example.com",
+    "Worker User",
+  );
+  const repo = await findOrCreateRepo("github", "acme/widget");
+  const task = await createTask({
+    title: "Fix login bug",
+    body: "The login form crashes when the email field is empty",
+    source: "manual",
+    repoId: repo.id,
+    createdBy: user.id,
+  });
+
+  // Transition: pending -> queued -> enriching -> approved
+  await updateStatus(task.id, "queued");
+  await updateStatus(task.id, "enriching");
+  await updateStatus(task.id, "approved");
+
+  const updated = await getById(task.id);
+  return { user, repo, task: updated! };
+}
+
+async function seedEpicTask() {
+  const user = await findOrCreateByEntraOid(
+    "oid-epic-test",
+    "epic@example.com",
+    "Epic User",
+  );
+  const repo = await findOrCreateRepo("github", "acme/widget");
+  const task = await createTask({
+    title: "Build user authentication system",
+    body: "Complete auth system with login, registration, and password reset",
+    source: "manual",
+    repoId: repo.id,
+    createdBy: user.id,
+    workflow: "epic",
+  });
+
+  // Transition: pending -> queued -> enriching -> approved
+  await updateStatus(task.id, "queued");
+  await updateStatus(task.id, "enriching");
+  await updateStatus(task.id, "approved");
+
+  const updated = await getById(task.id);
+  return { user, repo, task: updated! };
+}
+
+function mockClaudeResponse() {
+  mockCallClaude.mockResolvedValueOnce({
+    text: "Implementation complete. Files changed: src/auth.ts",
+    cost: {
+      model: "claude-sonnet-4-20250514",
+      inputTokens: 2000,
+      outputTokens: 500,
+    },
+  });
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+describe("executeTask", () => {
+  beforeEach(async () => {
+    await cleanupTables();
+    vi.clearAllMocks();
+
+    // Default mock setups
+    mockCreateWorktree.mockResolvedValue(sampleWorktree);
+    mockCleanupWorktree.mockResolvedValue(undefined);
+    mockResolveGitCredentials.mockResolvedValue({ provider: "github", token: "test-token" });
+    mockGitProvider.commitAll.mockResolvedValue(undefined);
+    mockGitProvider.push.mockResolvedValue(undefined);
+    mockGitProvider.createPR.mockResolvedValue("https://github.com/acme/widget/pull/1");
+    mockRefineTask.mockResolvedValue("Refined instructions");
+  });
+
+  // ── Happy path: approved → executing → reviewing → done with PR ──────────
+
+  it("executes task end-to-end: approved → executing → reviewing → done with PR", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(true);
+    expect(result.prUrl).toBe("https://github.com/acme/widget/pull/1");
+    expect(result.branch).toBe(`hive/${task.id}`);
+    expect(result.reviewResult?.verdict).toBe("pass");
+
+    // Verify final state is done
+    const final = await getById(task.id);
+    expect(final!.status).toBe("done");
+    expect(final!.prUrl).toBe("https://github.com/acme/widget/pull/1");
+    expect(final!.executionAttempts).toBe(1);
+  });
+
+  // ── Rework cycle ─────────────────────────────────────────────────────────
+
+  it("transitions to rework when review returns rework verdict", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(reworkReviewResult);
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Sent for rework");
+    expect(result.reviewResult?.verdict).toBe("rework");
+
+    // Verify refineTask was called
+    expect(mockRefineTask).toHaveBeenCalledWith(task.id, reworkReviewResult);
+
+    // Verify final state is rework
+    const final = await getById(task.id);
+    expect(final!.status).toBe("rework");
+  });
+
+  // ── Budget exhausted ─────────────────────────────────────────────────────
+
+  it("throws when budget is exhausted", async () => {
+    const { task, user } = await seedApprovedTask();
+
+    // Burn the budget by recording a large cost
+    const { recordCost } = await import("../../src/db/queries/costs.js");
+    await recordCost(task.id, user.id, "test", "test-model", 200, 1, 1000);
+
+    await expect(executeTask(task.id)).rejects.toThrow("Budget exhausted");
+  });
+
+  // ── Max rework cycles exceeded ───────────────────────────────────────────
+
+  it("fails when max rework cycles exceeded", async () => {
+    const { task } = await seedApprovedTask();
+
+    // Set reworkCount to 2 (the max)
+    const { db: testDb } = await import("../setup.js");
+    const { tasks: tasksTable } = await import("../../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await testDb
+      .update(tasksTable)
+      .set({ reworkCount: 2 })
+      .where(eq(tasksTable.id, task.id));
+
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(reworkReviewResult);
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Max rework cycles");
+
+    const final = await getById(task.id);
+    expect(final!.status).toBe("failed");
+    expect(final!.failureReason).toContain("Max rework cycles");
+  });
+
+  // ── Review fails (verdict = fail) ────────────────────────────────────────
+
+  it("fails when review verdict is fail", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(failReviewResult);
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Review gate failed");
+
+    const final = await getById(task.id);
+    expect(final!.status).toBe("failed");
+    expect(final!.failureReason).toContain("critical issues found");
+  });
+
+  // ── Worktree cleanup ─────────────────────────────────────────────────────
+
+  it("cleans up worktree on success", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+
+    await executeTask(task.id);
+
+    expect(mockCleanupWorktree).toHaveBeenCalledWith(sampleWorktree);
+  });
+
+  it("cleans up worktree on failure", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockRejectedValueOnce(new Error("Review crashed"));
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(false);
+    expect(mockCleanupWorktree).toHaveBeenCalledWith(sampleWorktree);
+  });
+
+  // ── Active agent registration ────────────────────────────────────────────
+
+  it("registers and unregisters active agent", async () => {
+    const { task } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+
+    await executeTask(task.id);
+
+    // After completion, no active agents should remain
+    const active = await listActive();
+    expect(active).toHaveLength(0);
+  });
+
+  it("unregisters active agent on error", async () => {
+    const { task } = await seedApprovedTask();
+    mockCallClaude.mockRejectedValueOnce(new Error("API error"));
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(false);
+
+    const active = await listActive();
+    expect(active).toHaveLength(0);
+  });
+
+  // ── Unexpected error handling ────────────────────────────────────────────
+
+  it("transitions to failed on unexpected error and records failure reason", async () => {
+    const { task } = await seedApprovedTask();
+    mockCallClaude.mockRejectedValueOnce(new Error("Unexpected API failure"));
+
+    const result = await executeTask(task.id);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Unexpected API failure");
+
+    const final = await getById(task.id);
+    expect(final!.status).toBe("failed");
+    expect(final!.failureReason).toBe("Unexpected API failure");
+  });
+
+  // ── Cost recording ───────────────────────────────────────────────────────
+
+  it("records cost for implementation step", async () => {
+    const { task, user } = await seedApprovedTask();
+    mockClaudeResponse();
+    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
+
+    await executeTask(task.id);
+
+    const { db: testDb } = await import("../setup.js");
+    const { costs } = await import("../../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+
+    const rows = await testDb
+      .select()
+      .from(costs)
+      .where(eq(costs.taskId, task.id));
+
+    // At least the worker cost should be recorded
+    const workerCost = rows.find(r => r.agent === "worker");
+    expect(workerCost).toBeDefined();
+    expect(workerCost!.userId).toBe(user.id);
+    expect(parseFloat(workerCost!.costUsd)).toBeGreaterThan(0);
+  });
+});
+
+describe("executeEpic", () => {
+  beforeEach(async () => {
+    await cleanupTables();
+    vi.clearAllMocks();
+  });
+
+  it("creates child tasks from decomposed milestones", async () => {
+    const { task } = await seedEpicTask();
+
+    // Mock the decomposer module (dynamic import)
+    const milestones = [
+      { title: "Milestone 1: Login", body: "Implement login flow", index: 0, total: 2 },
+      { title: "Milestone 2: Registration", body: "Implement registration flow", index: 1, total: 2 },
+    ];
+
+    // We need to mock the dynamic import of decomposer
+    vi.doMock("../../src/agents/decomposer.js", () => ({
+      decomposeEpic: vi.fn().mockResolvedValue(milestones),
+    }));
+
+    // Re-import to pick up the new mock
+    const { executeEpic: execEpic } = await import("../../src/execution/worker.js");
+    const result = await execEpic(task.id);
+
+    expect(result.success).toBe(true);
+
+    // Verify parent task is done
+    const parent = await getById(task.id);
+    expect(parent!.status).toBe("done");
+    expect(parent!.blueprint).toBeTruthy();
+
+    // Verify child tasks were created
+    const { db: testDb } = await import("../setup.js");
+    const { tasks: tasksTable } = await import("../../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+
+    const children = await testDb
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.epicId, task.id));
+
+    expect(children).toHaveLength(2);
+    expect(children[0].workflow).toBe("flow");
+    expect(children[0].source).toBe(`epic:${task.id}`);
+
+    // Verify active agent was cleaned up
+    const active = await listActive();
+    expect(active).toHaveLength(0);
+  });
+
+  it("throws when task is not an epic", async () => {
+    // Create a non-epic task
+    const user = await findOrCreateByEntraOid(
+      "oid-epic-test-2",
+      "epic2@example.com",
+      "Epic User 2",
+    );
+    const repo = await findOrCreateRepo("github", "acme/widget");
+    const task = await createTask({
+      title: "Not an epic",
+      body: "This is a regular task",
+      source: "manual",
+      repoId: repo.id,
+      createdBy: user.id,
+      workflow: "flow",
+    });
+
+    await updateStatus(task.id, "queued");
+    await updateStatus(task.id, "enriching");
+    await updateStatus(task.id, "approved");
+
+    await expect(executeEpic(task.id)).rejects.toThrow("is not an epic");
+  });
+
+  it("transitions to failed when decomposition fails", async () => {
+    const { task } = await seedEpicTask();
+
+    vi.doMock("../../src/agents/decomposer.js", () => ({
+      decomposeEpic: vi.fn().mockRejectedValue(new Error("Decomposition failed")),
+    }));
+
+    const { executeEpic: execEpic } = await import("../../src/execution/worker.js");
+    const result = await execEpic(task.id);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Decomposition failed");
+
+    const final = await getById(task.id);
+    expect(final!.status).toBe("failed");
+    expect(final!.failureReason).toBe("Decomposition failed");
+  });
+});

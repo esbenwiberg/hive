@@ -1,4 +1,8 @@
+import { existsSync } from "node:fs";
+import { eq } from "drizzle-orm";
 import logger from "../logger.js";
+import { db } from "../db/connection.js";
+import { tasks } from "../db/schema.js";
 import { getById, updateStatus } from "../db/queries/tasks.js";
 import { routeTask } from "./router.js";
 import { evaluateGate } from "./gate.js";
@@ -6,10 +10,6 @@ import { runEnrichers } from "../enrichers/base.js";
 import { getEnabledEnrichers } from "../enrichers/index.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import type { EnricherConfig } from "../enrichers/base.js";
-
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const PLACEHOLDER_REPO_DIR = "/tmp/placeholder";
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -78,8 +78,14 @@ export async function runPipeline(taskId: string): Promise<void> {
       throw new Error(`Pipeline: task ${taskId} disappeared during enrichment`);
     }
 
-    await runEnrichers(enrichingTask, PLACEHOLDER_REPO_DIR, enrichers, enricherConfigs);
-    logger.info({ taskId }, "Pipeline: enrichment complete");
+    // Determine repo directory — skip enrichment if no real repo is cloned
+    const repoDir = `/tmp/hive-repos/${enrichingTask.repoId}`;
+    if (!existsSync(repoDir)) {
+      logger.warn({ taskId, repoId: enrichingTask.repoId }, "Pipeline: repo directory not available, skipping enrichment");
+    } else {
+      await runEnrichers(enrichingTask, repoDir, enrichers, enricherConfigs);
+      logger.info({ taskId }, "Pipeline: enrichment complete");
+    }
   } catch (err) {
     logger.error({ taskId, err }, "Pipeline: enrichment failed");
     await failTask(taskId, err);
@@ -94,6 +100,25 @@ export async function runPipeline(taskId: string): Promise<void> {
     logger.error({ taskId, err }, "Pipeline: gate evaluation failed");
     await failTask(taskId, err);
     return;
+  }
+
+  // ── Step 6: Execute (if approved) ─────────────────────────────────────────
+  const postGateTask = await getById(taskId);
+  if (postGateTask && postGateTask.status === "approved") {
+    try {
+      const { executeTask, executeEpic } = await import("../execution/worker.js");
+
+      if (postGateTask.workflow === "epic") {
+        await executeEpic(taskId);
+      } else {
+        await executeTask(taskId);
+      }
+      logger.info({ taskId }, "Pipeline: execution complete");
+    } catch (err) {
+      logger.error({ taskId, err }, "Pipeline: execution failed");
+      await failTask(taskId, err);
+      return;
+    }
   }
 
   logger.info({ taskId }, "Pipeline: completed successfully");
@@ -123,10 +148,6 @@ async function failTask(taskId: string, err: unknown): Promise<void> {
 
   // Update failure reason directly (updateStatus doesn't set it)
   try {
-    const { db } = await import("../db/connection.js");
-    const { tasks } = await import("../db/schema.js");
-    const { eq } = await import("drizzle-orm");
-
     await db
       .update(tasks)
       .set({ failureReason: reason, updatedAt: new Date() })

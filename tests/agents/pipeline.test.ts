@@ -29,12 +29,27 @@ const mockConfig = {
   classification: { defaultType: "improvement", defaultSize: "medium" },
   gate: { mode: "auto" as string },
   budget: { dailyDefault: 100, perTaskMax: 25 },
+  models: {
+    router: "claude-sonnet-4-20250514",
+    gate: "claude-sonnet-4-20250514",
+    inputCostPerM: 3,
+    outputCostPerM: 15,
+  },
   enrichers: [] as Array<{ name: string; enabled: boolean }>,
 };
 
 vi.mock("../../src/domain/autonomous-config.js", () => ({
   getAutonomousConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+}));
+
+// Mock the worker module so the pipeline's Step 6 (execution) doesn't run real worker logic
+const mockExecuteTask = vi.fn().mockResolvedValue({ success: true });
+const mockExecuteEpic = vi.fn().mockResolvedValue({ success: true });
+
+vi.mock("../../src/execution/worker.js", () => ({
+  executeTask: mockExecuteTask,
+  executeEpic: mockExecuteEpic,
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
@@ -119,6 +134,9 @@ describe("runPipeline", () => {
     // Reset config to auto mode with no enrichers configured (all enabled by default)
     mockConfig.gate.mode = "auto";
     mockConfig.enrichers = [];
+    // Reset worker mocks to default behavior
+    mockExecuteTask.mockResolvedValue({ success: true });
+    mockExecuteEpic.mockResolvedValue({ success: true });
   });
 
   // ── Full pipeline success ─────────────────────────────────────────────────
@@ -137,16 +155,15 @@ describe("runPipeline", () => {
     expect(final!.workflow).toBe("flow");
   });
 
-  it("writes enrichment data to the task", async () => {
+  it("skips enrichment when repo directory does not exist", async () => {
     const { task } = await seedPendingTask();
     mockRouterResponse();
 
     await runPipeline(task.id);
 
     const final = await getById(task.id);
-    // Enrichment should be populated (even if data is minimal due to placeholder repo dir)
-    expect(final!.enrichment).toBeTruthy();
-    expect(typeof final!.enrichment).toBe("object");
+    // Enrichment should be null since repo dir doesn't exist
+    expect(final!.enrichment).toBeNull();
   });
 
   it("records costs for the pipeline", async () => {

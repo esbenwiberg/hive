@@ -20,7 +20,7 @@ export const db = drizzle(pool, { schema });
  */
 export async function cleanupTables(): Promise<void> {
   await db.execute(
-    sql`TRUNCATE users, sessions, tasks, repos, costs, gate_decisions, enrichment_runs, active_agents, code_reviews CASCADE`,
+    sql`TRUNCATE users, sessions, tasks, repos, costs, gate_decisions, enrichment_runs, active_agents, code_reviews, user_credentials CASCADE`,
   );
 }
 
