@@ -160,8 +160,11 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
 }
 
 // ── Key Vault Secrets ────────────────────────────────────────────────────────
-// All secrets referenced by the Container App must exist before it provisions.
-// The setup script overwrites placeholders with real values in step 5.
+// database-url is always set by Bicep (derived from PG server FQDN).
+// Other secrets are only seeded as placeholders on first run (!deployContainerApp)
+// so they exist when the Container App provisions. The setup script overwrites
+// them with real values between the two Bicep runs. On the second run
+// (deployContainerApp=true), Bicep leaves them alone.
 
 resource databaseUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
@@ -171,7 +174,7 @@ resource databaseUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   }
 }
 
-resource anthropicApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+resource anthropicApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!deployContainerApp) {
   parent: keyVault
   name: 'anthropic-api-key'
   properties: {
@@ -179,7 +182,7 @@ resource anthropicApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = 
   }
 }
 
-resource sessionSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+resource sessionSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!deployContainerApp) {
   parent: keyVault
   name: 'session-secret'
   properties: {
@@ -187,7 +190,7 @@ resource sessionSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   }
 }
 
-resource entraClientIdSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+resource entraClientIdSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!deployContainerApp) {
   parent: keyVault
   name: 'entra-client-id'
   properties: {
@@ -195,7 +198,7 @@ resource entraClientIdSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   }
 }
 
-resource entraClientSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+resource entraClientSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!deployContainerApp) {
   parent: keyVault
   name: 'entra-client-secret'
   properties: {
