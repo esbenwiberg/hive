@@ -21,7 +21,6 @@ interface RouterResult {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const ROUTER_AGENT = "router";
-const ROUTER_MODEL = "claude-sonnet-4-20250514";
 
 const VALID_TYPES = new Set(["bug", "feature", "security", "refactor", "improvement"]);
 const VALID_SIZES = new Set(["trivial", "small", "medium", "large"]);
@@ -57,7 +56,7 @@ function parseClassification(text: string): RouterResult {
   const workflow = VALID_WORKFLOWS.has(parsed.workflow) ? parsed.workflow : "flow";
   const model = typeof parsed.model === "string" && parsed.model.length > 0
     ? parsed.model
-    : ROUTER_MODEL;
+    : config.models.router;
 
   const result: RouterResult = { type, size, workflow, model };
 
@@ -74,12 +73,8 @@ function parseClassification(text: string): RouterResult {
 
 // ── Cost estimation ──────────────────────────────────────────────────────────
 
-/**
- * Rough cost estimate based on token counts.
- * Uses approximate Claude pricing: $3/M input, $15/M output for Sonnet.
- */
-function estimateCostUsd(inputTokens: number, outputTokens: number): number {
-  return (inputTokens * 3 + outputTokens * 15) / 1_000_000;
+function estimateCostUsd(inputTokens: number, outputTokens: number, inputCostPerM: number, outputCostPerM: number): number {
+  return (inputTokens * inputCostPerM + outputTokens * outputCostPerM) / 1_000_000;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -107,23 +102,31 @@ export async function routeTask(taskId: string): Promise<RouterResult> {
   }
 
   const startTime = Date.now();
+  const config = getAutonomousConfig();
+  const routerModel = config.models.router;
 
   // Register as active agent
-  await register(taskId, ROUTER_AGENT, ROUTER_MODEL, "classifying");
+  await register(taskId, ROUTER_AGENT, routerModel, "classifying");
 
   try {
     const systemPrompt = loadRouterPrompt();
 
     const userPrompt = [
       `Task ID: ${task.id}`,
-      `Title: ${task.title}`,
-      `Body: ${task.body}`,
       `Source: ${task.source}`,
+      "",
+      "<user_provided_title>",
+      task.title,
+      "</user_provided_title>",
+      "",
+      "<user_provided_body>",
+      task.body,
+      "</user_provided_body>",
     ].join("\n");
 
     const response = await callClaude({
       prompt: userPrompt,
-      model: ROUTER_MODEL,
+      model: routerModel,
       systemPrompt,
     });
 
@@ -139,6 +142,8 @@ export async function routeTask(taskId: string): Promise<RouterResult> {
     const costUsd = estimateCostUsd(
       response.cost.inputTokens,
       response.cost.outputTokens,
+      config.models.inputCostPerM,
+      config.models.outputCostPerM,
     );
     const durationMs = Date.now() - startTime;
 

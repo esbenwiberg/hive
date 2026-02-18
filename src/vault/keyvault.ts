@@ -35,8 +35,8 @@ export async function getSecret(name: string): Promise<string | null> {
     try {
       const secret = await client.getSecret(name);
       return secret.value ?? null;
-    } catch (err: any) {
-      if (err.statusCode === 404) return null;
+    } catch (err: unknown) {
+      if (err instanceof Error && "statusCode" in err && (err as { statusCode: number }).statusCode === 404) return null;
       throw err;
     }
   }

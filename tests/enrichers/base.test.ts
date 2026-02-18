@@ -106,7 +106,10 @@ describe("runEnrichers", () => {
 
     const result = await runEnrichers(task, "/tmp/repo", [enricherA, enricherB], config);
 
-    expect(result).toEqual({ a: 1, b: 2 });
+    expect(result).toMatchObject({ a: 1, b: 2 });
+    expect(result._enrichmentMeta).toEqual({
+      succeeded: 2, failed: 0, failedEnrichers: [], partial: false,
+    });
 
     // Both enrichers should have been called
     expect(enricherA.run).toHaveBeenCalledTimes(1);
@@ -148,7 +151,7 @@ describe("runEnrichers", () => {
     expect(betaCall[2]).toEqual({ fromA: "hello" });
 
     // Final merged result
-    expect(result).toEqual({ fromA: "hello", receivedPrior: { fromA: "hello" } });
+    expect(result).toMatchObject({ fromA: "hello", receivedPrior: { fromA: "hello" } });
   });
 
   // ── Error handling ────────────────────────────────────────────────────────
@@ -172,7 +175,10 @@ describe("runEnrichers", () => {
     );
 
     // Only the success enricher's data should be in the result
-    expect(result).toEqual({ ok: true });
+    expect(result).toMatchObject({ ok: true });
+    expect(result._enrichmentMeta).toEqual({
+      succeeded: 1, failed: 1, failedEnrichers: ["failing"], partial: true,
+    });
 
     // Both enrichers were called
     expect(failingEnricher.run).toHaveBeenCalledTimes(1);
@@ -234,7 +240,7 @@ describe("runEnrichers", () => {
     await runEnrichers(task, "/tmp/repo", [enricherA], config);
 
     const updated = await getById(task.id);
-    expect(updated!.enrichment).toEqual({ analysis: "done" });
+    expect(updated!.enrichment).toMatchObject({ analysis: "done" });
   });
 
   // ── Disabled enricher ─────────────────────────────────────────────────────
@@ -252,7 +258,7 @@ describe("runEnrichers", () => {
 
     const result = await runEnrichers(task, "/tmp/repo", [enricherA, enricherB], config);
 
-    expect(result).toEqual({ b: 2 });
+    expect(result).toMatchObject({ b: 2 });
     expect(enricherA.run).not.toHaveBeenCalled();
     expect(enricherB.run).toHaveBeenCalledTimes(1);
   });
@@ -264,10 +270,12 @@ describe("runEnrichers", () => {
 
     const result = await runEnrichers(task, "/tmp/repo", [], {});
 
-    expect(result).toEqual({});
+    expect(result._enrichmentMeta).toEqual({
+      succeeded: 0, failed: 0, failedEnrichers: [], partial: false,
+    });
 
     const updated = await getById(task.id);
-    expect(updated!.enrichment).toEqual({});
+    expect(updated!.enrichment).toMatchObject({ _enrichmentMeta: expect.any(Object) });
   });
 
   // ── Merge behavior (later overrides earlier) ──────────────────────────────
@@ -285,7 +293,7 @@ describe("runEnrichers", () => {
 
     const result = await runEnrichers(task, "/tmp/repo", [enricherA, enricherB], config);
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       shared: "from-beta",
       onlyA: true,
       onlyB: true,

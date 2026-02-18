@@ -29,6 +29,12 @@ const mockConfig = {
   classification: { defaultType: "improvement", defaultSize: "medium" },
   gate: { mode: "ai" as string },
   budget: { dailyDefault: 100, perTaskMax: 25 },
+  models: {
+    router: "claude-sonnet-4-20250514",
+    gate: "claude-sonnet-4-20250514",
+    inputCostPerM: 3,
+    outputCostPerM: 15,
+  },
   enrichers: [],
 };
 

@@ -43,6 +43,9 @@ export async function runEnrichers(
   config: Record<string, EnricherConfig>,
 ): Promise<Record<string, unknown>> {
   const merged: Record<string, unknown> = {};
+  let succeeded = 0;
+  let failed = 0;
+  const failedNames: string[] = [];
 
   for (const enricher of enrichers) {
     const enricherConfig = config[enricher.name] ?? { enabled: true };
@@ -67,6 +70,7 @@ export async function runEnrichers(
 
       // Merge results
       Object.assign(merged, result.data);
+      succeeded++;
 
       logger.info(
         { enricher: enricher.name, taskId: task.id, durationMs: result.durationMs },
@@ -86,11 +90,29 @@ export async function runEnrichers(
         message,
       );
 
+      failed++;
+      failedNames.push(enricher.name);
+
       logger.error(
         { enricher: enricher.name, taskId: task.id, err },
         "Enricher failed, continuing to next",
       );
     }
+  }
+
+  // Add enrichment metadata so downstream consumers know about partial failures
+  merged._enrichmentMeta = {
+    succeeded,
+    failed,
+    failedEnrichers: failedNames,
+    partial: failed > 0 && succeeded > 0,
+  };
+
+  if (failed > 0) {
+    logger.warn(
+      { taskId: task.id, succeeded, failed, failedNames },
+      "Enrichment completed with partial failures",
+    );
   }
 
   // Update the task's enrichment column with merged results

@@ -285,9 +285,10 @@ export function taskDetailPanel(task: TaskRow): string {
               a.action === "merge"
             ? "primary"
             : "secondary";
+      const hxVals = escapeHtml(JSON.stringify({ action: a.action, targetStatus: a.targetStatus }));
       return button(a.label, {
         variant: variant as "primary" | "secondary" | "danger",
-        attrs: `data-action="${a.action}" hx-post="/api/tasks/${escapeHtml(task.id)}/transition" hx-vals='{"action":"${a.action}","targetStatus":"${a.targetStatus}"}' hx-target="#task-list" hx-swap="innerHTML"`,
+        attrs: `data-action="${escapeHtml(a.action)}" hx-post="/api/tasks/${escapeHtml(task.id)}/transition" hx-vals='${hxVals}' hx-target="#task-list" hx-swap="innerHTML"`,
       });
     })
     .join("\n        ");

@@ -10,8 +10,8 @@ export interface RetryOptions {
 }
 
 const DEFAULT_RETRY: Required<RetryOptions> = {
-  maxRetries: 3,
-  baseDelayMs: 1000,
+  maxRetries: 5,
+  baseDelayMs: 2000,
   jitter: true,
 };
 

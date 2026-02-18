@@ -18,11 +18,11 @@ budget:
   perTaskMax: 25.00
 
 enrichers:
-  - name: repo-map
+  - name: codebase
     enabled: true
-  - name: style-guide
+  - name: docs
+    enabled: true
+  - name: git-history
     enabled: true
   - name: dependencies
     enabled: true
-  - name: test-coverage
-    enabled: false

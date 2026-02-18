@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
+import { eq, and } from "drizzle-orm";
+import { db } from "../db/connection.js";
+import { tasks } from "../db/schema.js";
 import { getById, updateStatus } from "../db/queries/tasks.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
@@ -19,7 +22,6 @@ interface GateVerdict {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const GATE_AGENT = "gate";
-const GATE_MODEL = "claude-sonnet-4-20250514";
 
 const VALID_VERDICTS = new Set(["approve", "reject", "rework"]);
 
@@ -73,8 +75,8 @@ function parseVerdict(text: string): GateVerdict {
 
 // ── Cost estimation ──────────────────────────────────────────────────────────
 
-function estimateCostUsd(inputTokens: number, outputTokens: number): number {
-  return (inputTokens * 3 + outputTokens * 15) / 1_000_000;
+function estimateCostUsd(inputTokens: number, outputTokens: number, inputCostPerM: number, outputCostPerM: number): number {
+  return (inputTokens * inputCostPerM + outputTokens * outputCostPerM) / 1_000_000;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -127,7 +129,20 @@ export async function evaluateGate(taskId: string): Promise<void> {
   // ── AI mode (or auto mode fall-through for medium/large) ───────────────
   const startTime = Date.now();
 
-  await register(taskId, GATE_AGENT, GATE_MODEL, "evaluating");
+  // Optimistic lock: atomically claim the task to prevent concurrent gate evaluations
+  const [claimed] = await db
+    .update(tasks)
+    .set({ updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, "enriching")))
+    .returning({ id: tasks.id });
+
+  if (!claimed) {
+    throw new Error(`Gate: task ${taskId} was already claimed by another evaluator`);
+  }
+
+  const gateModel = config.models.gate;
+
+  await register(taskId, GATE_AGENT, gateModel, "evaluating");
 
   try {
     const systemPrompt = loadGatePrompt();
@@ -145,18 +160,27 @@ export async function evaluateGate(taskId: string): Promise<void> {
 
     const userPrompt = [
       `Task ID: ${task.id}`,
-      `Title: ${task.title}`,
-      `Body: ${task.body}`,
       `Type: ${task.type ?? "unclassified"}`,
       `Size: ${task.size ?? "unknown"}`,
       `Source: ${task.source}`,
       `Workflow: ${task.workflow ?? "flow"}`,
-      `Enrichment: ${JSON.stringify(task.enrichment ?? {})}`,
+      "",
+      "<user_provided_title>",
+      task.title,
+      "</user_provided_title>",
+      "",
+      "<user_provided_body>",
+      task.body,
+      "</user_provided_body>",
+      "",
+      "<enrichment_data>",
+      JSON.stringify(task.enrichment ?? {}, null, 2),
+      "</enrichment_data>",
     ].join("\n");
 
     const response = await callClaude({
       prompt: userPrompt,
-      model: GATE_MODEL,
+      model: gateModel,
       systemPrompt,
     });
 
@@ -180,6 +204,8 @@ export async function evaluateGate(taskId: string): Promise<void> {
     const costUsd = estimateCostUsd(
       response.cost.inputTokens,
       response.cost.outputTokens,
+      config.models.inputCostPerM,
+      config.models.outputCostPerM,
     );
     const durationMs = Date.now() - startTime;
 
