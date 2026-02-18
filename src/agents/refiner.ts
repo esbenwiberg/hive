@@ -4,15 +4,11 @@ import { getById } from "../db/queries/tasks.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { estimateCostUsd } from "./cost-utils.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import type { ReviewGateResult } from "../domain/types.js";
-
-function estimateCostUsd(inputTokens: number, outputTokens: number): number {
-  const config = getAutonomousConfig();
-  return (inputTokens * config.models.inputCostPerM + outputTokens * config.models.outputCostPerM) / 1_000_000;
-}
 
 const REFINER_SYSTEM_PROMPT = `You are a task refiner. Given a task that failed code review, produce refined instructions that address the specific feedback.
 

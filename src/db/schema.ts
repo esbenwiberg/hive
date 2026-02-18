@@ -295,3 +295,5 @@ export type TaskRow = InferSelectModel<typeof tasks>;
 export type RepoRow = InferSelectModel<typeof repos>;
 export type ActiveAgentRow = InferSelectModel<typeof activeAgents>;
 export type UserCredentialRow = InferSelectModel<typeof userCredentials>;
+export type LearningRow = InferSelectModel<typeof learnings>;
+export type LearningEventRow = InferSelectModel<typeof learningEvents>;

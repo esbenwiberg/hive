@@ -14,6 +14,10 @@ import { selfMonitor } from "../producers/self-monitor.js";
 import { recordRun } from "../db/queries/producer-runs.js";
 import { notifyTasksCreated } from "../notifications.js";
 import { listAll } from "../db/queries/repos.js";
+import { runRetrospective } from "../agents/retrospective.js";
+import { applyMonthlyDecay, archiveStale } from "../db/queries/learnings.js";
+import { curateLearnings } from "../agents/keeper.js";
+import { getConfig } from "../domain/config.js";
 import type { Producer, ProducerContext } from "../producers/base.js";
 
 interface DaemonOptions {
@@ -27,6 +31,8 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_MAX_CONCURRENT = 5;
 const DEFAULT_MAX_PER_USER = 2;
 const DEFAULT_PRODUCER_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
+const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1_000; // 24 hours
+const RETROSPECTIVE_MIN_GAP_MS = 7 * 24 * 60 * 60 * 1_000; // 7 days
 const DRAIN_POLL_MS = 500;
 const MAX_DRAIN_TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
 
@@ -48,6 +54,8 @@ export class Daemon {
   private readonly userCounts = new Map<number, number>();
   private readonly scheduler: Scheduler;
   private readonly producerSchedulers: Scheduler[] = [];
+  private readonly retrospectiveScheduler: Scheduler;
+  private readonly decayScheduler: Scheduler;
   private stopping = false;
 
   constructor(opts?: DaemonOptions) {
@@ -59,6 +67,8 @@ export class Daemon {
       parseInt(process.env.HIVE_PRODUCER_INTERVAL_MS ?? String(DEFAULT_PRODUCER_INTERVAL_MS), 10);
 
     this.scheduler = new Scheduler(this.pollIntervalMs, () => this._tick());
+    this.retrospectiveScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._retrospectiveTick());
+    this.decayScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._decayTick());
   }
 
   async start(): Promise<void> {
@@ -96,6 +106,12 @@ export class Daemon {
       s.start();
     }
 
+    // Start retrospective scheduler (24h interval, checks 7-day gap)
+    this.retrospectiveScheduler.start();
+
+    // Start decay scheduler (24h interval)
+    this.decayScheduler.start();
+
     logger.info(
       {
         maxConcurrent: this.maxConcurrent,
@@ -116,6 +132,8 @@ export class Daemon {
       s.stop();
     }
 
+    this.retrospectiveScheduler.stop();
+    this.decayScheduler.stop();
     this.scheduler.stop();
 
     // Wait for in-flight tasks to drain
@@ -309,6 +327,55 @@ export class Daemon {
           );
         }
       }
+    }
+  }
+
+  private async _retrospectiveTick(): Promise<void> {
+    try {
+      const lastRunRaw = await getConfig("lastRetrospectiveRun");
+      if (lastRunRaw) {
+        const lastRun = new Date(lastRunRaw as string).getTime();
+        const elapsed = Date.now() - lastRun;
+        if (elapsed < RETROSPECTIVE_MIN_GAP_MS) {
+          logger.debug(
+            { elapsedDays: (elapsed / (24 * 60 * 60 * 1000)).toFixed(1) },
+            "Daemon: retrospective not due yet, skipping",
+          );
+          return;
+        }
+      }
+
+      logger.info("Daemon: starting weekly retrospective");
+      const report = await runRetrospective();
+      logger.info(
+        {
+          totalTasks: report.metrics.totalTasks,
+          firstPassRate: report.metrics.firstPassRate,
+          proposals: report.proposals.length,
+          blindSpots: report.blindSpots.length,
+        },
+        "Daemon: retrospective completed",
+      );
+    } catch (err) {
+      logger.error({ err }, "Daemon: retrospective tick failed");
+    }
+  }
+
+  private async _decayTick(): Promise<void> {
+    try {
+      const decayed = await applyMonthlyDecay();
+      const archived = await archiveStale();
+
+      logger.info(
+        { decayed, archived },
+        "Daemon: confidence decay and stale archival complete",
+      );
+
+      await curateLearnings();
+
+      logger.info("Daemon: learning curation complete");
+    } catch (err) {
+      logger.error({ err }, "Daemon: decay tick failed");
     }
   }
 

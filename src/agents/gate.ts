@@ -10,6 +10,7 @@ import { register, unregister } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
 import { recordDecision } from "../db/queries/gate-decisions.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { estimateCostUsd } from "./cost-utils.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,12 +72,6 @@ function parseVerdict(text: string): GateVerdict {
     reasoning,
     confidence,
   };
-}
-
-// ── Cost estimation ──────────────────────────────────────────────────────────
-
-function estimateCostUsd(inputTokens: number, outputTokens: number, inputCostPerM: number, outputCostPerM: number): number {
-  return (inputTokens * inputCostPerM + outputTokens * outputCostPerM) / 1_000_000;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────

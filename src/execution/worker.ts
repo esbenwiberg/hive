@@ -8,6 +8,8 @@ import { getById as getRepo } from "../db/queries/repos.js";
 import { recordCost, checkBudget } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { estimateCostUsd } from "../agents/cost-utils.js";
+import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
 import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktree.js";
 import { getGitProvider } from "./git-provider.js";
 import { reviewChanges } from "./review-gate.js";
@@ -24,11 +26,6 @@ function getFlowPrompt(): string {
     flowPrompt = readFileSync(resolve("prompts/flow.md"), "utf-8");
   }
   return flowPrompt;
-}
-
-function estimateCostUsd(inputTokens: number, outputTokens: number): number {
-  const config = getAutonomousConfig();
-  return (inputTokens * config.models.inputCostPerM + outputTokens * config.models.outputCostPerM) / 1_000_000;
 }
 
 /**
@@ -73,6 +70,33 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       task.createdBy,
     );
 
+    // Retrieve relevant learnings for this task (non-blocking — failures degrade gracefully)
+    let learningIds: number[] = [];
+    let relevantLearnings: Awaited<ReturnType<typeof retrieveRelevantLearnings>> = [];
+    try {
+      const enrichmentTags: string[] = [];
+      if (task.type) enrichmentTags.push(task.type);
+      if (task.severity) enrichmentTags.push(task.severity);
+
+      relevantLearnings = await retrieveRelevantLearnings({
+        scopes: ["universal", `repo:${repo.fullName}`],
+        tags: enrichmentTags.length > 0 ? enrichmentTags : ["general"],
+        limit: 15,
+      });
+
+      learningIds = relevantLearnings.map((l) => l.id);
+    } catch (learningsErr) {
+      logger.warn({ taskId, err: learningsErr }, "Failed to retrieve learnings — proceeding without");
+    }
+
+    let learningsStr = "";
+    if (relevantLearnings.length > 0) {
+      const items = relevantLearnings
+        .map((l) => `- [confidence: ${l.confidence}] (${l.scope}) ${l.content}`)
+        .join("\n");
+      learningsStr = `\n## Relevant Learnings\n\nThese learnings come from past tasks. Apply them where relevant:\n\n${items}`;
+    }
+
     // Build prompt for Claude
     const enrichmentStr = task.enrichment
       ? `\n## Enrichment Context\n${JSON.stringify(task.enrichment, null, 2)}`
@@ -87,6 +111,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       ``,
       task.body,
       enrichmentStr,
+      learningsStr,
       retryStr,
       ``,
       `## Working Directory`,
@@ -119,8 +144,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     // Transition to reviewing
     await updateStatus(taskId, "reviewing");
 
-    // Run review gate
-    const reviewResult = await reviewChanges(taskId, worktree);
+    // Run review gate (pass learning IDs for feedback loop)
+    const reviewResult = await reviewChanges(taskId, worktree, learningIds);
 
     if (reviewResult.verdict === "pass") {
       // Push and create PR

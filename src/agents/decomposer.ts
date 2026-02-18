@@ -6,6 +6,7 @@ import { getById } from "../db/queries/tasks.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { estimateCostUsd } from "./cost-utils.js";
 import type { MilestoneSpec } from "../domain/types.js";
 
 let milestonePrompt: string | undefined;
@@ -15,11 +16,6 @@ function getMilestonePrompt(): string {
     milestonePrompt = readFileSync(resolve("prompts/milestone.md"), "utf-8");
   }
   return milestonePrompt;
-}
-
-function estimateCostUsd(inputTokens: number, outputTokens: number): number {
-  const config = getAutonomousConfig();
-  return (inputTokens * config.models.inputCostPerM + outputTokens * config.models.outputCostPerM) / 1_000_000;
 }
 
 /**

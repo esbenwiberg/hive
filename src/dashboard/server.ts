@@ -13,6 +13,7 @@ import costsRouter from "./routes/costs.js";
 import settingsRouter from "./routes/settings.js";
 import producersRouter from "./routes/producers.js";
 import promptsRouter from "./routes/prompts.js";
+import hivemindRouter from "./routes/hivemind.js";
 
 const app = express();
 
@@ -138,6 +139,7 @@ app.use("/", costsRouter);
 app.use("/", settingsRouter);
 app.use("/", producersRouter);
 app.use("/", promptsRouter);
+app.use("/", hivemindRouter);
 
 // ── Error handler ────────────────────────────────────────────────────────────
 

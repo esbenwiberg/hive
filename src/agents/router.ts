@@ -6,6 +6,7 @@ import { getById, updateClassification, updateStatus } from "../db/queries/tasks
 import { register, unregister } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { estimateCostUsd } from "./cost-utils.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,12 +70,6 @@ function parseClassification(text: string): RouterResult {
   }
 
   return result;
-}
-
-// ── Cost estimation ──────────────────────────────────────────────────────────
-
-function estimateCostUsd(inputTokens: number, outputTokens: number, inputCostPerM: number, outputCostPerM: number): number {
-  return (inputTokens * inputCostPerM + outputTokens * outputCostPerM) / 1_000_000;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────

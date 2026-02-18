@@ -98,6 +98,39 @@ vi.mock("../../src/producers/base.js", () => ({
   isDuplicate: vi.fn().mockResolvedValue(false),
 }));
 
+// ── Retrospective / decay / keeper mocks ────────────────────────────────────
+
+const mockRunRetrospective = vi.fn().mockResolvedValue({
+  summary: "",
+  metrics: { totalTasks: 0, firstPassRate: 0, reworkRate: 0, failureRate: 0, totalCostUsd: 0 },
+  topLearnings: [],
+  decayingLearnings: [],
+  blindSpots: [],
+  proposals: [],
+  costInsights: "",
+});
+vi.mock("../../src/agents/retrospective.js", () => ({
+  runRetrospective: mockRunRetrospective,
+}));
+
+const mockApplyMonthlyDecay = vi.fn().mockResolvedValue(0);
+const mockArchiveStale = vi.fn().mockResolvedValue(0);
+vi.mock("../../src/db/queries/learnings.js", () => ({
+  applyMonthlyDecay: mockApplyMonthlyDecay,
+  archiveStale: mockArchiveStale,
+}));
+
+const mockCurateLearnings = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../src/agents/keeper.js", () => ({
+  curateLearnings: mockCurateLearnings,
+}));
+
+const mockGetConfig = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../src/domain/config.js", () => ({
+  getConfig: mockGetConfig,
+  setConfig: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 const { Daemon } = await import("../../src/daemon/daemon.js");

@@ -311,10 +311,12 @@ describe("reviewChanges", () => {
     const { costs } = await import("../../src/db/schema.js");
     const { eq } = await import("drizzle-orm");
 
+    const { and: andOp } = await import("drizzle-orm");
+
     const rows = await db
       .select()
       .from(costs)
-      .where(eq(costs.taskId, task.id));
+      .where(andOp(eq(costs.taskId, task.id), eq(costs.agent, "review-gate")));
 
     expect(rows).toHaveLength(1);
     expect(rows[0].agent).toBe("review-gate");

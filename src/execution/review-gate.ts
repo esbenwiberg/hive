@@ -9,6 +9,8 @@ import { recordReview } from "../db/queries/code-reviews.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { estimateCostUsd } from "../agents/cost-utils.js";
+import { fireAndForgetFeedback } from "../agents/feedback-loop.js";
 import type { ReviewGateResult, WorktreeInfo } from "../domain/types.js";
 
 const execFileAsync = promisify(execFile);
@@ -71,11 +73,6 @@ async function getChangedFiles(worktreePath: string): Promise<string[]> {
   }
 }
 
-function estimateCostUsd(inputTokens: number, outputTokens: number): number {
-  const config = getAutonomousConfig();
-  return (inputTokens * config.models.inputCostPerM + outputTokens * config.models.outputCostPerM) / 1_000_000;
-}
-
 /**
  * Parses the Claude response into a ReviewGateResult.
  * Handles markdown code fences around JSON.
@@ -123,6 +120,7 @@ export function parseReviewResult(text: string): ReviewGateResult {
 export async function reviewChanges(
   taskId: string,
   worktreeInfo: WorktreeInfo,
+  learningIds?: number[],
 ): Promise<ReviewGateResult> {
   const startTime = Date.now();
   const config = getAutonomousConfig();
@@ -174,6 +172,12 @@ export async function reviewChanges(
     );
 
     await recordCost(taskId, task.createdBy, "review-gate", model, costUsd, 1, durationMs);
+
+    // Fire-and-forget feedback loop — never blocks or throws
+    const findingsText = result.findings
+      .map((f) => `[${f.severity}] ${f.file}${f.line ? `:${f.line}` : ""}: ${f.message}`)
+      .join("\n");
+    void fireAndForgetFeedback(taskId, result.verdict, learningIds ?? [], findingsText || undefined);
 
     logger.info({ taskId, verdict: result.verdict, costUsd }, "Review gate complete");
 
