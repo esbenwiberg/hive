@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 
 export type { PreviewConfig } from "../../hive-yaml.js";
 
-export type PreviewStatus = "starting" | "running" | "failed" | "stopped";
+export type { PreviewStatus } from "../../domain/types.js";
 
 export interface PreviewInfo {
   taskId: string;

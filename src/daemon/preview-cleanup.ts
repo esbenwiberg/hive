@@ -42,6 +42,7 @@ export async function cleanupExpiredPreviews(): Promise<void> {
     const worktreePath = worktreePaths.get(taskId);
     if (worktreePath) {
       try {
+        // cleanupWorktree only uses .path — other fields are not needed for rm -rf
         await cleanupWorktree({
           path: worktreePath,
           branch: "",

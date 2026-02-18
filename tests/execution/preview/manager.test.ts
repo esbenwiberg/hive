@@ -174,10 +174,10 @@ describe("PreviewManager", () => {
       expect(info.childProcess).toBe(fakeChild);
       expect(info.startedAt).toBeInstanceOf(Date);
 
-      // Verify spawn was called correctly
+      // Verify spawn was called correctly (uses sh -c for proper command parsing)
       expect(mockSpawn).toHaveBeenCalledWith(
-        "npm",
-        ["start"],
+        "sh",
+        ["-c", "npm start"],
         expect.objectContaining({
           cwd: "/tmp/worktree",
           env: expect.objectContaining({
@@ -216,8 +216,8 @@ describe("PreviewManager", () => {
       await manager.startPreview("HIVE-002", "/tmp/worktree", config);
 
       expect(mockSpawn).toHaveBeenCalledWith(
-        "node",
-        ["server.js"],
+        "sh",
+        ["-c", "node server.js"],
         expect.objectContaining({
           env: expect.objectContaining({
             PORT: "4001",

@@ -35,8 +35,17 @@ openssl genrsa -out "${CERT_DIR}/server-key.pem" 4096
 openssl req -new -key "${CERT_DIR}/server-key.pem" \
   -subj "/CN=$(hostname)" -out "${CERT_DIR}/server.csr"
 
-# Allow connections from any IP (will be restricted by NSG)
-echo "subjectAltName = IP:0.0.0.0,IP:127.0.0.1" > "${CERT_DIR}/extfile.cnf"
+# Detect the VM's private and public IP addresses for the SAN
+PRIVATE_IP=$(hostname -I | awk '{print $1}')
+PUBLIC_IP=$(curl -s -H Metadata:true --noproxy "*" \
+  "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-02-01&format=text" \
+  2>/dev/null || true)
+
+SAN="IP:127.0.0.1"
+[ -n "${PRIVATE_IP}" ] && SAN="${SAN},IP:${PRIVATE_IP}"
+[ -n "${PUBLIC_IP}" ] && SAN="${SAN},IP:${PUBLIC_IP}"
+
+echo "subjectAltName = ${SAN}" > "${CERT_DIR}/extfile.cnf"
 echo "extendedKeyUsage = serverAuth" >> "${CERT_DIR}/extfile.cnf"
 
 openssl x509 -req -days 365 -sha256 \
@@ -48,6 +57,11 @@ openssl x509 -req -days 365 -sha256 \
   -extfile "${CERT_DIR}/extfile.cnf"
 
 # Client key + cert (for the Container App to authenticate)
+# TODO: After this script runs, the client certs (ca.pem, client-cert.pem, client-key.pem)
+# must be uploaded to Azure Key Vault so the Container App can retrieve them.
+# Manual step: az keyvault secret set --vault-name <vault> --name docker-ca --file /etc/docker/tls/ca.pem
+#              az keyvault secret set --vault-name <vault> --name docker-client-cert --file /etc/docker/tls/client-cert.pem
+#              az keyvault secret set --vault-name <vault> --name docker-client-key --file /etc/docker/tls/client-key.pem
 openssl genrsa -out "${CERT_DIR}/client-key.pem" 4096
 openssl req -new -key "${CERT_DIR}/client-key.pem" \
   -subj "/CN=client" -out "${CERT_DIR}/client.csr"

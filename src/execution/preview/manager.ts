@@ -94,11 +94,11 @@ export class PreviewManager {
       const healthy = await this.waitForHealthCheck(host, port, healthPath, timeoutMs);
       if (!healthy) {
         await addPreviewLog(taskId, "health", `Health check failed after ${timeoutMs}ms`);
+        await this.stopPreview(taskId);
         await db
           .update(tasks)
           .set({ previewStatus: "failed", updatedAt: new Date() })
           .where(eq(tasks.id, taskId));
-        // Don't tear down — leave it for inspection but mark as failed
         return info;
       }
       await addPreviewLog(taskId, "health", "Health check passed");
@@ -159,8 +159,8 @@ export class PreviewManager {
   /**
    * Returns all running previews.
    */
-  getRunningPreviews(): Map<string, PreviewInfo> {
-    return this.previews;
+  getRunningPreviews(): ReadonlyMap<string, PreviewInfo> {
+    return new Map(this.previews);
   }
 
   /**
@@ -292,11 +292,7 @@ export class PreviewManager {
     host: string,
     type: "testcontainers" | "process",
   ): Promise<PreviewInfo> {
-    const parts = command.split(/\s+/);
-    const cmd = parts[0];
-    const args = parts.slice(1);
-
-    const childProcess = spawn(cmd, args, {
+    const childProcess = spawn("sh", ["-c", command], {
       cwd: worktreePath,
       env: {
         ...process.env,

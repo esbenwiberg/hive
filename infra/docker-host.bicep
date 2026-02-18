@@ -13,8 +13,8 @@ param adminSshPublicKey string
 @description('Name of the Key Vault for storing Docker TLS certs')
 param keyVaultName string
 
-@description('Source address prefix allowed to reach Docker API and preview ports (CIDR or *)')
-param allowedSourceAddressPrefix string = '*'
+@description('Source address prefix allowed to reach Docker API and preview ports (CIDR notation)')
+param allowedSourceAddressPrefix string
 
 // ── Derived names ────────────────────────────────────────────────────────────
 var vmName = '${environmentName}-docker'

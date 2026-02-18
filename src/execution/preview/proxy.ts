@@ -5,6 +5,7 @@ import { requireAuth } from "../../auth/middleware.js";
 import { previewManager } from "./manager.js";
 import * as taskQueries from "../../db/queries/tasks.js";
 import logger from "../../logger.js";
+import { escapeHtml } from "../../dashboard/views/components.js";
 
 /** Maps taskId -> proxy target URL, populated by the auth/check middleware. */
 const targetMap = new Map<string, string>();
@@ -22,13 +23,14 @@ router.use(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     const taskId = String(req.params.taskId);
+    const safeTaskId = escapeHtml(taskId);
     const info = previewManager.getPreviewInfo(taskId);
 
     if (!info) {
       res.status(404).send(
         `<div style="font-family:sans-serif;padding:2rem;text-align:center;">
           <h2>Preview Not Found</h2>
-          <p>No running preview for task <code>${taskId}</code>.</p>
+          <p>No running preview for task <code>${safeTaskId}</code>.</p>
           <a href="/tasks">Back to tasks</a>
         </div>`,
       );
@@ -41,7 +43,7 @@ router.use(
       res.status(503).send(
         `<div style="font-family:sans-serif;padding:2rem;text-align:center;">
           <h2>Preview Starting</h2>
-          <p>The preview for task <code>${taskId}</code> is still starting up. Please try again shortly.</p>
+          <p>The preview for task <code>${safeTaskId}</code> is still starting up. Please try again shortly.</p>
           <a href="/tasks">Back to tasks</a>
         </div>`,
       );
