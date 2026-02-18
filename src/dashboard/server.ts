@@ -112,8 +112,17 @@ app.get("/auth/callback", async (req, res, next) => {
       role: user.role,
     };
 
-    logger.info({ userId: user.id }, "User logged in");
-    res.redirect("/");
+    // Explicitly save session to PostgreSQL before redirecting.
+    // Without this, the redirect fires before the async store write completes,
+    // causing the next request to not find the session → infinite login loop.
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        next(saveErr);
+        return;
+      }
+      logger.info({ userId: user.id }, "User logged in");
+      res.redirect("/");
+    });
   } catch (err) {
     next(err);
   }
