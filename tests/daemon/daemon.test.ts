@@ -26,6 +26,7 @@ const mockUpdateStatus = vi.fn().mockResolvedValue({});
 vi.mock("../../src/db/queries/tasks.js", () => ({
   list: mockList,
   updateStatus: mockUpdateStatus,
+  create: vi.fn().mockResolvedValue({}),
 }));
 
 const mockCleanupStale = vi.fn().mockResolvedValue(0);
@@ -42,6 +43,59 @@ const mockFindStaleTasks = vi.fn().mockResolvedValue([]);
 vi.mock("../../src/daemon/stale-tasks.js", () => ({
   findStaleTasks: mockFindStaleTasks,
   STALE_THRESHOLD_MS: 1_800_000,
+}));
+
+// ── Producer mocks ──────────────────────────────────────────────────────────
+
+const mockProducerRun = vi.fn().mockResolvedValue({
+  tasksCreated: 0,
+  duplicatesSkipped: 0,
+  errors: [],
+  costUsd: 0,
+});
+
+const makeProducerMock = (name: string) => ({
+  name,
+  run: mockProducerRun,
+});
+
+vi.mock("../../src/producers/log-scanner.js", () => ({
+  logScanner: makeProducerMock("log-scanner"),
+}));
+vi.mock("../../src/producers/bug-hunter.js", () => ({
+  bugHunter: makeProducerMock("bug-hunter"),
+}));
+vi.mock("../../src/producers/security-scanner.js", () => ({
+  securityScanner: makeProducerMock("security-scanner"),
+}));
+vi.mock("../../src/producers/feature-scout.js", () => ({
+  featureScout: makeProducerMock("feature-scout"),
+}));
+vi.mock("../../src/producers/self-monitor.js", () => ({
+  selfMonitor: makeProducerMock("self-monitor"),
+}));
+
+const mockRecordRun = vi.fn().mockResolvedValue({});
+vi.mock("../../src/db/queries/producer-runs.js", () => ({
+  recordRun: mockRecordRun,
+}));
+
+const mockNotifyTasksCreated = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../src/notifications.js", () => ({
+  notifyTasksCreated: mockNotifyTasksCreated,
+  sendNotification: vi.fn().mockResolvedValue(undefined),
+}));
+
+const mockListAll = vi.fn().mockResolvedValue([]);
+vi.mock("../../src/db/queries/repos.js", () => ({
+  listAll: mockListAll,
+  findOrCreate: vi.fn(),
+  getById: vi.fn(),
+}));
+
+// Mock isDuplicate used by producers (in case it's imported transitively)
+vi.mock("../../src/producers/base.js", () => ({
+  isDuplicate: vi.fn().mockResolvedValue(false),
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
@@ -70,6 +124,15 @@ describe("Daemon", () => {
     mockFindStaleTasks.mockResolvedValue([]);
     mockRunPipeline.mockResolvedValue(undefined);
     mockExecuteTask.mockResolvedValue({ success: true });
+    mockProducerRun.mockResolvedValue({
+      tasksCreated: 0,
+      duplicatesSkipped: 0,
+      errors: [],
+      costUsd: 0,
+    });
+    mockRecordRun.mockResolvedValue({});
+    mockNotifyTasksCreated.mockResolvedValue(undefined);
+    mockListAll.mockResolvedValue([]);
   });
 
   it("calls cleanupStale on start", async () => {
@@ -255,5 +318,82 @@ describe("Daemon", () => {
 
     // Daemon should still be alive — stop should succeed
     expect(mockRunPipeline).toHaveBeenCalledWith("HIVE-ERR-0001");
+  });
+
+  // ── Producer scheduling tests ─────────────────────────────────────────────
+
+  it("starts and stops without errors when producers are wired", async () => {
+    const daemon = new Daemon({ pollIntervalMs: 100_000, producerIntervalMs: 100_000 });
+    await daemon.start();
+    await daemon.stop();
+
+    // No assertion needed — if start/stop don't throw, the test passes
+    expect(mockCleanupStale).toHaveBeenCalledOnce();
+  });
+
+  it("runs producers on schedule when repos exist", async () => {
+    mockListAll.mockResolvedValue([
+      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: {}, createdAt: new Date(), updatedAt: new Date() },
+    ]);
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000, producerIntervalMs: 80 });
+    await daemon.start();
+
+    // Wait for at least one producer tick
+    await new Promise((r) => setTimeout(r, 200));
+    await daemon.stop();
+
+    // 5 producers x at least 1 tick = at least 5 calls to run
+    expect(mockProducerRun.mock.calls.length).toBeGreaterThanOrEqual(5);
+    expect(mockRecordRun.mock.calls.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("calls notifyTasksCreated when a producer creates tasks", async () => {
+    mockListAll.mockResolvedValue([
+      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: {}, createdAt: new Date(), updatedAt: new Date() },
+    ]);
+    mockProducerRun.mockResolvedValue({
+      tasksCreated: 2,
+      duplicatesSkipped: 0,
+      errors: [],
+      costUsd: 0.01,
+    });
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000, producerIntervalMs: 80 });
+    await daemon.start();
+
+    await new Promise((r) => setTimeout(r, 200));
+    await daemon.stop();
+
+    expect(mockNotifyTasksCreated).toHaveBeenCalled();
+  });
+
+  it("does not crash when a producer throws", async () => {
+    mockListAll.mockResolvedValue([
+      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: {}, createdAt: new Date(), updatedAt: new Date() },
+    ]);
+    mockProducerRun.mockRejectedValue(new Error("producer boom"));
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000, producerIntervalMs: 80 });
+    await daemon.start();
+
+    await new Promise((r) => setTimeout(r, 200));
+    await daemon.stop();
+
+    // Daemon should still be alive — the error was caught
+    expect(mockRecordRun).toHaveBeenCalled();
+  });
+
+  it("skips producers when no repos exist", async () => {
+    mockListAll.mockResolvedValue([]);
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000, producerIntervalMs: 80 });
+    await daemon.start();
+
+    await new Promise((r) => setTimeout(r, 200));
+    await daemon.stop();
+
+    // Producers never called because there are no repos to scan
+    expect(mockProducerRun).not.toHaveBeenCalled();
   });
 });

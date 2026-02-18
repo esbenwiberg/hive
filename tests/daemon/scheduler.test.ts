@@ -43,14 +43,14 @@ describe("Scheduler", () => {
     scheduler = new Scheduler(50, tick);
     scheduler.start();
 
-    // Wait 300ms — enough for the slow first tick to finish + a few more ticks to fire
-    await new Promise((r) => setTimeout(r, 300));
+    // Wait 500ms — enough for the slow first tick (200ms) to finish + more ticks to fire
+    await new Promise((r) => setTimeout(r, 500));
     scheduler.stop();
 
     // The first tick takes 200ms, so during that time subsequent ticks are skipped.
-    // After it finishes, more ticks can run. Total should be less than 300/50 = 6.
+    // After it finishes, more ticks can run. Total should be less than 500/50 = 10.
     expect(tick.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(tick.mock.calls.length).toBeLessThan(6);
+    expect(tick.mock.calls.length).toBeLessThan(10);
   });
 
   it("stops preventing further ticks", async () => {
