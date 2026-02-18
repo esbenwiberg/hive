@@ -164,12 +164,46 @@ resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 // ── Key Vault Secrets ────────────────────────────────────────────────────────
+// All secrets referenced by the Container App must exist before it provisions.
+// The setup script overwrites placeholders with real values in step 5.
 
 resource databaseUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'database-url'
   properties: {
     value: 'postgresql://hiveadmin:${postgresAdminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/hive?sslmode=require'
+  }
+}
+
+resource anthropicApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'anthropic-api-key'
+  properties: {
+    value: 'placeholder-overwritten-by-setup-script'
+  }
+}
+
+resource sessionSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'session-secret'
+  properties: {
+    value: 'placeholder-overwritten-by-setup-script'
+  }
+}
+
+resource entraClientIdSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'entra-client-id'
+  properties: {
+    value: 'placeholder-overwritten-by-setup-script'
+  }
+}
+
+resource entraClientSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'entra-client-secret'
+  properties: {
+    value: 'placeholder-overwritten-by-setup-script'
   }
 }
 
