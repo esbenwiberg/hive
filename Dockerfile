@@ -1,8 +1,8 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --registry=https://registry.npmjs.org/
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci
 COPY . .
 RUN npm run build
 
@@ -10,8 +10,8 @@ RUN npm run build
 FROM node:20-alpine
 RUN apk add --no-cache git github-cli
 WORKDIR /app
-COPY --from=builder /app/package.json /app/package-lock.json ./
-RUN npm ci --omit=dev --registry=https://registry.npmjs.org/
+COPY --from=builder /app/package.json /app/package-lock.json /app/.npmrc ./
+RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/src/dashboard/public ./src/dashboard/public
