@@ -28,7 +28,8 @@ export async function runKqlQuery(
   kql: string,
   timespan?: string,
 ): Promise<Array<Record<string, unknown>>> {
-  if (!process.env.AZURE_MONITOR_WORKSPACE_ID) {
+  const workspaceId = config.workspaceId || process.env.AZURE_MONITOR_WORKSPACE_ID;
+  if (!workspaceId) {
     logger.warn("AZURE_MONITOR_WORKSPACE_ID not set — skipping KQL query");
     return [];
   }
@@ -39,7 +40,7 @@ export async function runKqlQuery(
       "https://api.loganalytics.io/.default",
     );
 
-    const url = `https://api.loganalytics.io/v1/workspaces/${encodeURIComponent(config.workspaceId)}/query`;
+    const url = `https://api.loganalytics.io/v1/workspaces/${encodeURIComponent(workspaceId)}/query`;
 
     const body: Record<string, string> = { query: kql };
     if (timespan) {

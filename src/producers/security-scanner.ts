@@ -1,6 +1,7 @@
 import { callClaude } from "../agents/sdk.js";
 import { create } from "../db/queries/tasks.js";
 import { isDuplicate } from "./base.js";
+import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import type { Producer, ProducerContext, ProducerResult } from "./base.js";
 
 /**
@@ -26,6 +27,9 @@ export class SecurityScannerProducer implements Producer {
         prompt,
         dryRun: ctx.dryRun,
       });
+
+      const acfg = getAutonomousConfig();
+      result.costUsd += (response.cost.inputTokens * acfg.models.inputCostPerM + response.cost.outputTokens * acfg.models.outputCostPerM) / 1_000_000;
 
       const titles = response.text
         .split("\n")

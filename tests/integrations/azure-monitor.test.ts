@@ -110,13 +110,35 @@ describe("runKqlQuery", () => {
     vi.stubEnv("AZURE_MONITOR_WORKSPACE_ID", "");
 
     const result = await runKqlQuery(
-      { workspaceId: "ws-123" },
+      { workspaceId: "" },
       "AppEvents | take 10",
     );
 
     expect(result).toEqual([]);
     // fetch should not have been called
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("uses config.workspaceId when env var is not set", async () => {
+    vi.stubEnv("AZURE_MONITOR_WORKSPACE_ID", "");
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ tables: [] }),
+    });
+
+    const result = await runKqlQuery(
+      { workspaceId: "ws-from-config" },
+      "AppEvents | take 10",
+    );
+
+    expect(result).toEqual([]);
+    // fetch should have been called using config.workspaceId
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe(
+      "https://api.loganalytics.io/v1/workspaces/ws-from-config/query",
+    );
   });
 
   it("returns [] when response has empty tables", async () => {

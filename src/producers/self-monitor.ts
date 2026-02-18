@@ -1,4 +1,4 @@
-import { sql, inArray } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { create } from "../db/queries/tasks.js";

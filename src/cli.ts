@@ -113,6 +113,11 @@ async function runProducer(): Promise<void> {
 
   const producer = PRODUCER_MAP[producerName];
   const createdBy = parseInt(process.env.HIVE_DAEMON_USER_ID ?? "1", 10);
+  if (!Number.isFinite(createdBy) || createdBy < 1) {
+    process.stderr.write(`Invalid HIVE_DAEMON_USER_ID: "${process.env.HIVE_DAEMON_USER_ID}"\n`);
+    await pool.end();
+    process.exit(1);
+  }
 
   const start = Date.now();
   const result = await producer.run({

@@ -35,8 +35,12 @@ export async function sendNotification(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: `*${payload.title}*\n${payload.body}` }),
       })
-        .then(() => {
-          logger.info("Slack notification sent");
+        .then((resp) => {
+          if (!resp.ok) {
+            logger.warn({ status: resp.status }, "Slack webhook returned non-OK status");
+          } else {
+            logger.info("Slack notification sent");
+          }
         })
         .catch((err: unknown) => {
           logger.error({ err }, "Failed to send Slack notification");
@@ -56,8 +60,12 @@ export async function sendNotification(
           text: payload.body,
         }),
       })
-        .then(() => {
-          logger.info("Teams notification sent");
+        .then((resp) => {
+          if (!resp.ok) {
+            logger.warn({ status: resp.status }, "Teams webhook returned non-OK status");
+          } else {
+            logger.info("Teams notification sent");
+          }
         })
         .catch((err: unknown) => {
           logger.error({ err }, "Failed to send Teams notification");
@@ -77,7 +85,7 @@ export async function notifyTasksCreated(
   taskIds: string[],
 ): Promise<void> {
   const count = taskTitles.length;
-  const list = taskTitles.map((t, i) => `  - ${t} (${taskIds[i]})`).join("\n");
+  const list = taskTitles.map((t, i) => taskIds[i] ? `  - ${t} (${taskIds[i]})` : `  - ${t}`).join("\n");
   const body = `Producer "${producerName}" created ${count} task(s) in ${repoName}:\n${list}`;
 
   await sendNotification({

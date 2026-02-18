@@ -231,6 +231,10 @@ export class Daemon {
     }
 
     const createdBy = parseInt(process.env.HIVE_DAEMON_USER_ID ?? "1", 10);
+    if (!Number.isFinite(createdBy) || createdBy < 1) {
+      logger.error({ raw: process.env.HIVE_DAEMON_USER_ID }, "Daemon: invalid HIVE_DAEMON_USER_ID, skipping producer tick");
+      return;
+    }
 
     for (const repo of allRepos) {
       const ctx: ProducerContext = {
