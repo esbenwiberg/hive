@@ -1,5 +1,6 @@
 import path from "node:path";
 import express from "express";
+import type { Request, Response, NextFunction } from "express";
 import sessionMiddleware from "../auth/session.js";
 import { getAuthUrl, handleCallback } from "../auth/entra.js";
 import { injectUser } from "../auth/middleware.js";
@@ -88,5 +89,29 @@ app.get("/api/health", (_req, res) => {
 app.use("/", dashboardRouter);
 app.use("/", taskRouter);
 app.use("/", profileRouter);
+
+// ── Error handler ────────────────────────────────────────────────────────────
+
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  const isHtmx = !!req.headers["hx-request"];
+  const status = err.message.startsWith("Invalid transition") || err.message.endsWith("not found") ? 400 : 500;
+
+  if (status === 500) {
+    logger.error(err, "Unhandled error");
+  }
+
+  if (isHtmx) {
+    res.status(status).setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: err.message, type: "error" } }),
+    );
+    res.send("");
+  } else {
+    const message = process.env.NODE_ENV === "production" && status === 500
+      ? "Internal server error"
+      : err.message;
+    res.status(status).send(message);
+  }
+});
 
 export default app;

@@ -76,6 +76,7 @@ export function statusBadge(status: string): string {
     queued: "blue",
     enriching: "blue",
     ready: "amber",
+    approved: "emerald",
     executing: "amber",
     reviewing: "amber",
     done: "emerald",
@@ -83,6 +84,7 @@ export function statusBadge(status: string): string {
     failed: "red",
     rejected: "red",
     cancelled: "slate",
+    rework: "red",
   };
 
   return badge(status, map[status] ?? "slate");
@@ -202,9 +204,6 @@ export function pipelineSteps(currentStatus: string): string {
     { key: "reviewing", label: "Review" },
     { key: "done", label: "Done" },
   ];
-
-  const order = steps.map((s) => s.key);
-  const currentIdx = order.indexOf(currentStatus);
 
   // Map some statuses to their closest pipeline step
   const statusMap: Record<string, number> = {

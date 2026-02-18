@@ -73,6 +73,19 @@ export function generateTaskId(): string {
   return `HIVE-${y}${m}${d}-${hex}`;
 }
 
+// ── Valid value sets (for input validation) ─────────────────────────────────
+
+const TASK_TYPE_VALUES = new Set(Object.values(TaskType));
+const TASK_SIZE_VALUES = new Set(Object.values(TaskSize));
+
+export function isValidTaskType(v: string): v is TaskTypeValue {
+  return TASK_TYPE_VALUES.has(v as TaskTypeValue);
+}
+
+export function isValidTaskSize(v: string): v is TaskSizeValue {
+  return TASK_SIZE_VALUES.has(v as TaskSizeValue);
+}
+
 // ── Task Filters ────────────────────────────────────────────────────────────
 
 export interface TaskFilters {

@@ -4,6 +4,7 @@ import { requireAuth } from "../../auth/middleware.js";
 import * as taskQueries from "../../db/queries/tasks.js";
 import * as repoQueries from "../../db/queries/repos.js";
 import type { TaskFilters } from "../../domain/types.js";
+import { isValidTaskType, isValidTaskSize } from "../../domain/types.js";
 import {
   taskListPage,
   taskListPartial,
@@ -12,18 +13,21 @@ import {
 
 const router = Router();
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function parseTaskFilters(query: Request["query"]): TaskFilters {
+  const filters: TaskFilters = {};
+  if (query.status) filters.status = query.status as string;
+  if (query.repoId) filters.repoId = Number(query.repoId);
+  if (query.search) filters.search = query.search as string;
+  return filters;
+}
+
 // ── GET /tasks ─ Full task list page ────────────────────────────────────────
 
 router.get("/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const status = req.query.status as string | undefined;
-    const repoId = req.query.repoId ? Number(req.query.repoId) : undefined;
-    const search = req.query.search as string | undefined;
-
-    const filters: TaskFilters = {};
-    if (status) filters.status = status;
-    if (repoId) filters.repoId = repoId;
-    if (search) filters.search = search;
+    const filters = parseTaskFilters(req.query);
 
     const [{ tasks }, counts, repos] = await Promise.all([
       taskQueries.list(filters),
@@ -32,7 +36,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     ]);
 
     if (req.headers["hx-request"]) {
-      res.send(taskListPartial(tasks, counts, status));
+      res.send(taskListPartial(tasks, counts, filters.status));
     } else {
       res.send(taskListPage(tasks, filters, counts, req.session.user!, repos));
     }
@@ -45,21 +49,14 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
 
 router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const status = req.query.status as string | undefined;
-    const repoId = req.query.repoId ? Number(req.query.repoId) : undefined;
-    const search = req.query.search as string | undefined;
-
-    const filters: TaskFilters = {};
-    if (status) filters.status = status;
-    if (repoId) filters.repoId = repoId;
-    if (search) filters.search = search;
+    const filters = parseTaskFilters(req.query);
 
     const [{ tasks }, counts] = await Promise.all([
       taskQueries.list(filters),
       taskQueries.countByStatus(),
     ]);
 
-    res.send(taskListPartial(tasks, counts, status));
+    res.send(taskListPartial(tasks, counts, filters.status));
   } catch (err) {
     next(err);
   }
@@ -72,8 +69,29 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
     const { title, body, repoId, type, size } = req.body;
     const user = req.session.user!;
 
+    if (!title || typeof title !== "string" || title.trim().length === 0) {
+      res.status(400).send("Title is required");
+      return;
+    }
+    if (title.length > 500) {
+      res.status(400).send("Title must be 500 characters or fewer");
+      return;
+    }
+    if (!repoId || isNaN(Number(repoId))) {
+      res.status(400).send("A valid repository is required");
+      return;
+    }
+    if (type && !isValidTaskType(type)) {
+      res.status(400).send("Invalid task type");
+      return;
+    }
+    if (size && !isValidTaskSize(size)) {
+      res.status(400).send("Invalid task size");
+      return;
+    }
+
     await taskQueries.create({
-      title,
+      title: title.trim(),
       body: body || "",
       source: "user",
       type: type || undefined,

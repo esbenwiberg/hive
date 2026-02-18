@@ -1,3 +1,4 @@
+import type { InferSelectModel } from "drizzle-orm";
 import {
   pgTable,
   serial,
@@ -278,3 +279,10 @@ export const globalConfig = pgTable("global_config", {
   value: jsonb("value").notNull(),
   updatedAt: timestamp("updated_at", tz).defaultNow(),
 });
+
+// ── Inferred row types ──────────────────────────────────────────────────────
+
+export type TaskRow = InferSelectModel<typeof tasks>;
+export type RepoRow = InferSelectModel<typeof repos>;
+export type ActiveAgentRow = InferSelectModel<typeof activeAgents>;
+export type UserCredentialRow = InferSelectModel<typeof userCredentials>;

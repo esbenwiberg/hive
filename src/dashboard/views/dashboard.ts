@@ -1,6 +1,7 @@
 // Dashboard home view — pure functions returning HTML strings
 
 import type { SessionUser } from "../../domain/types.js";
+import type { TaskRow, ActiveAgentRow } from "../../db/schema.js";
 import {
   escapeHtml,
   statCard,
@@ -48,7 +49,7 @@ function statsRow(stats: Record<string, number>): string {
 
 // ── Recent tasks table ──────────────────────────────────────────────────────
 
-function recentTasksSection(tasks: any[]): string {
+function recentTasksSection(tasks: TaskRow[]): string {
   if (tasks.length === 0) {
     return card(emptyState("No tasks yet", ""), { title: "Recent Tasks" });
   }
@@ -71,7 +72,7 @@ function recentTasksSection(tasks: any[]): string {
 
 // ── Active agents section ───────────────────────────────────────────────────
 
-function activeAgentsSection(agents: any[]): string {
+function activeAgentsSection(agents: ActiveAgentRow[]): string {
   if (agents.length === 0) {
     return card(
       emptyState("No active agents"),
@@ -103,8 +104,8 @@ function activeAgentsSection(agents: any[]): string {
  */
 export function dashboardPage(
   stats: Record<string, number>,
-  recentTasks: any[],
-  activeAgents: any[],
+  recentTasks: TaskRow[],
+  activeAgents: ActiveAgentRow[],
   user: SessionUser,
 ): string {
   const content = `<div class="space-y-8">

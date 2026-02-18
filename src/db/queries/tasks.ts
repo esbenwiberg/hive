@@ -5,6 +5,10 @@ import { generateTaskId } from "../../domain/types.js";
 import { canTransition } from "../../domain/state-machine.js";
 import type { TaskFilters } from "../../domain/types.js";
 
+function escapeLike(str: string): string {
+  return str.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 /**
  * Creates a new task with a generated HIVE-YYYYMMDD-xxxx id.
  * Status is always set to 'pending'.
@@ -69,7 +73,7 @@ export async function list(
     conditions.push(eq(tasks.createdBy, filters.createdBy));
   }
   if (filters.search) {
-    conditions.push(ilike(tasks.title, `%${filters.search}%`));
+    conditions.push(ilike(tasks.title, `%${escapeLike(filters.search)}%`));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;

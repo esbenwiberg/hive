@@ -1,6 +1,7 @@
 // Task list views — pure functions returning HTML strings
 
-import type { SessionUser } from "../../domain/types.js";
+import type { SessionUser, TaskFilters } from "../../domain/types.js";
+import type { TaskRow, RepoRow } from "../../db/schema.js";
 import { getAvailableActions } from "../../domain/state-machine.js";
 import {
   escapeHtml,
@@ -56,7 +57,7 @@ function filterTabs(
 
 // ── Task table ──────────────────────────────────────────────────────────────
 
-function taskTable(tasks: any[]): string {
+function taskTable(tasks: TaskRow[]): string {
   if (tasks.length === 0) {
     return emptyState(
       "No tasks found",
@@ -77,10 +78,7 @@ function taskTable(tasks: any[]): string {
 
     const title = `<span class="text-slate-50 font-medium">${escapeHtml(t.title)}</span>`;
     const status = statusBadge(t.status);
-    const repo =
-      t.repoFullName ?? t.repo?.fullName
-        ? `<span class="text-xs text-slate-400">${escapeHtml(t.repoFullName ?? t.repo?.fullName ?? "")}</span>`
-        : `<span class="text-xs text-slate-500">-</span>`;
+    const repo = `<span class="text-xs text-slate-400">#${t.repoId}</span>`;
     const created = t.createdAt
       ? `<span class="text-xs text-slate-400">${escapeHtml(new Date(t.createdAt).toLocaleDateString())}</span>`
       : "-";
@@ -131,7 +129,7 @@ function taskTable(tasks: any[]): string {
  * Task list partial — just the filter tabs + table (for HTMX responses).
  */
 export function taskListPartial(
-  tasks: any[],
+  tasks: TaskRow[],
   counts: Record<string, number>,
   activeStatus?: string,
 ): string {
@@ -143,11 +141,11 @@ export function taskListPartial(
  * Full task list page with layout.
  */
 export function taskListPage(
-  tasks: any[],
-  filters: any,
+  tasks: TaskRow[],
+  filters: TaskFilters,
   counts: Record<string, number>,
   user: SessionUser,
-  repos: any[] = [],
+  repos: RepoRow[] = [],
 ): string {
   const activeStatus = filters?.status ?? "";
 
@@ -176,7 +174,7 @@ ${taskCreateForm(repos)}`;
 /**
  * Task detail slide-over panel.
  */
-export function taskDetailPanel(task: any): string {
+export function taskDetailPanel(task: TaskRow): string {
   const actions = getAvailableActions(task.status);
 
   const actionButtons = actions
@@ -201,12 +199,7 @@ export function taskDetailPanel(task: any): string {
     ["Type", task.type ? escapeHtml(task.type) : `<span class="text-slate-500">-</span>`],
     ["Size", task.size ? escapeHtml(task.size) : `<span class="text-slate-500">-</span>`],
     ["Workflow", task.workflow ? escapeHtml(task.workflow) : `<span class="text-slate-500">-</span>`],
-    [
-      "Repo",
-      task.repoFullName ?? task.repo?.fullName
-        ? escapeHtml(task.repoFullName ?? task.repo?.fullName ?? "")
-        : `<span class="text-slate-500">-</span>`,
-    ],
+    ["Repo", `#${task.repoId}`],
     [
       "Created",
       task.createdAt
@@ -293,12 +286,12 @@ export function taskDetailPanel(task: any): string {
 /**
  * Task create form in a slide-over panel.
  */
-export function taskCreateForm(repos: any[]): string {
+export function taskCreateForm(repos: RepoRow[]): string {
   const repoOptions = [
     { value: "", label: "Select a repository" },
     ...repos.map((r) => ({
       value: String(r.id),
-      label: r.fullName ?? r.full_name ?? `Repo #${r.id}`,
+      label: r.fullName,
     })),
   ];
 

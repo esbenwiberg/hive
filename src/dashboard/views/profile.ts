@@ -1,4 +1,5 @@
 import type { SessionUser } from "../../domain/types.js";
+import type { UserCredentialRow } from "../../db/schema.js";
 import {
   card,
   badge,
@@ -11,18 +12,9 @@ import {
 } from "./components.js";
 import { layout } from "./layout.js";
 
-// ── Credential row type ──────────────────────────────────────────────────────
-
-interface Credential {
-  id: number;
-  provider: string;
-  label: string | null;
-  createdAt: Date | null;
-}
-
 // ── Credentials list partial (reused by HTMX responses) ─────────────────────
 
-export function credentialsListPartial(credentials: Credential[]): string {
+export function credentialsListPartial(credentials: UserCredentialRow[]): string {
   if (credentials.length === 0) {
     return emptyState("No credentials configured yet");
   }
@@ -49,7 +41,7 @@ export function credentialsListPartial(credentials: Credential[]): string {
 
 export function profilePage(
   user: SessionUser,
-  credentials: Credential[],
+  credentials: UserCredentialRow[],
 ): string {
   const roleBadgeColor =
     user.role === "admin" ? "amber" : user.role === "viewer" ? "slate" : "blue";

@@ -58,12 +58,18 @@ router.post(
 
       await setSecret(secretName, token);
 
-      await db.insert(userCredentials).values({
-        userId: user.id,
-        provider,
-        label,
-        vaultSecretId: secretName,
-      });
+      try {
+        await db.insert(userCredentials).values({
+          userId: user.id,
+          provider,
+          label,
+          vaultSecretId: secretName,
+        });
+      } catch (dbErr) {
+        // Clean up the orphaned vault secret
+        await deleteSecret(secretName).catch(() => {});
+        throw dbErr;
+      }
 
       const credentials = await getUserCredentials(user.id);
 
