@@ -88,6 +88,15 @@ resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-pr
   }
 }
 
+resource postgresSSLConfig 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-12-01-preview' = {
+  parent: postgresServer
+  name: 'require_secure_transport'
+  properties: {
+    value: 'ON'
+    source: 'user-override'
+  }
+}
+
 resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-12-01-preview' = {
   parent: postgresServer
   name: 'hive'
@@ -97,6 +106,9 @@ resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2
   }
 }
 
+// TODO: Replace with VNet integration + private endpoints for production hardening.
+// This rule allows ANY Azure service (from any subscription) to connect to the database,
+// not just the Container App. Acceptable for initial deployment but should be scoped down.
 resource postgresFirewallAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-01-preview' = {
   parent: postgresServer
   name: 'AllowAzureServices'
@@ -114,7 +126,9 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
 
 // ── Role Assignments ─────────────────────────────────────────────────────────
 
-// Key Vault Secrets Officer on the Key Vault for the Managed Identity
+// Key Vault Secrets Officer on the Key Vault for the Managed Identity.
+// Secrets Officer (not Secrets User) is required because the app writes
+// user git tokens to Key Vault at runtime via the profile settings page.
 resource kvSecretsOfficerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(keyVault.id, managedIdentity.id, keyVaultSecretsOfficerRoleId)
   scope: keyVault
@@ -136,6 +150,16 @@ resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// ── Key Vault Secrets ────────────────────────────────────────────────────────
+
+resource databaseUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'database-url'
+  properties: {
+    value: 'postgresql://hiveadmin:${postgresAdminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/hive?sslmode=require'
+  }
+}
+
 // ── Container App Module ─────────────────────────────────────────────────────
 module containerApp 'container-app.bicep' = {
   name: 'container-app'
@@ -147,8 +171,6 @@ module containerApp 'container-app.bicep' = {
     acrLoginServer: acr.properties.loginServer
     containerImageTag: containerImageTag
     keyVaultName: keyVault.name
-    postgresServerFqdn: postgresServer.properties.fullyQualifiedDomainName
-    postgresAdminPassword: postgresAdminPassword
     managedIdentityId: managedIdentity.id
     managedIdentityClientId: managedIdentity.properties.clientId
   }

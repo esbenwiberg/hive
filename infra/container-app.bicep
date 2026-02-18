@@ -22,13 +22,6 @@ param containerImageTag string
 @description('Name of the Key Vault')
 param keyVaultName string
 
-@description('PostgreSQL server FQDN')
-param postgresServerFqdn string
-
-@secure()
-@description('PostgreSQL admin password')
-param postgresAdminPassword string
-
 @description('Resource ID of the user-assigned managed identity')
 param managedIdentityId string
 
@@ -80,8 +73,9 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       secrets: [
         {
-          name: 'postgres-admin-password'
-          value: postgresAdminPassword
+          name: 'database-url'
+          keyVaultUrl: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets/database-url'
+          identity: managedIdentityId
         }
         {
           name: 'anthropic-api-key'
@@ -117,7 +111,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           env: [
             {
               name: 'DATABASE_URL'
-              value: 'postgresql://hiveadmin:${postgresAdminPassword}@${postgresServerFqdn}:5432/hive?sslmode=require'
+              secretRef: 'database-url'
             }
             {
               name: 'ANTHROPIC_API_KEY'
@@ -179,8 +173,29 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'HIVE_WORKTREE_DIR'
               value: '/repos'
             }
+            {
+              name: 'HIVE_PRODUCER_INTERVAL_MS'
+              value: '900000'
+            }
+            {
+              name: 'HIVE_DAEMON_USER_ID'
+              value: '1'
+            }
+            {
+              name: 'HIVE_DEFAULT_REPO_ID'
+              value: '1'
+            }
           ]
           probes: [
+            {
+              type: 'Startup'
+              httpGet: {
+                path: '/api/health'
+                port: 3000
+              }
+              periodSeconds: 10
+              failureThreshold: 30
+            }
             {
               type: 'Liveness'
               httpGet: {
