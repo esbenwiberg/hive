@@ -54,8 +54,9 @@ export async function curateLearnings(): Promise<void> {
   const model = config.models.gate;
 
   try {
-    // Load all active learnings
-    const { learnings: activeLearnings } = await listLearnings({ limit: 200 });
+    // Load learnings and filter out already-archived ones
+    const { learnings: allLearnings } = await listLearnings({ limit: 200 });
+    const activeLearnings = allLearnings.filter(l => l.supersededBy == null);
 
     if (activeLearnings.length === 0) {
       logger.info("Keeper: no active learnings to curate");

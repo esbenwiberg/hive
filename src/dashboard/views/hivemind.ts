@@ -82,7 +82,7 @@ function relativeTime(date: Date | null): string {
 }
 
 function scopeBadgeColor(scope: string): "blue" | "amber" | "emerald" | "slate" {
-  if (scope === "global") return "amber";
+  if (scope === "universal") return "amber";
   if (scope.startsWith("repo:")) return "blue";
   if (scope.startsWith("task:")) return "emerald";
   return "slate";
@@ -136,7 +136,7 @@ function filterControls(topCategories: { category: string; count: number }[]): s
         hx-swap="innerHTML"
         hx-include="[name='category'],[name='minConfidence']">
         <option value="">All scopes</option>
-        <option value="global">Global</option>
+        <option value="universal">Universal</option>
       </select>
     </div>
 

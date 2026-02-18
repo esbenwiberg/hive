@@ -253,6 +253,9 @@ export async function runRetrospective(): Promise<RetrospectiveReport> {
       }
     }
 
+    // Persist the report so the dashboard can display it
+    await setConfig("lastRetrospectiveReport", report);
+
     // Update last run timestamp
     await setConfig("lastRetrospectiveRun", new Date().toISOString());
 

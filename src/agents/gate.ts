@@ -11,6 +11,7 @@ import { recordCost } from "../db/queries/costs.js";
 import { recordDecision } from "../db/queries/gate-decisions.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
+import { analyzeGatePatterns } from "./gate-analyst.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -213,6 +214,11 @@ export async function evaluateGate(taskId: string): Promise<void> {
       1,
       durationMs,
     );
+
+    // Fire-and-forget gate pattern analysis — never blocks or throws
+    void analyzeGatePatterns(taskId, result.verdict, result.reasoning).catch((err) => {
+      logger.error({ taskId, err }, "Gate pattern analysis failed (non-blocking)");
+    });
 
     logger.info(
       { taskId, verdict: result.verdict, confidence: result.confidence },

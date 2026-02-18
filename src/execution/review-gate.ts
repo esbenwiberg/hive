@@ -11,6 +11,7 @@ import { register, unregister } from "../db/queries/active-agents.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
 import { fireAndForgetFeedback } from "../agents/feedback-loop.js";
+import { analyzeReviewPatterns } from "../agents/code-quality-analyst.js";
 import type { ReviewGateResult, WorktreeInfo } from "../domain/types.js";
 
 const execFileAsync = promisify(execFile);
@@ -178,6 +179,13 @@ export async function reviewChanges(
       .map((f) => `[${f.severity}] ${f.file}${f.line ? `:${f.line}` : ""}: ${f.message}`)
       .join("\n");
     void fireAndForgetFeedback(taskId, result.verdict, learningIds ?? [], findingsText || undefined);
+
+    // Fire-and-forget review pattern analysis — never blocks or throws
+    if (result.findings.length > 0) {
+      void analyzeReviewPatterns(taskId, result.findings).catch((err) => {
+        logger.error({ taskId, err }, "Review pattern analysis failed (non-blocking)");
+      });
+    }
 
     logger.info({ taskId, verdict: result.verdict, costUsd }, "Review gate complete");
 

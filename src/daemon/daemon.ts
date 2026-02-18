@@ -17,7 +17,7 @@ import { listAll } from "../db/queries/repos.js";
 import { runRetrospective } from "../agents/retrospective.js";
 import { applyMonthlyDecay, archiveStale } from "../db/queries/learnings.js";
 import { curateLearnings } from "../agents/keeper.js";
-import { getConfig } from "../domain/config.js";
+import { getConfig, setConfig } from "../domain/config.js";
 import type { Producer, ProducerContext } from "../producers/base.js";
 
 interface DaemonOptions {
@@ -33,6 +33,7 @@ const DEFAULT_MAX_PER_USER = 2;
 const DEFAULT_PRODUCER_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
 const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1_000; // 24 hours
 const RETROSPECTIVE_MIN_GAP_MS = 7 * 24 * 60 * 60 * 1_000; // 7 days
+const DECAY_MIN_GAP_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 const DRAIN_POLL_MS = 500;
 const MAX_DRAIN_TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
 
@@ -363,7 +364,29 @@ export class Daemon {
 
   private async _decayTick(): Promise<void> {
     try {
+      // Gate decay so it only runs once per 30 days
+      const lastDecayRaw = await getConfig("lastDecayRun");
+      if (lastDecayRaw) {
+        const lastDecay = new Date(lastDecayRaw as string).getTime();
+        const elapsed = Date.now() - lastDecay;
+        if (elapsed < DECAY_MIN_GAP_MS) {
+          logger.debug(
+            { elapsedDays: (elapsed / (24 * 60 * 60 * 1000)).toFixed(1) },
+            "Daemon: monthly decay not due yet, skipping",
+          );
+          // Still run archival and curation even if decay is not due
+          const archived = await archiveStale();
+          if (archived > 0) {
+            logger.info({ archived }, "Daemon: stale archival complete (decay skipped)");
+          }
+          await curateLearnings();
+          logger.info("Daemon: learning curation complete");
+          return;
+        }
+      }
+
       const decayed = await applyMonthlyDecay();
+      await setConfig("lastDecayRun", new Date().toISOString());
       const archived = await archiveStale();
 
       logger.info(

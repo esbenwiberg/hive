@@ -26,7 +26,6 @@ function getFeedbackPrompt(): string {
 interface FeedbackResult {
   reinforceIds: number[];
   contradictIds: number[];
-  contradictAmount: number;
   newLearnings: {
     scope: string;
     category: string;
@@ -43,7 +42,6 @@ function parseFeedbackResult(text: string): FeedbackResult {
   return {
     reinforceIds: Array.isArray(parsed.reinforceIds) ? parsed.reinforceIds : [],
     contradictIds: Array.isArray(parsed.contradictIds) ? parsed.contradictIds : [],
-    contradictAmount: typeof parsed.contradictAmount === "number" ? parsed.contradictAmount : 0.05,
     newLearnings: Array.isArray(parsed.newLearnings) ? parsed.newLearnings : [],
   };
 }

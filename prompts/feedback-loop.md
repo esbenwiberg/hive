@@ -37,10 +37,9 @@ Respond with a JSON object:
 {
   "reinforceIds": [1, 5, 12],
   "contradictIds": [3, 8],
-  "contradictAmount": 0.05,
   "newLearnings": [
     {
-      "scope": "global",
+      "scope": "universal",
       "category": "correctness",
       "content": "Always validate input parameters before database operations",
       "tags": ["validation", "database", "correctness"],
@@ -54,9 +53,8 @@ Respond with a JSON object:
 
 - **reinforceIds**: Array of learning IDs that helped or are validated by this outcome. Empty array if none.
 - **contradictIds**: Array of learning IDs that failed to prevent issues. Empty array if none.
-- **contradictAmount**: The confidence penalty per contradicted learning. Use `0.05` for rework, `0.10` for fail. Set to `0` if contradictIds is empty.
 - **newLearnings**: Array of new learnings to create. Each must have:
-  - `scope`: One of `"global"`, `"repo"`, or `"task-type"` — how broadly the learning applies
+  - `scope`: One of `"universal"`, `"repo:<name>"`, or `"task:<type>"` — how broadly the learning applies
   - `category`: One of `"correctness"`, `"security"`, `"style"`, `"performance"`, `"testing"`, `"architecture"`
   - `content`: A concise, actionable statement of the learning (1-2 sentences)
   - `tags`: Array of lowercase keyword tags for retrieval (3-6 tags)
