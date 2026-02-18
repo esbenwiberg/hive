@@ -15,11 +15,13 @@ export const pool = new Pool({ connectionString });
 export const db = drizzle(pool, { schema });
 
 /**
- * Truncates the users and sessions tables.
+ * Truncates all application tables.
  * Call this in beforeEach() blocks to get a clean slate between tests.
  */
 export async function cleanupTables(): Promise<void> {
-  await db.execute(sql`TRUNCATE users, sessions, tasks, repos CASCADE`);
+  await db.execute(
+    sql`TRUNCATE users, sessions, tasks, repos, costs, gate_decisions, enrichment_runs, active_agents, code_reviews CASCADE`,
+  );
 }
 
 /**

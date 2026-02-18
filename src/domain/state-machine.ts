@@ -14,12 +14,16 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   ],
   [TaskStatus.ENRICHING]: [
     TaskStatus.READY,
+    TaskStatus.APPROVED,
+    TaskStatus.REJECTED,
+    TaskStatus.REWORK,
     TaskStatus.FAILED,
     TaskStatus.CANCELLED,
   ],
   [TaskStatus.READY]: [
     TaskStatus.APPROVED,
     TaskStatus.REJECTED,
+    TaskStatus.REWORK,
     TaskStatus.CANCELLED,
   ],
   [TaskStatus.APPROVED]: [
@@ -84,6 +88,7 @@ export function getAvailableActions(status: string): Action[] {
     [TaskStatus.READY]: [
       { action: "approve", targetStatus: TaskStatus.APPROVED, label: "Approve" },
       { action: "reject", targetStatus: TaskStatus.REJECTED, label: "Reject" },
+      { action: "rework", targetStatus: TaskStatus.REWORK, label: "Rework" },
       { action: "cancel", targetStatus: TaskStatus.CANCELLED, label: "Cancel" },
     ],
     [TaskStatus.APPROVED]: [

@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import { requireAuth } from "../../auth/middleware.js";
 import * as taskQueries from "../../db/queries/tasks.js";
 import * as repoQueries from "../../db/queries/repos.js";
+import { recordDecision } from "../../db/queries/gate-decisions.js";
 import type { TaskFilters } from "../../domain/types.js";
 import { isValidTaskType, isValidTaskSize } from "../../domain/types.js";
 import {
@@ -141,6 +142,12 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
     const user = req.session.user!;
 
     const updated = await taskQueries.updateStatus(id, targetStatus, user.id);
+
+    // Record gate decision for approval/rejection/rework actions
+    const GATE_STATUSES = new Set(["approved", "rejected", "rework"]);
+    if (GATE_STATUSES.has(targetStatus)) {
+      await recordDecision(id, targetStatus, "human", user.id);
+    }
 
     // Return updated task list partial
     const [{ tasks }, counts] = await Promise.all([

@@ -5,6 +5,7 @@ import type { TaskRow, RepoRow } from "../../db/schema.js";
 import { getAvailableActions } from "../../domain/state-machine.js";
 import {
   escapeHtml,
+  badge,
   button,
   statusBadge,
   card,
@@ -121,6 +122,103 @@ function taskTable(tasks: TaskRow[]): string {
     <tbody class="divide-y divide-slate-700">${trs}</tbody>
   </table>
 </div>`;
+}
+
+// ── Enrichment display ──────────────────────────────────────────────────────
+
+function enrichmentSection(task: TaskRow): string {
+  const enrichment = task.enrichment as Record<string, unknown> | null;
+
+  if (!enrichment || typeof enrichment !== "object" || Object.keys(enrichment).length === 0) {
+    return "";
+  }
+
+  const sections = Object.entries(enrichment)
+    .map(([key, value]) => {
+      const content = formatEnrichmentValue(value);
+      return `<details class="group">
+        <summary class="flex cursor-pointer items-center justify-between rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800">
+          ${escapeHtml(key)}
+          <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </summary>
+        <div class="mt-1 rounded-lg bg-slate-900 px-4 py-3 text-xs text-slate-300">
+          ${content}
+        </div>
+      </details>`;
+    })
+    .join("");
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Enrichment</h4>
+    <div class="space-y-2">${sections}</div>
+  </div>`;
+}
+
+function formatEnrichmentValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return `<span class="text-slate-500">-</span>`;
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const rows = Object.entries(obj)
+      .map(([k, v]) => {
+        const display =
+          Array.isArray(v)
+            ? v.map((item) => escapeHtml(String(item))).join(", ")
+            : typeof v === "object" && v !== null
+              ? `<pre class="whitespace-pre-wrap text-xs text-slate-400">${escapeHtml(JSON.stringify(v, null, 2))}</pre>`
+              : escapeHtml(String(v));
+        return `<div class="flex justify-between gap-4 py-1">
+          <span class="text-slate-400 shrink-0">${escapeHtml(k)}</span>
+          <span class="text-slate-200 text-right">${display}</span>
+        </div>`;
+      })
+      .join("");
+    return `<div class="divide-y divide-slate-800">${rows}</div>`;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => escapeHtml(String(item))).join(", ");
+  }
+
+  return escapeHtml(String(value));
+}
+
+// ── Gate decision display ───────────────────────────────────────────────────
+
+function gateDecisionSection(task: TaskRow): string {
+  if (!task.gateVerdict && !task.gateReasoning) {
+    return "";
+  }
+
+  const verdictColors: Record<string, "emerald" | "red" | "amber"> = {
+    approved: "emerald",
+    approve: "emerald",
+    rejected: "red",
+    reject: "red",
+    rework: "amber",
+  };
+
+  const verdictBadge = task.gateVerdict
+    ? badge(task.gateVerdict, verdictColors[task.gateVerdict] ?? "slate")
+    : "";
+
+  const reasoning = task.gateReasoning
+    ? `<p class="mt-2 text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(task.gateReasoning)}</p>`
+    : "";
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Gate Decision</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      <div class="flex items-center gap-2">
+        ${verdictBadge}
+      </div>
+      ${reasoning}
+    </div>
+  </div>`;
 }
 
 // ── Exported views ──────────────────────────────────────────────────────────
@@ -267,6 +365,12 @@ export function taskDetailPanel(task: TaskRow): string {
 
     <!-- Body -->
     ${bodyHtml ? `<div><h4 class="text-sm font-medium text-slate-400 mb-2">Description</h4>${bodyHtml}</div>` : ""}
+
+    <!-- Enrichment -->
+    ${enrichmentSection(task)}
+
+    <!-- Gate Decision -->
+    ${gateDecisionSection(task)}
 
     <!-- Actions -->
     ${

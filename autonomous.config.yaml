@@ -1,0 +1,28 @@
+# Autonomous pipeline configuration
+# Controls routing, gating, budgets, and enrichment behaviour.
+
+classification:
+  # Default task type when the router cannot determine one
+  defaultType: improvement
+  # Default size estimate when unknown
+  defaultSize: medium
+
+gate:
+  # Mode: "ai" (LLM decides), "human" (always require approval), "auto" (skip gate)
+  mode: human
+
+budget:
+  # Default daily budget per user in USD
+  dailyDefault: 100.00
+  # Maximum spend allowed for a single task in USD
+  perTaskMax: 25.00
+
+enrichers:
+  - name: repo-map
+    enabled: true
+  - name: style-guide
+    enabled: true
+  - name: dependencies
+    enabled: true
+  - name: test-coverage
+    enabled: false

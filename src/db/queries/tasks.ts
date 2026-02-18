@@ -138,6 +138,58 @@ export async function updateStatus(
 }
 
 /**
+ * Updates classification fields on a task.
+ * Called by the router agent after classifying a task.
+ */
+export async function updateClassification(
+  id: string,
+  data: {
+    type: string;
+    size: string;
+    model: string;
+    workflow: string;
+    maxTurns?: number;
+    maxBudgetUsd?: number;
+  },
+) {
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      type: data.type,
+      size: data.size,
+      model: data.model,
+      workflow: data.workflow,
+      maxTurns: data.maxTurns ?? null,
+      maxBudgetUsd: data.maxBudgetUsd?.toFixed(2) ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, id))
+    .returning();
+
+  return updated;
+}
+
+/**
+ * Updates the enrichment JSONB column on a task.
+ * Called by the enrichment pipeline after gathering context.
+ */
+export async function updateEnrichment(
+  id: string,
+  enrichment: Record<string, unknown>,
+) {
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      enrichment,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, id))
+    .returning();
+
+  return updated;
+}
+
+/**
  * Returns task counts grouped by status.
  * Uses Drizzle's sql template for the GROUP BY query.
  */

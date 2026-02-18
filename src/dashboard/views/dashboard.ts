@@ -20,12 +20,14 @@ const ICONS = {
   executing: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg>`,
   done: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`,
   failed: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>`,
+  cost: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`,
 };
 
 // ── Stat cards row ──────────────────────────────────────────────────────────
 
-function statsRow(stats: Record<string, number>): string {
+function statsRow(stats: Record<string, number>, todayCost: number): string {
   const total = Object.values(stats).reduce((a, b) => a + b, 0);
+  const costDisplay = `$${todayCost.toFixed(2)}`;
 
   const cards = [
     statCard("Total Tasks", total, { icon: ICONS.total, color: "slate" }),
@@ -42,9 +44,13 @@ function statsRow(stats: Record<string, number>): string {
       icon: ICONS.failed,
       color: "red",
     }),
+    statCard("Today's Cost", costDisplay, {
+      icon: ICONS.cost,
+      color: "amber",
+    }),
   ];
 
-  return `<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">${cards.join("")}</div>`;
+  return `<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">${cards.join("")}</div>`;
 }
 
 // ── Recent tasks table ──────────────────────────────────────────────────────
@@ -107,6 +113,7 @@ export function dashboardPage(
   recentTasks: TaskRow[],
   activeAgents: ActiveAgentRow[],
   user: SessionUser,
+  todayCost: number = 0,
 ): string {
   const content = `<div class="space-y-8">
   <!-- Welcome -->
@@ -116,7 +123,7 @@ export function dashboardPage(
   </div>
 
   <!-- Stat cards -->
-  ${statsRow(stats)}
+  ${statsRow(stats, todayCost)}
 
   <!-- Two-column layout -->
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
