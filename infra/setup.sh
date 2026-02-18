@@ -201,8 +201,8 @@ ok "Created Entra ID client secret"
 
 # We'll update the redirect URI after the Container App is deployed (need the FQDN)
 
-# ── 3. Deploy infrastructure via Bicep ───────────────────────────────────────
-step "3/8 — Deploying Azure infrastructure (Bicep)"
+# ── 3. Deploy infrastructure via Bicep (without Container App first) ─────────
+step "3/9 — Deploying Azure infrastructure (Bicep)"
 echo "  This takes 3-5 minutes..."
 
 DEPLOYING_USER_OID=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || echo "")
@@ -216,6 +216,7 @@ BICEP_PARAMS=(
   "environmentName=$ENVIRONMENT_NAME"
   "deployDockerHost=$DEPLOY_DOCKER_HOST"
   "deployingUserObjectId=$DEPLOYING_USER_OID"
+  "deployContainerApp=false"
 )
 
 if [[ "$DEPLOY_DOCKER_HOST" == "true" ]]; then
@@ -234,14 +235,12 @@ DEPLOY_OUTPUT=$(az deployment group create \
   --parameters "${BICEP_PARAMS[@]}" \
   --query properties.outputs -o json)
 
-CONTAINER_APP_FQDN=$(echo "$DEPLOY_OUTPUT" | jq -r '.containerAppFqdn.value')
 ACR_NAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.acrName.value')
 ACR_LOGIN_SERVER=$(echo "$DEPLOY_OUTPUT" | jq -r '.acrLoginServer.value')
 KV_URI=$(echo "$DEPLOY_OUTPUT" | jq -r '.keyVaultUri.value')
 PG_FQDN=$(echo "$DEPLOY_OUTPUT" | jq -r '.postgresServerFqdn.value')
 
-ok "Infrastructure deployed"
-ok "Container App:  https://$CONTAINER_APP_FQDN"
+ok "Base infrastructure deployed"
 ok "ACR:            $ACR_LOGIN_SERVER"
 ok "Key Vault:      $KV_URI"
 ok "PostgreSQL:     $PG_FQDN"
@@ -252,19 +251,8 @@ if [[ "$DEPLOY_DOCKER_HOST" == "true" ]]; then
   ok "Docker Host:    $DOCKER_HOST_PUBLIC_IP (public) / $DOCKER_HOST_PRIVATE_IP (private)"
 fi
 
-# ── 4. Update Entra ID redirect URI ─────────────────────────────────────────
-step "4/8 — Configuring Entra ID redirect URI"
-
-REDIRECT_URI="https://${CONTAINER_APP_FQDN}/auth/callback"
-
-az ad app update \
-  --id "$ENTRA_APP_ID" \
-  --web-redirect-uris "$REDIRECT_URI" \
-  -o none
-ok "Set redirect URI: $REDIRECT_URI"
-
-# ── 5. Seed Key Vault secrets ────────────────────────────────────────────────
-step "5/8 — Seeding Key Vault secrets"
+# ── 4. Seed Key Vault secrets ────────────────────────────────────────────────
+step "4/9 — Seeding Key Vault secrets"
 
 # The Bicep template already creates the database-url secret.
 # We need to add the rest.
@@ -284,9 +272,57 @@ set_secret "session-secret"       "$SESSION_SECRET"
 set_secret "entra-client-id"      "$ENTRA_APP_ID"
 set_secret "entra-client-secret"  "$ENTRA_CLIENT_SECRET"
 
-# ── 6. GitHub Actions service principal (OIDC) ──────────────────────────────
+# ── 5. Build and push container image to ACR ─────────────────────────────────
+step "5/9 — Building and pushing container image"
+
+if [[ "$SKIP_FIRST_DEPLOY" == "false" ]]; then
+  az acr login --name "$ACR_NAME"
+  ok "Logged into ACR"
+
+  echo "  Building Docker image..."
+  docker build -t "${ACR_LOGIN_SERVER}/hive:latest" -t "${ACR_LOGIN_SERVER}/hive:initial" . -q
+  ok "Built image"
+
+  echo "  Pushing to ACR..."
+  docker push "${ACR_LOGIN_SERVER}/hive" --all-tags -q
+  ok "Pushed image to $ACR_LOGIN_SERVER"
+else
+  warn "Skipping image build (--skip-first-deploy)"
+fi
+
+# ── 6. Deploy Container App (needs image in ACR) ────────────────────────────
+step "6/9 — Deploying Container App"
+
+BICEP_PARAMS_FULL=(
+  "postgresAdminPassword=$POSTGRES_ADMIN_PASSWORD"
+  "environmentName=$ENVIRONMENT_NAME"
+  "deployDockerHost=$DEPLOY_DOCKER_HOST"
+  "deployingUserObjectId=$DEPLOYING_USER_OID"
+  "deployContainerApp=true"
+)
+
+if [[ "$DEPLOY_DOCKER_HOST" == "true" ]]; then
+  BICEP_PARAMS_FULL+=("dockerHostAdminSshPublicKey=$SSH_KEY_CONTENT")
+  BICEP_PARAMS_FULL+=("dockerHostAllowedSourceAddressPrefix=$DOCKER_HOST_ALLOWED_CIDR")
+fi
+
+DEPLOY_OUTPUT_FULL=$(az deployment group create \
+  --resource-group "$RESOURCE_GROUP" \
+  --template-file infra/main.bicep \
+  --parameters "${BICEP_PARAMS_FULL[@]}" \
+  --query properties.outputs -o json)
+
+CONTAINER_APP_FQDN=$(echo "$DEPLOY_OUTPUT_FULL" | jq -r '.containerAppFqdn.value')
+ok "Container App deployed: https://$CONTAINER_APP_FQDN"
+
+# ── 6.5. Update Entra ID redirect URI ───────────────────────────────────────
+REDIRECT_URI="https://${CONTAINER_APP_FQDN}/auth/callback"
+az ad app update --id "$ENTRA_APP_ID" --web-redirect-uris "$REDIRECT_URI" -o none
+ok "Set Entra redirect URI: $REDIRECT_URI"
+
+# ── 7. GitHub Actions service principal (OIDC) ──────────────────────────────
 if [[ "$SKIP_GITHUB" == "false" ]]; then
-  step "6/8 — Creating GitHub Actions service principal (OIDC)"
+  step "7/9 — Creating GitHub Actions service principal (OIDC)"
 
   GH_SP_NAME="${ENVIRONMENT_NAME}-github-actions"
   GH_SP_APP_ID=$(az ad app list --display-name "$GH_SP_NAME" --query "[0].appId" -o tsv 2>/dev/null || true)
@@ -343,8 +379,8 @@ if [[ "$SKIP_GITHUB" == "false" ]]; then
     -o none 2>/dev/null || true
   ok "Assigned AcrPush role on ACR"
 
-  # ── 7. Set GitHub secrets and variables ──────────────────────────────────────
-  step "7/8 — Configuring GitHub repository secrets and variables"
+  # ── 8. Set GitHub secrets and variables ──────────────────────────────────────
+  step "8/9 — Configuring GitHub repository secrets and variables"
 
   gh secret set AZURE_CLIENT_ID       --repo "$GITHUB_REPO" --body "$GH_SP_APP_ID"
   ok "Set secret: AZURE_CLIENT_ID"
@@ -359,33 +395,13 @@ if [[ "$SKIP_GITHUB" == "false" ]]; then
   ok "Set variable: ACR_NAME"
 
 else
-  step "6/8 — Skipping GitHub Actions setup (--skip-github)"
-  step "7/8 — Skipping GitHub secrets setup (--skip-github)"
+  step "7/9 — Skipping GitHub Actions setup (--skip-github)"
+  step "8/9 — Skipping GitHub secrets setup (--skip-github)"
 fi
 
-# ── 8. First deploy ─────────────────────────────────────────────────────────
+# ── 9. Health check ──────────────────────────────────────────────────────────
+step "9/9 — Verifying deployment"
 if [[ "$SKIP_FIRST_DEPLOY" == "false" ]]; then
-  step "8/8 — Building and deploying first container image"
-
-  az acr login --name "$ACR_NAME"
-  ok "Logged into ACR"
-
-  echo "  Building Docker image..."
-  docker build -t "${ACR_LOGIN_SERVER}/hive:latest" -t "${ACR_LOGIN_SERVER}/hive:initial" . -q
-  ok "Built image"
-
-  echo "  Pushing to ACR..."
-  docker push "${ACR_LOGIN_SERVER}/hive" --all-tags -q
-  ok "Pushed image"
-
-  echo "  Updating Container App..."
-  az containerapp update \
-    --name "$ENVIRONMENT_NAME" \
-    --resource-group "$RESOURCE_GROUP" \
-    --image "${ACR_LOGIN_SERVER}/hive:latest" \
-    -o none
-  ok "Container App updated"
-
   echo "  Waiting for health check (up to 2 minutes)..."
   sleep 15
   if curl --fail --silent --retry 8 --retry-delay 15 --retry-max-time 120 \
@@ -395,9 +411,8 @@ if [[ "$SKIP_FIRST_DEPLOY" == "false" ]]; then
     warn "Health check did not pass yet — the app may still be starting"
     warn "Check manually: curl https://${CONTAINER_APP_FQDN}/api/health"
   fi
-
 else
-  step "8/8 — Skipping first deploy (--skip-first-deploy)"
+  warn "Skipped (no image deployed)"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────

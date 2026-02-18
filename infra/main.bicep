@@ -23,6 +23,9 @@ param dockerHostAdminSshPublicKey string = ''
 @description('Source address prefix allowed to reach Docker host (CIDR or * for dev)')
 param dockerHostAllowedSourceAddressPrefix string = '*'
 
+@description('Whether to deploy the Container App (false on first run before image is pushed)')
+param deployContainerApp bool = true
+
 // ── Derived names ────────────────────────────────────────────────────────────
 var sanitizedEnvName = replace(environmentName, '-', '')
 var uniqueSuffix = uniqueString(resourceGroup().id)
@@ -201,7 +204,8 @@ resource entraClientSecretKv 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
 }
 
 // ── Container App Module ─────────────────────────────────────────────────────
-module containerApp 'container-app.bicep' = {
+// Conditional: skipped on first run (before image is pushed to ACR)
+module containerApp 'container-app.bicep' = if (deployContainerApp) {
   name: 'container-app'
   params: {
     location: location
@@ -231,7 +235,7 @@ module dockerHost 'docker-host.bicep' = if (deployDockerHost) {
 }
 
 // ── Outputs ──────────────────────────────────────────────────────────────────
-output containerAppFqdn string = containerApp.outputs.containerAppFqdn
+output containerAppFqdn string = deployContainerApp ? containerApp.outputs.containerAppFqdn : ''
 output acrName string = acr.name
 output acrLoginServer string = acr.properties.loginServer
 output keyVaultUri string = keyVault.properties.vaultUri
