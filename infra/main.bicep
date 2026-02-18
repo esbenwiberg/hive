@@ -32,10 +32,6 @@ var postgresServerName = '${environmentName}-pg'
 var logAnalyticsName = '${environmentName}-logs'
 var identityName = '${environmentName}-identity'
 
-// ── Well-known role definition IDs ───────────────────────────────────────────
-var keyVaultSecretsOfficerRoleId = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
-var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-
 // ── Log Analytics Workspace ──────────────────────────────────────────────────
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: logAnalyticsName
@@ -49,6 +45,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 }
 
 // ── Azure Container Registry ─────────────────────────────────────────────────
+// Admin user enabled so Container App can pull images without role assignments.
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   name: acrName
   location: location
@@ -56,11 +53,12 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
     name: 'Basic'
   }
   properties: {
-    adminUserEnabled: false
+    adminUserEnabled: true
   }
 }
 
 // ── Azure Key Vault ──────────────────────────────────────────────────────────
+// Uses access policies instead of RBAC to avoid needing role assignment permissions.
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: keyVaultName
   location: location
@@ -70,9 +68,32 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
       name: 'standard'
     }
     tenantId: subscription().tenantId
-    enableRbacAuthorization: true
+    enableRbacAuthorization: false
+    accessPolicies: [
+      // Grant the managed identity full secret access
+      {
+        tenantId: subscription().tenantId
+        objectId: managedIdentity.properties.principalId
+        permissions: {
+          secrets: ['get', 'list', 'set', 'delete']
+        }
+      }
+      // Grant the deploying user secret access (so setup.sh can seed secrets)
+      {
+        tenantId: subscription().tenantId
+        objectId: deployingUserObjectId
+        permissions: {
+          secrets: ['get', 'list', 'set', 'delete']
+        }
+      }
+    ]
   }
 }
+
+// The object ID of the user running the deployment, for Key Vault access policy.
+// Defaults to empty — setup.sh passes this automatically.
+@description('Object ID of the deploying user (for Key Vault access policy)')
+param deployingUserObjectId string = ''
 
 // ── Azure Database for PostgreSQL Flexible Server ────────────────────────────
 resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview' = {
@@ -120,8 +141,6 @@ resource postgresSSLConfig 'Microsoft.DBforPostgreSQL/flexibleServers/configurat
 }
 
 // TODO: Replace with VNet integration + private endpoints for production hardening.
-// This rule allows ANY Azure service (from any subscription) to connect to the database,
-// not just the Container App. Acceptable for initial deployment but should be scoped down.
 resource postgresFirewallAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-01-preview' = {
   parent: postgresServer
   name: 'AllowAzureServices'
@@ -135,32 +154,6 @@ resource postgresFirewallAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/f
 resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: identityName
   location: location
-}
-
-// ── Role Assignments ─────────────────────────────────────────────────────────
-
-// Key Vault Secrets Officer on the Key Vault for the Managed Identity.
-// Secrets Officer (not Secrets User) is required because the app writes
-// user git tokens to Key Vault at runtime via the profile settings page.
-resource kvSecretsOfficerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, managedIdentity.id, keyVaultSecretsOfficerRoleId)
-  scope: keyVault
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsOfficerRoleId)
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-// AcrPull on the ACR for the Managed Identity
-resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, managedIdentity.id, acrPullRoleId)
-  scope: acr
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
 }
 
 // ── Key Vault Secrets ────────────────────────────────────────────────────────
@@ -216,6 +209,8 @@ module containerApp 'container-app.bicep' = {
     logAnalyticsWorkspaceId: logAnalytics.id
     logAnalyticsSharedKey: logAnalytics.listKeys().primarySharedKey
     acrLoginServer: acr.properties.loginServer
+    acrAdminUsername: acr.listCredentials().username
+    acrAdminPassword: acr.listCredentials().passwords[0].value
     containerImageTag: containerImageTag
     keyVaultName: keyVault.name
     managedIdentityId: managedIdentity.id

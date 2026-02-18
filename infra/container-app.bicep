@@ -16,6 +16,14 @@ param logAnalyticsSharedKey string
 @description('ACR login server (e.g. myacr.azurecr.io)')
 param acrLoginServer string
 
+@secure()
+@description('ACR admin username')
+param acrAdminUsername string
+
+@secure()
+@description('ACR admin password')
+param acrAdminPassword string
+
 @description('Container image tag to deploy')
 param containerImageTag string
 
@@ -68,10 +76,15 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       registries: [
         {
           server: acrLoginServer
-          identity: managedIdentityId
+          username: acrAdminUsername
+          passwordSecretRef: 'acr-password'
         }
       ]
       secrets: [
+        {
+          name: 'acr-password'
+          value: acrAdminPassword
+        }
         {
           name: 'database-url'
           keyVaultUrl: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets/database-url'

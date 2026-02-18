@@ -205,10 +205,17 @@ ok "Created Entra ID client secret"
 step "3/8 — Deploying Azure infrastructure (Bicep)"
 echo "  This takes 3-5 minutes..."
 
+DEPLOYING_USER_OID=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || echo "")
+if [[ -z "$DEPLOYING_USER_OID" ]]; then
+  # Fallback for service principals
+  DEPLOYING_USER_OID=$(az account show --query "user.name" -o tsv | xargs -I{} az ad sp show --id {} --query id -o tsv 2>/dev/null || echo "")
+fi
+
 BICEP_PARAMS=(
   "postgresAdminPassword=$POSTGRES_ADMIN_PASSWORD"
   "environmentName=$ENVIRONMENT_NAME"
   "deployDockerHost=$DEPLOY_DOCKER_HOST"
+  "deployingUserObjectId=$DEPLOYING_USER_OID"
 )
 
 if [[ "$DEPLOY_DOCKER_HOST" == "true" ]]; then
