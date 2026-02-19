@@ -304,7 +304,7 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
       "HX-Trigger",
       JSON.stringify({
         showToast: {
-          message: "Clarification answers submitted — task re-entering enrichment",
+          message: "Clarification answers submitted, task re-entering enrichment",
           type: "success",
         },
       }),
