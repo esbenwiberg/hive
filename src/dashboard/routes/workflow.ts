@@ -44,7 +44,7 @@ router.get("/api/workflow/pipeline", requireAuth, async (req: Request, res: Resp
       .from(tasks)
       .where(eq(tasks.id, taskId));
 
-    res.send(pipelinePartial(task?.status ?? null));
+    res.send(pipelinePartial(task?.status ?? null, taskId));
   } catch (err) {
     next(err);
   }
