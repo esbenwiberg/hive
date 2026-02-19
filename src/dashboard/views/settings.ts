@@ -252,6 +252,23 @@ export function repoSettingsCard(repo: RepoRow): string {
         ${enricherToggles}
       </div>
     </div>
+    <div class="border-t border-slate-700 pt-3 mt-3">
+      <h4 class="text-sm font-medium text-slate-300 mb-2">Preview</h4>
+      ${select(`previewEnabled_${repo.id}`, "Preview Enabled", [
+        { value: "", label: "-- Use Global Default --" },
+        { value: "true", label: "Enabled" },
+        { value: "false", label: "Disabled" },
+      ], ((settings.preview as Record<string, unknown> | undefined)?.enabled != null
+        ? String((settings.preview as Record<string, unknown>).enabled)
+        : ""))}
+      ${input(`previewTimeout_${repo.id}`, "Cleanup Timeout (minutes)", {
+        type: "number",
+        value: (settings.preview as Record<string, unknown> | undefined)?.cleanup_timeout_minutes != null
+          ? String((settings.preview as Record<string, unknown>).cleanup_timeout_minutes)
+          : "",
+        placeholder: "Use global default",
+      })}
+    </div>
     <div class="flex justify-end">
       ${button("Save", { variant: "primary", attrs: `type="submit"` })}
     </div>

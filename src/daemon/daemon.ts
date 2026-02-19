@@ -22,6 +22,7 @@ import { applyMonthlyDecay, archiveStale } from "../db/queries/learnings.js";
 import { curateLearnings } from "../agents/keeper.js";
 import { getConfig, setConfig } from "../domain/config.js";
 import { cleanupExpiredPreviews } from "./preview-cleanup.js";
+import { cleanupClosedPRPreviews } from "./pr-close-cleanup.js";
 import type { Producer, ProducerContext } from "../producers/base.js";
 
 interface DaemonOptions {
@@ -39,6 +40,7 @@ const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1_000; // 24 hours
 const RETROSPECTIVE_MIN_GAP_MS = 7 * 24 * 60 * 60 * 1_000; // 7 days
 const DECAY_MIN_GAP_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 const PREVIEW_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
+const PR_CLOSE_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const DRAIN_POLL_MS = 500;
 const MAX_DRAIN_TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
 
@@ -63,6 +65,7 @@ export class Daemon {
   private readonly retrospectiveScheduler: Scheduler;
   private readonly decayScheduler: Scheduler;
   private readonly previewCleanupScheduler: Scheduler;
+  private readonly prCloseCleanupScheduler: Scheduler;
   private stopping = false;
 
   constructor(opts?: DaemonOptions) {
@@ -77,6 +80,7 @@ export class Daemon {
     this.retrospectiveScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._retrospectiveTick());
     this.decayScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._decayTick());
     this.previewCleanupScheduler = new Scheduler(PREVIEW_CLEANUP_INTERVAL_MS, () => cleanupExpiredPreviews());
+    this.prCloseCleanupScheduler = new Scheduler(PR_CLOSE_CLEANUP_INTERVAL_MS, () => cleanupClosedPRPreviews(), { label: "pr-close-cleanup" });
   }
 
   async start(): Promise<void> {
@@ -124,6 +128,9 @@ export class Daemon {
     // Start preview cleanup scheduler (60s interval)
     this.previewCleanupScheduler.start();
 
+    // Start PR-close cleanup scheduler (60s interval)
+    this.prCloseCleanupScheduler.start();
+
     logger.info(
       {
         maxConcurrent: this.maxConcurrent,
@@ -147,6 +154,7 @@ export class Daemon {
     this.retrospectiveScheduler.stop();
     this.decayScheduler.stop();
     this.previewCleanupScheduler.stop();
+    this.prCloseCleanupScheduler.stop();
     this.scheduler.stop();
 
     // Wait for in-flight tasks to drain

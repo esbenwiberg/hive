@@ -66,6 +66,41 @@ export async function createPullRequest(
 }
 
 /**
+ * Creates a comment thread on a pull request in Azure DevOps.
+ */
+export async function createPRComment(
+  org: string,
+  project: string,
+  repo: string,
+  prId: number,
+  comment: string,
+  pat: string,
+): Promise<void> {
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests/${prId}/threads?api-version=${API_VERSION}`;
+
+  const body = {
+    comments: [{ parentCommentId: 0, content: comment, commentType: 1 }],
+    status: 1, // active
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Azure DevOps PR comment failed (${response.status}): ${text}`);
+  }
+
+  logger.info({ org, project, repo, prId }, "Azure DevOps PR comment created");
+}
+
+/**
  * Gets a pull request by ID.
  */
 export async function getPullRequest(

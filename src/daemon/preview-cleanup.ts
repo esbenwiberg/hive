@@ -6,6 +6,8 @@ import { addPreviewLog } from "../db/queries/preview-logs.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
+import { getById as getTask } from "../db/queries/tasks.js";
+import { getById as getRepo } from "../db/queries/repos.js";
 
 /**
  * Cleans up expired preview environments.
@@ -29,9 +31,21 @@ export async function cleanupExpiredPreviews(): Promise<void> {
   }
 
   // 2. Clean up in-memory tracked previews (stops processes, updates DB)
+  //    Pass a per-repo timeout resolver so repos with custom cleanup_timeout_minutes
+  //    are respected.
+  const getTimeoutMs = async (taskId: string): Promise<number | undefined> => {
+    const task = await getTask(taskId);
+    const repo = task ? await getRepo(task.repoId) : null;
+    const repoTimeout = (repo?.settings as Record<string, unknown> | null)
+      ?.preview as { cleanup_timeout_minutes?: number } | undefined;
+    return repoTimeout?.cleanup_timeout_minutes != null
+      ? repoTimeout.cleanup_timeout_minutes * 60_000
+      : undefined;
+  };
+
   let expiredIds: string[];
   try {
-    expiredIds = await previewManager.cleanupExpired();
+    expiredIds = await previewManager.cleanupExpired(getTimeoutMs);
   } catch (err) {
     logger.error({ err }, "Preview cleanup: error during in-memory cleanup");
     expiredIds = [];

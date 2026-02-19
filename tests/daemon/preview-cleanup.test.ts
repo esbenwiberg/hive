@@ -91,6 +91,18 @@ vi.mock("../../src/db/connection.js", () => ({
   },
 }));
 
+// Mock task and repo queries for per-repo timeout resolver
+const mockGetTask = vi.fn().mockResolvedValue(null);
+const mockGetRepo = vi.fn().mockResolvedValue(null);
+
+vi.mock("../../src/db/queries/tasks.js", () => ({
+  getById: (...args: unknown[]) => mockGetTask(...args),
+}));
+
+vi.mock("../../src/db/queries/repos.js", () => ({
+  getById: (...args: unknown[]) => mockGetRepo(...args),
+}));
+
 // Mock schema
 vi.mock("../../src/db/schema.js", () => ({
   tasks: { id: "id", previewStatus: "preview_status", previewStartedAt: "preview_started_at" },
@@ -118,10 +130,38 @@ describe("cleanupExpiredPreviews", () => {
     selectWhereResult = [];
   });
 
-  it("calls previewManager.cleanupExpired", async () => {
+  it("calls previewManager.cleanupExpired with a timeout resolver function", async () => {
     await cleanupExpiredPreviews();
 
     expect(mockCleanupExpired).toHaveBeenCalledOnce();
+    // The first argument should be a function (the per-repo timeout resolver)
+    expect(typeof mockCleanupExpired.mock.calls[0][0]).toBe("function");
+  });
+
+  it("timeout resolver returns per-repo timeout when set", async () => {
+    mockGetTask.mockResolvedValue({ id: "HIVE-T1", repoId: 1 });
+    mockGetRepo.mockResolvedValue({
+      id: 1,
+      settings: { preview: { cleanup_timeout_minutes: 10 } },
+    });
+
+    await cleanupExpiredPreviews();
+
+    // Extract the resolver and call it
+    const resolver = mockCleanupExpired.mock.calls[0][0];
+    const result = await resolver("HIVE-T1");
+    expect(result).toBe(10 * 60_000);
+  });
+
+  it("timeout resolver returns undefined when no per-repo timeout", async () => {
+    mockGetTask.mockResolvedValue({ id: "HIVE-T2", repoId: 2 });
+    mockGetRepo.mockResolvedValue({ id: 2, settings: {} });
+
+    await cleanupExpiredPreviews();
+
+    const resolver = mockCleanupExpired.mock.calls[0][0];
+    const result = await resolver("HIVE-T2");
+    expect(result).toBeUndefined();
   });
 
   it("cleans up worktrees for expired previews", async () => {

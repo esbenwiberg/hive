@@ -251,6 +251,32 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
     }
     settings.enrichers = enrichers;
 
+    // Preview settings
+    const preview: Record<string, unknown> = {};
+    const previewEnabledKey = `previewEnabled_${repoId}`;
+    const previewEnabledVal = body[previewEnabledKey]?.trim();
+    if (previewEnabledVal === "true") {
+      preview.enabled = true;
+    } else if (previewEnabledVal === "false") {
+      preview.enabled = false;
+    }
+    // If empty/omitted, don't set — falls through to global default
+
+    const previewTimeoutKey = `previewTimeout_${repoId}`;
+    const previewTimeoutVal = body[previewTimeoutKey]?.trim();
+    if (previewTimeoutVal && previewTimeoutVal !== "") {
+      const val = Number(previewTimeoutVal);
+      if (Number.isNaN(val) || val < 1 || val > 1440) {
+        res.status(400).send("Preview timeout must be between 1 and 1440 minutes");
+        return;
+      }
+      preview.cleanup_timeout_minutes = val;
+    }
+
+    if (Object.keys(preview).length > 0) {
+      settings.preview = preview;
+    }
+
     const updated = await repoQueries.updateSettings(repoId, settings);
     if (!updated) {
       res.status(404).send("Repo not found");

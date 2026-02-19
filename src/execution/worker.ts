@@ -328,10 +328,36 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       let previewUrl: string | undefined;
       try {
         const previewConfig = parseHiveYaml(worktree.path);
-        if (previewConfig && config.preview.enabled) {
+        const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+        const repoPreview = (repoSettings.preview ?? {}) as { enabled?: boolean; cleanup_timeout_minutes?: number };
+        const previewEnabled = repoPreview.enabled ?? config.preview.enabled;
+
+        if (previewConfig && previewEnabled) {
           const previewInfo = await previewManager.startPreview(taskId, worktree.path, previewConfig);
           previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
           logger.info({ taskId, previewUrl }, "Preview environment started");
+
+          // Post preview URL as PR comment
+          try {
+            const timeoutMinutes = repoPreview.cleanup_timeout_minutes ?? config.preview.cleanup_timeout_minutes;
+            const comment = [
+              `## Preview Environment`,
+              ``,
+              `A preview environment is available for this PR:`,
+              ``,
+              `**URL:** ${previewUrl}`,
+              ``,
+              `_Preview will auto-cleanup when this PR is closed/merged or after ${timeoutMinutes} minutes of inactivity._`,
+              ``,
+              `---`,
+              `_Automated by Hive - Task ${taskId}_`,
+            ].join("\n");
+
+            await gitProvider.commentOnPR(repo.fullName, prUrl, comment, creds);
+            logger.info({ taskId, prUrl }, "Preview URL posted as PR comment");
+          } catch (commentErr) {
+            logger.warn({ taskId, err: commentErr }, "Failed to post preview comment on PR — continuing");
+          }
         }
       } catch (previewErr) {
         logger.warn({ taskId, err: previewErr }, "Failed to start preview — continuing without");

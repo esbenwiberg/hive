@@ -20,7 +20,7 @@ vi.mock("../../src/logger.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
-const { GitHubProvider, AzureDevOpsProvider, getGitProvider } = await import(
+const { GitHubProvider, AzureDevOpsProvider, getGitProvider, extractGitHubPRNumber, extractAdoPRNumber } = await import(
   "../../src/execution/git-provider.js"
 );
 
@@ -407,6 +407,233 @@ describe("AzureDevOpsProvider", () => {
 
       vi.unstubAllGlobals();
     });
+  });
+});
+
+// ── PR Number Extractors ────────────────────────────────────────────────────
+
+describe("extractGitHubPRNumber", () => {
+  it("extracts number from standard GitHub PR URL", () => {
+    expect(extractGitHubPRNumber("https://github.com/acme/widget/pull/42")).toBe(42);
+  });
+
+  it("extracts number from PR URL with trailing segments", () => {
+    expect(extractGitHubPRNumber("https://github.com/acme/widget/pull/123/files")).toBe(123);
+  });
+
+  it("throws on invalid URL without /pull/ segment", () => {
+    expect(() => extractGitHubPRNumber("https://github.com/acme/widget")).toThrow(
+      "Cannot extract PR number from GitHub URL",
+    );
+  });
+});
+
+describe("extractAdoPRNumber", () => {
+  it("extracts number from standard ADO PR URL", () => {
+    expect(extractAdoPRNumber("https://dev.azure.com/org/proj/_git/repo/pullrequest/77")).toBe(77);
+  });
+
+  it("throws on invalid URL without /pullrequest/ segment", () => {
+    expect(() => extractAdoPRNumber("https://dev.azure.com/org/proj/_git/repo")).toThrow(
+      "Cannot extract PR number from Azure DevOps URL",
+    );
+  });
+});
+
+// ── GitHubProvider — commentOnPR ────────────────────────────────────────────
+
+describe("GitHubProvider — commentOnPR", () => {
+  let provider: InstanceType<typeof GitHubProvider>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    provider = new GitHubProvider();
+  });
+
+  it("posts a comment to the correct GitHub Issues API endpoint", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await provider.commentOnPR(
+      "acme/widget",
+      "https://github.com/acme/widget/pull/42",
+      "Preview is ready!",
+      githubCreds,
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("https://api.github.com/repos/acme/widget/issues/42/comments");
+    expect(opts.method).toBe("POST");
+    expect(JSON.parse(opts.body)).toEqual({ body: "Preview is ready!" });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("throws on non-OK response", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => "Forbidden" });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await expect(
+      provider.commentOnPR("acme/widget", "https://github.com/acme/widget/pull/1", "test", githubCreds),
+    ).rejects.toThrow("GitHub PR comment failed (403): Forbidden");
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── GitHubProvider — getPRState ─────────────────────────────────────────────
+
+describe("GitHubProvider — getPRState", () => {
+  let provider: InstanceType<typeof GitHubProvider>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    provider = new GitHubProvider();
+  });
+
+  it("returns 'open' for an open PR", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: "open", merged: false }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const state = await provider.getPRState("acme/widget", "https://github.com/acme/widget/pull/10", githubCreds);
+    expect(state).toBe("open");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("returns 'merged' when merged is true", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: "closed", merged: true }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const state = await provider.getPRState("acme/widget", "https://github.com/acme/widget/pull/10", githubCreds);
+    expect(state).toBe("merged");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("returns 'closed' for a closed but not merged PR", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: "closed", merged: false }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const state = await provider.getPRState("acme/widget", "https://github.com/acme/widget/pull/10", githubCreds);
+    expect(state).toBe("closed");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("throws on non-OK response", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => "Not Found" });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await expect(
+      provider.getPRState("acme/widget", "https://github.com/acme/widget/pull/999", githubCreds),
+    ).rejects.toThrow("GitHub get PR state failed (404): Not Found");
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── AzureDevOpsProvider — commentOnPR ───────────────────────────────────────
+
+describe("AzureDevOpsProvider — commentOnPR", () => {
+  let provider: InstanceType<typeof AzureDevOpsProvider>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    provider = new AzureDevOpsProvider();
+  });
+
+  it("delegates to ADO createPRComment with correct params", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await provider.commentOnPR(
+      "myorg/myproject/myrepo",
+      "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/77",
+      "Preview ready",
+      azureCreds,
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toContain("pullrequests/77/threads");
+    expect(opts.method).toBe("POST");
+    const body = JSON.parse(opts.body);
+    expect(body.comments[0].content).toBe("Preview ready");
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── AzureDevOpsProvider — getPRState ────────────────────────────────────────
+
+describe("AzureDevOpsProvider — getPRState", () => {
+  let provider: InstanceType<typeof AzureDevOpsProvider>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    provider = new AzureDevOpsProvider();
+  });
+
+  it("returns 'open' for active ADO PR", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ pullRequestId: 77, status: "active" }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const state = await provider.getPRState(
+      "myorg/myproject/myrepo",
+      "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/77",
+      azureCreds,
+    );
+    expect(state).toBe("open");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("returns 'merged' for completed ADO PR", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ pullRequestId: 77, status: "completed" }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const state = await provider.getPRState(
+      "myorg/myproject/myrepo",
+      "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/77",
+      azureCreds,
+    );
+    expect(state).toBe("merged");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("returns 'closed' for abandoned ADO PR", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ pullRequestId: 77, status: "abandoned" }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const state = await provider.getPRState(
+      "myorg/myproject/myrepo",
+      "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/77",
+      azureCreds,
+    );
+    expect(state).toBe("closed");
+
+    vi.unstubAllGlobals();
   });
 });
 
