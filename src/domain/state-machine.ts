@@ -33,6 +33,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   ],
   [TaskStatus.EXECUTING]: [
     TaskStatus.REVIEWING,
+    TaskStatus.APPROVED,
     TaskStatus.FAILED,
     TaskStatus.CANCELLED,
   ],
@@ -94,11 +95,11 @@ export function getAvailableActions(status: string): Action[] {
       { action: "cancel", targetStatus: TaskStatus.CANCELLED, label: "Cancel" },
     ],
     [TaskStatus.APPROVED]: [
-      { action: "execute", targetStatus: TaskStatus.EXECUTING, label: "Execute" },
       { action: "cancel", targetStatus: TaskStatus.CANCELLED, label: "Cancel" },
     ],
     [TaskStatus.EXECUTING]: [
       { action: "review", targetStatus: TaskStatus.REVIEWING, label: "Review" },
+      { action: "reapprove", targetStatus: TaskStatus.APPROVED, label: "Re-approve" },
       { action: "fail", targetStatus: TaskStatus.FAILED, label: "Mark Failed" },
       { action: "cancel", targetStatus: TaskStatus.CANCELLED, label: "Cancel" },
     ],
@@ -115,7 +116,6 @@ export function getAvailableActions(status: string): Action[] {
       { action: "archive", targetStatus: TaskStatus.CANCELLED, label: "Archive" },
     ],
     [TaskStatus.REWORK]: [
-      { action: "execute", targetStatus: TaskStatus.EXECUTING, label: "Execute" },
       { action: "cancel", targetStatus: TaskStatus.CANCELLED, label: "Cancel" },
     ],
   };

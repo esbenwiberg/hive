@@ -193,14 +193,15 @@ export class Daemon {
     if (this.stopping) return;
     if (this.activeTaskIds.size >= this.maxConcurrent) return;
 
-    // Fetch candidate tasks: pending and rework
-    const [pendingResult, reworkResult] = await Promise.all([
+    // Fetch candidate tasks: pending, approved (human-approved), and rework
+    const [pendingResult, approvedResult, reworkResult] = await Promise.all([
       list({ status: "pending" }, 10),
+      list({ status: "approved" }, 10),
       list({ status: "rework" }, 10),
     ]);
 
     // Combine and sort by createdAt ascending (oldest first)
-    const candidates = [...pendingResult.tasks, ...reworkResult.tasks].sort(
+    const candidates = [...pendingResult.tasks, ...approvedResult.tasks, ...reworkResult.tasks].sort(
       (a, b) => {
         const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -506,11 +507,11 @@ export class Daemon {
       if (task.status === "pending") {
         await runPipeline(task.id);
         logger.info({ taskId: task.id }, "Daemon: pipeline completed");
-      } else if (task.status === "rework") {
+      } else if (task.status === "approved" || task.status === "rework") {
         const result = await executeTask(task.id);
         logger.info(
           { taskId: task.id, success: result.success },
-          "Daemon: rework execution completed",
+          "Daemon: execution completed",
         );
       } else {
         logger.warn(
