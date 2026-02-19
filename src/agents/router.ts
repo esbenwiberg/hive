@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { getById, updateClassification, updateStatus } from "../db/queries/tasks.js";
@@ -7,6 +5,7 @@ import { register, unregister } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
+import { loadPrompt } from "../prompt-cache.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,13 +28,8 @@ const VALID_WORKFLOWS = new Set(["flow", "epic"]);
 
 // ── Prompt loader ────────────────────────────────────────────────────────────
 
-let routerPrompt: string | undefined;
-
 function loadRouterPrompt(): string {
-  if (!routerPrompt) {
-    routerPrompt = readFileSync(resolve("prompts/router.md"), "utf-8");
-  }
-  return routerPrompt;
+  return loadPrompt("router");
 }
 
 // ── Parse & validate ─────────────────────────────────────────────────────────

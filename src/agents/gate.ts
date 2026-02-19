@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { eq, and } from "drizzle-orm";
@@ -12,6 +10,7 @@ import { recordDecision } from "../db/queries/gate-decisions.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { analyzeGatePatterns } from "./gate-analyst.js";
+import { loadPrompt } from "../prompt-cache.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,13 +34,8 @@ const VERDICT_TO_STATUS: Record<string, string> = {
 
 // ── Prompt loader ────────────────────────────────────────────────────────────
 
-let gatePrompt: string | undefined;
-
 function loadGatePrompt(): string {
-  if (!gatePrompt) {
-    gatePrompt = readFileSync(resolve("prompts/gate.md"), "utf-8");
-  }
-  return gatePrompt;
+  return loadPrompt("gate");
 }
 
 // ── Parse & validate ─────────────────────────────────────────────────────────

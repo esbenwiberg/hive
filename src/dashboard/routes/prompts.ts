@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth, requireRole } from "../../auth/middleware.js";
 import { listPromptFiles, readPrompt, writePrompt, validatePromptPath } from "../../prompts.js";
+import { invalidatePrompt } from "../../prompt-cache.js";
 import { promptsPage, promptEditorPartial } from "../views/prompts.js";
 
 const router = Router();
@@ -55,6 +56,7 @@ router.post("/api/prompts/:path(*)", requireRole("admin"), async (req: Request, 
 
     const content = typeof req.body.content === "string" ? req.body.content : "";
     await writePrompt(relativePath, content);
+    invalidatePrompt(relativePath);
 
     res.setHeader(
       "HX-Trigger",

@@ -4,6 +4,7 @@ import logger from "../logger.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { getById, updateStatus } from "../db/queries/tasks.js";
+import { getById as getRepoById } from "../db/queries/repos.js";
 import { routeTask } from "./router.js";
 import { evaluateGate } from "./gate.js";
 import { runEnrichers } from "../enrichers/base.js";
@@ -66,10 +67,25 @@ export async function runPipeline(taskId: string): Promise<void> {
     const config = getAutonomousConfig();
     const enrichers = getEnabledEnrichers(config);
 
-    // Build enricher config map from autonomous config
+    // Build enricher config map: global defaults, then per-repo overrides
     const enricherConfigs: Record<string, EnricherConfig> = {};
     for (const entry of config.enrichers) {
       enricherConfigs[entry.name] = { enabled: entry.enabled };
+    }
+
+    // Reload task to read its repoId for per-repo overrides
+    const taskForRepo = await getById(taskId);
+    if (taskForRepo) {
+      const repo = await getRepoById(taskForRepo.repoId);
+      if (repo) {
+        const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+        const enricherOverrides = (repoSettings.enrichers ?? {}) as Record<string, { enabled?: boolean }>;
+        for (const [name, override] of Object.entries(enricherOverrides)) {
+          if (enricherConfigs[name] && override.enabled !== undefined) {
+            enricherConfigs[name].enabled = override.enabled;
+          }
+        }
+      }
     }
 
     // Reload task to get latest state after routing

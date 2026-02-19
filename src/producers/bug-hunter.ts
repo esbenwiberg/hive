@@ -1,13 +1,14 @@
 import { callClaude } from "../agents/sdk.js";
 import { create } from "../db/queries/tasks.js";
-import { isDuplicate } from "./base.js";
+import { isDuplicate, isRefusalTitle, gatherRepoSummary } from "./base.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import type { Producer, ProducerContext, ProducerResult } from "./base.js";
 
+const SYSTEM_PROMPT = `You are a senior software engineer performing a bug audit on a codebase. You will be given the repository's file tree and README. Based on that context, identify potential bugs worth investigating. Return ONLY a newline-delimited list of concise bug titles (max 120 chars each). No numbering, no explanations, just one bug title per line. If you cannot identify any bugs, return the single word NONE.`;
+
 /**
  * Uses AI to identify potential bugs in the repository.
- * Sends a prompt to Claude asking for bug analysis and creates
- * tasks for each identified potential bug (up to 5).
+ * Sends the repo file tree and README to Claude for analysis.
  */
 export class BugHunterProducer implements Producer {
   name = "bug-hunter";
@@ -20,21 +21,33 @@ export class BugHunterProducer implements Producer {
       costUsd: 0,
     };
 
+    const repoSummary = ctx.repoDir ? gatherRepoSummary(ctx.repoDir) : undefined;
+    if (!repoSummary) {
+      result.errors.push(`Repo directory not available for ${ctx.repoFullName} (repoId=${ctx.repoId}), skipping`);
+      return result;
+    }
+
     try {
-      const prompt = `Analyze the repository "${ctx.repoFullName}" and list potential bugs that should be investigated. Return only a newline-delimited list of concise bug titles, up to 5 items. No numbering, no explanations, just one bug title per line.`;
+      const prompt = `# Repository: ${ctx.repoFullName}\n\n${repoSummary}\n\nList up to 5 potential bugs worth investigating.`;
 
       const response = await callClaude({
         prompt,
+        systemPrompt: SYSTEM_PROMPT,
         dryRun: ctx.dryRun,
       });
 
       const acfg = getAutonomousConfig();
       result.costUsd += (response.cost.inputTokens * acfg.models.inputCostPerM + response.cost.outputTokens * acfg.models.outputCostPerM) / 1_000_000;
 
+      if (response.text.trim().toUpperCase() === "NONE") {
+        return result;
+      }
+
       const titles = response.text
         .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
+        .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
+        .filter((line) => line.length > 0 && line.length <= 200)
+        .filter((line) => !isRefusalTitle(line))
         .slice(0, 5);
 
       const source = `producer:${this.name}`;

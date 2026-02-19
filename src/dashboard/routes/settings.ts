@@ -207,6 +207,50 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
       settings.dailyBudget = val;
     }
 
+    // Producer toggles & config
+    const PRODUCER_NAMES = ["log-scanner", "bug-hunter", "security-scanner", "feature-scout", "self-monitor"];
+    const MAX_CONFIG_SIZE = 10 * 1024; // 10 KB
+
+    const producers: Record<string, { enabled: boolean; config?: Record<string, unknown> }> = {};
+    for (const name of PRODUCER_NAMES) {
+      const enabledKey = `producer_enabled_${name}_${repoId}`;
+      const configKey = `producer_config_${name}_${repoId}`;
+
+      const enabled = body[enabledKey] === "true";
+      const configRaw = body[configKey]?.trim();
+
+      let config: Record<string, unknown> | undefined;
+      if (configRaw && configRaw !== "") {
+        if (configRaw.length > MAX_CONFIG_SIZE) {
+          res.status(400).send(`Producer config for "${name}" exceeds 10 KB limit`);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(configRaw);
+          if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+            res.status(400).send(`Producer config for "${name}" must be a JSON object`);
+            return;
+          }
+          config = parsed as Record<string, unknown>;
+        } catch {
+          res.status(400).send(`Invalid JSON in producer config for "${name}"`);
+          return;
+        }
+      }
+
+      producers[name] = { enabled, ...(config ? { config } : {}) };
+    }
+    settings.producers = producers;
+
+    // Enricher toggles
+    const ENRICHER_NAMES = ["codebase", "docs", "git-history", "dependencies"];
+    const enrichers: Record<string, { enabled: boolean }> = {};
+    for (const name of ENRICHER_NAMES) {
+      const enabledKey = `enricher_enabled_${name}_${repoId}`;
+      enrichers[name] = { enabled: body[enabledKey] === "true" };
+    }
+    settings.enrichers = enrichers;
+
     const updated = await repoQueries.updateSettings(repoId, settings);
     if (!updated) {
       res.status(404).send("Repo not found");

@@ -33,6 +33,9 @@ const mockCallClaude = callClaude as ReturnType<typeof vi.fn>;
 
 useTestDb();
 
+// Real fixture directory for gatherRepoSummary
+const TEST_REPO_DIR = "/tmp/hive-test-repo";
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function seedUserAndRepo() {
@@ -43,6 +46,15 @@ async function seedUserAndRepo() {
   );
   const repo = await findOrCreateRepo("github", "acme/widget");
   return { user, repo };
+}
+
+function ctxWithRepo(repoId: number, userId: number) {
+  return {
+    repoId,
+    repoFullName: "acme/widget",
+    repoDir: TEST_REPO_DIR,
+    createdBy: userId,
+  };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -62,11 +74,7 @@ describe("BugHunterProducer", () => {
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 50 },
     });
 
-    const result = await producer.run({
-      repoId: repo.id,
-      repoFullName: "acme/widget",
-      createdBy: user.id,
-    });
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
 
     expect(result.tasksCreated).toBe(3);
     expect(result.errors).toHaveLength(0);
@@ -90,11 +98,7 @@ describe("BugHunterProducer", () => {
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 50 },
     });
 
-    const result = await producer.run({
-      repoId: repo.id,
-      repoFullName: "acme/widget",
-      createdBy: user.id,
-    });
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
 
     expect(result.tasksCreated).toBe(5);
   });
@@ -108,11 +112,7 @@ describe("BugHunterProducer", () => {
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 50 },
     });
 
-    const ctx = {
-      repoId: repo.id,
-      repoFullName: "acme/widget",
-      createdBy: user.id,
-    };
+    const ctx = ctxWithRepo(repo.id, user.id);
 
     // First run
     await producer.run(ctx);
@@ -123,20 +123,47 @@ describe("BugHunterProducer", () => {
     expect(result.duplicatesSkipped).toBe(2);
   });
 
-  it("handles empty Claude response gracefully", async () => {
+  it("returns early when repoDir is not provided", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new BugHunterProducer();
-
-    mockCallClaude.mockResolvedValue({
-      text: "",
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 0 },
-    });
 
     const result = await producer.run({
       repoId: repo.id,
       repoFullName: "acme/widget",
       createdBy: user.id,
+      // no repoDir
     });
+
+    expect(result.tasksCreated).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain("not available");
+    expect(mockCallClaude).not.toHaveBeenCalled();
+  });
+
+  it("filters out refusal-style titles", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new BugHunterProducer();
+
+    mockCallClaude.mockResolvedValue({
+      text: "Race condition in auth middleware\nI don't have the ability to directly analyze external repositories\nMemory leak in WS handler",
+      cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 50 },
+    });
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
+
+    expect(result.tasksCreated).toBe(2);
+  });
+
+  it("handles NONE response gracefully", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new BugHunterProducer();
+
+    mockCallClaude.mockResolvedValue({
+      text: "NONE",
+      cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 5 },
+    });
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
 
     expect(result.tasksCreated).toBe(0);
     expect(result.errors).toHaveLength(0);
@@ -148,11 +175,7 @@ describe("BugHunterProducer", () => {
 
     mockCallClaude.mockRejectedValue(new Error("API rate limit"));
 
-    const result = await producer.run({
-      repoId: repo.id,
-      repoFullName: "acme/widget",
-      createdBy: user.id,
-    });
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
 
     expect(result.tasksCreated).toBe(0);
     expect(result.errors).toHaveLength(1);

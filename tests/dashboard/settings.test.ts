@@ -229,4 +229,52 @@ describe("repoSettingsCard", () => {
     const html = repoSettingsCard(mockRepos[0]);
     expect(html).toContain("Save");
   });
+
+  it("renders producer toggles section with all five producers", () => {
+    const html = repoSettingsCard(mockRepos[0]);
+    expect(html).toContain("Producers");
+    expect(html).toContain("log-scanner");
+    expect(html).toContain("bug-hunter");
+    expect(html).toContain("security-scanner");
+    expect(html).toContain("feature-scout");
+    expect(html).toContain("self-monitor");
+  });
+
+  it("renders producer checkbox form fields with correct names", () => {
+    const html = repoSettingsCard(mockRepos[0]);
+    expect(html).toContain('name="producer_enabled_log-scanner_1"');
+    expect(html).toContain('name="producer_enabled_bug-hunter_1"');
+    expect(html).toContain('name="producer_config_bug-hunter_1"');
+  });
+
+  it("pre-checks enabled producers from settings", () => {
+    const repoWithProducers: RepoRow = {
+      ...mockRepos[0],
+      settings: {
+        producers: {
+          "bug-hunter": { enabled: true, config: {} },
+          "log-scanner": { enabled: false },
+        },
+      },
+    };
+    const html = repoSettingsCard(repoWithProducers);
+    // bug-hunter should be checked
+    expect(html).toContain('name="producer_enabled_bug-hunter_1" value="true" checked');
+    // log-scanner should NOT be checked
+    expect(html).not.toMatch(/name="producer_enabled_log-scanner_1" value="true" checked/);
+  });
+
+  it("renders producer config JSON in textarea when present", () => {
+    const repoWithConfig: RepoRow = {
+      ...mockRepos[0],
+      settings: {
+        producers: {
+          "bug-hunter": { enabled: true, config: { severity: "high" } },
+        },
+      },
+    };
+    const html = repoSettingsCard(repoWithConfig);
+    expect(html).toContain("severity");
+    expect(html).toContain("high");
+  });
 });

@@ -9,7 +9,7 @@ vi.mock("../../src/db/connection.js", async () => {
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
-const { isDuplicate } = await import("../../src/producers/base.js");
+const { isDuplicate, isRefusalTitle } = await import("../../src/producers/base.js");
 const { findOrCreateByEntraOid } = await import(
   "../../src/db/queries/users.js"
 );
@@ -97,5 +97,26 @@ describe("isDuplicate", () => {
   it("returns false when no tasks exist", async () => {
     const result = await isDuplicate("producer:test", "Nonexistent task");
     expect(result).toBe(false);
+  });
+});
+
+describe("isRefusalTitle", () => {
+  it("detects common LLM refusal patterns", () => {
+    expect(isRefusalTitle("I don't have the ability to directly analyze external repositories")).toBe(true);
+    expect(isRefusalTitle("I cannot directly access GitHub repositories")).toBe(true);
+    expect(isRefusalTitle("I can't analyze the repository without access")).toBe(true);
+    expect(isRefusalTitle("I would need you to share the code first")).toBe(true);
+    expect(isRefusalTitle("Please share the relevant code files so I can help")).toBe(true);
+  });
+
+  it("rejects titles longer than 200 chars", () => {
+    expect(isRefusalTitle("A".repeat(201))).toBe(true);
+  });
+
+  it("allows legitimate task titles", () => {
+    expect(isRefusalTitle("Race condition in auth middleware")).toBe(false);
+    expect(isRefusalTitle("XSS vulnerability in comment rendering")).toBe(false);
+    expect(isRefusalTitle("Add dark mode support")).toBe(false);
+    expect(isRefusalTitle("Missing CSRF token validation")).toBe(false);
   });
 });

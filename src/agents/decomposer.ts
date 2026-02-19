@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { getById } from "../db/queries/tasks.js";
@@ -7,15 +5,11 @@ import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
+import { loadPrompt } from "../prompt-cache.js";
 import type { MilestoneSpec } from "../domain/types.js";
 
-let milestonePrompt: string | undefined;
-
 function getMilestonePrompt(): string {
-  if (!milestonePrompt) {
-    milestonePrompt = readFileSync(resolve("prompts/milestone.md"), "utf-8");
-  }
-  return milestonePrompt;
+  return loadPrompt("milestone");
 }
 
 /**

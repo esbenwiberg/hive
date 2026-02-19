@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import logger from "../logger.js";
@@ -12,17 +10,13 @@ import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
 import { fireAndForgetFeedback } from "../agents/feedback-loop.js";
 import { analyzeReviewPatterns } from "../agents/code-quality-analyst.js";
+import { loadPrompt } from "../prompt-cache.js";
 import type { ReviewGateResult, WorktreeInfo } from "../domain/types.js";
 
 const execFileAsync = promisify(execFile);
 
-let reviewPrompt: string | undefined;
-
 function getReviewPrompt(): string {
-  if (!reviewPrompt) {
-    reviewPrompt = readFileSync(resolve("prompts/review-gate.md"), "utf-8");
-  }
-  return reviewPrompt;
+  return loadPrompt("review-gate");
 }
 
 /**

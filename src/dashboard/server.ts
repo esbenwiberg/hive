@@ -14,6 +14,7 @@ import settingsRouter from "./routes/settings.js";
 import producersRouter from "./routes/producers.js";
 import promptsRouter from "./routes/prompts.js";
 import hivemindRouter from "./routes/hivemind.js";
+import logsRouter from "./routes/logs.js";
 import previewRouter from "../execution/preview/proxy.js";
 
 const app = express();
@@ -155,6 +156,7 @@ app.use("/", settingsRouter);
 app.use("/", producersRouter);
 app.use("/", promptsRouter);
 app.use("/", hivemindRouter);
+app.use("/", logsRouter);
 app.use(previewRouter);
 
 // ── Error handler ────────────────────────────────────────────────────────────

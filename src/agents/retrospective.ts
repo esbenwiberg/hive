@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
@@ -15,6 +13,7 @@ import { recordEvent, getRecentEvents } from "../db/queries/learning-events.js";
 import { db } from "../db/connection.js";
 import { tasks, costs } from "../db/schema.js";
 import { sql, and, gte, inArray } from "drizzle-orm";
+import { loadPrompt } from "../prompt-cache.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,15 +40,10 @@ export interface RetrospectiveReport {
   costInsights: string;
 }
 
-// ── Prompt cache ─────────────────────────────────────────────────────────────
-
-let retrospectivePrompt: string | undefined;
+// ── Prompt loader ────────────────────────────────────────────────────────────
 
 function getRetrospectivePrompt(): string {
-  if (!retrospectivePrompt) {
-    retrospectivePrompt = readFileSync(resolve("prompts/retrospective.md"), "utf-8");
-  }
-  return retrospectivePrompt;
+  return loadPrompt("retrospective");
 }
 
 

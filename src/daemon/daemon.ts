@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import logger from "../logger.js";
 import { Scheduler } from "./scheduler.js";
 import { findStaleTasks, STALE_THRESHOLD_MS } from "./stale-tasks.js";
@@ -264,10 +265,25 @@ export class Daemon {
     }
 
     for (const repo of allRepos) {
+      // Per-repo producer toggle: skip unless explicitly enabled
+      const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+      const producersMap = (repoSettings.producers ?? {}) as Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
+      const producerEntry = producersMap[producer.name];
+      if (!producerEntry || producerEntry.enabled !== true) {
+        logger.debug(
+          { producer: producer.name, repo: repo.fullName },
+          "Daemon: producer not enabled for repo, skipping",
+        );
+        continue;
+      }
+
+      const repoDir = `/tmp/hive-repos/${repo.id}`;
       const ctx: ProducerContext = {
         repoId: repo.id,
         repoFullName: repo.fullName,
+        repoDir: existsSync(repoDir) ? repoDir : undefined,
         createdBy,
+        config: producerEntry.config ?? {},
       };
 
       const start = Date.now();

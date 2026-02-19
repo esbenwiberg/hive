@@ -22,6 +22,7 @@
     { label: "Producers", description: "Go to producers", href: "/producers", section: "Navigation" },
     { label: "Hivemind", description: "Go to hivemind", href: "/hivemind", section: "Navigation" },
     { label: "Settings", description: "Go to settings", href: "/settings", section: "Navigation" },
+    { label: "Logs", description: "View live system logs", href: "/logs", section: "Navigation" },
     { label: "Profile", description: "Go to profile", href: "/profile", section: "Navigation" },
     { label: "New Task", description: "Create a new task", action: "newTask", section: "Actions" },
   ];

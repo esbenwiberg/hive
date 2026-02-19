@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { callClaude } from "../agents/sdk.js";
@@ -18,16 +16,13 @@ import { parseHiveYaml } from "../hive-yaml.js";
 import { previewManager } from "./preview/manager.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
+import { loadPrompt } from "../prompt-cache.js";
 import type { WorkerResult, WorktreeInfo } from "../domain/types.js";
 
 const MAX_REWORK_CYCLES = 2;
 
-let flowPrompt: string | undefined;
 function getFlowPrompt(): string {
-  if (!flowPrompt) {
-    flowPrompt = readFileSync(resolve("prompts/flow.md"), "utf-8");
-  }
-  return flowPrompt;
+  return loadPrompt("flow");
 }
 
 /**

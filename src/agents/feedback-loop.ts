@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { getById } from "../db/queries/tasks.js";
@@ -9,16 +7,12 @@ import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { reinforceLearning, contradictLearning, createLearning } from "../db/queries/learnings.js";
 import { recordEvent } from "../db/queries/learning-events.js";
+import { loadPrompt } from "../prompt-cache.js";
 
-// ── Prompt cache ──────────────────────────────────────────────────────────────
-
-let feedbackPrompt: string | undefined;
+// ── Prompt loader ────────────────────────────────────────────────────────────
 
 function getFeedbackPrompt(): string {
-  if (!feedbackPrompt) {
-    feedbackPrompt = readFileSync(resolve("prompts/feedback-loop.md"), "utf-8");
-  }
-  return feedbackPrompt;
+  return loadPrompt("feedback-loop");
 }
 
 // ── Response parsing ──────────────────────────────────────────────────────────

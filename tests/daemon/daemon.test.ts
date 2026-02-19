@@ -141,7 +141,18 @@ vi.mock("../../src/daemon/preview-cleanup.js", () => ({
 
 const { Daemon } = await import("../../src/daemon/daemon.js");
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Settings with all producers enabled (opt-in model). */
+const allProducersEnabled = {
+  producers: {
+    "log-scanner": { enabled: true },
+    "bug-hunter": { enabled: true },
+    "security-scanner": { enabled: true },
+    "feature-scout": { enabled: true },
+    "self-monitor": { enabled: true },
+  },
+};
 
 function makeFakeTask(overrides: Record<string, unknown> = {}) {
   return {
@@ -372,7 +383,7 @@ describe("Daemon", () => {
 
   it("runs producers on schedule when repos exist", async () => {
     mockListAll.mockResolvedValue([
-      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: {}, createdAt: new Date(), updatedAt: new Date() },
+      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: allProducersEnabled, createdAt: new Date(), updatedAt: new Date() },
     ]);
 
     const daemon = new Daemon({ pollIntervalMs: 100_000, producerIntervalMs: 80 });
@@ -389,7 +400,7 @@ describe("Daemon", () => {
 
   it("calls notifyTasksCreated when a producer creates tasks", async () => {
     mockListAll.mockResolvedValue([
-      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: {}, createdAt: new Date(), updatedAt: new Date() },
+      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: allProducersEnabled, createdAt: new Date(), updatedAt: new Date() },
     ]);
     mockProducerRun.mockResolvedValue({
       tasksCreated: 2,
@@ -409,7 +420,7 @@ describe("Daemon", () => {
 
   it("does not crash when a producer throws", async () => {
     mockListAll.mockResolvedValue([
-      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: {}, createdAt: new Date(), updatedAt: new Date() },
+      { id: 1, fullName: "org/repo-a", provider: "github", defaultBranch: "main", settings: allProducersEnabled, createdAt: new Date(), updatedAt: new Date() },
     ]);
     mockProducerRun.mockRejectedValue(new Error("producer boom"));
 

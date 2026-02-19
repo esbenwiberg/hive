@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { migrate } from "./db/migrate.js";
 import app from "./dashboard/server.js";
 import { pool } from "./db/connection.js";
@@ -24,14 +25,15 @@ const PRODUCER_MAP: Record<string, Producer> = {
 
 function usage(): void {
   process.stderr.write(
-    "Usage: hive <command>\n\nCommands:\n  daemon                  Run the Daemon alongside the Express server\n  run <producer-name>     Run a single producer once\n\nProducers:\n  log-scanner, bug-hunter, security-scanner, feature-scout, self-monitor\n\nOptions for 'run':\n  --repo <repoId>         Repository ID (or set HIVE_DEFAULT_REPO_ID)\n",
+    "Usage: hive <command>\n\nCommands:\n  daemon                  Run the Daemon alongside the Express server\n  run <producer-name>     Run a single producer once\n  cleanup-refusals        Delete tasks whose titles are LLM refusal messages\n\nProducers:\n  log-scanner, bug-hunter, security-scanner, feature-scout, self-monitor\n\nOptions for 'run':\n  --repo <repoId>         Repository ID (or set HIVE_DEFAULT_REPO_ID)\n  --force                 Run even if the producer is not enabled for the repo\n",
   );
   process.exit(1);
 }
 
+const VALID_COMMANDS = new Set(["daemon", "run", "cleanup-refusals"]);
 const command = process.argv[2];
 
-if (!command || (command !== "daemon" && command !== "run")) {
+if (!command || !VALID_COMMANDS.has(command)) {
   usage();
 }
 
@@ -119,11 +121,29 @@ async function runProducer(): Promise<void> {
     process.exit(1);
   }
 
+  // Check per-repo producer toggle (unless --force)
+  const forceFlag = process.argv.includes("--force");
+  const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+  const producersMap = (repoSettings.producers ?? {}) as Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
+  const producerEntry = producersMap[producerName];
+
+  if (!forceFlag && (!producerEntry || producerEntry.enabled !== true)) {
+    process.stderr.write(
+      `Producer "${producerName}" is not enabled for repo "${repo.fullName}".\n` +
+      `Enable it in the dashboard settings or use --force to override.\n`,
+    );
+    await pool.end();
+    process.exit(1);
+  }
+
+  const repoDir = `/tmp/hive-repos/${repo.id}`;
   const start = Date.now();
   const result = await producer.run({
     repoId: repo.id,
     repoFullName: repo.fullName,
+    repoDir: existsSync(repoDir) ? repoDir : undefined,
     createdBy,
+    config: producerEntry?.config ?? {},
   });
   const durationMs = Date.now() - start;
 
@@ -162,6 +182,35 @@ async function runProducer(): Promise<void> {
   process.exit(0);
 }
 
+async function cleanupRefusals(): Promise<void> {
+  const { deleteByTitlePattern } = await import("./db/queries/tasks.js");
+  await migrate();
+
+  const patterns = [
+    "%I don't have the ability to%",
+    "%I cannot directly access%",
+    "%I can't access%",
+    "%I can't analyze%",
+    "%I don't have access to%",
+    "%share the relevant code%",
+    "%I would need you to%",
+    "%I'd be happy to analyze%",
+  ];
+
+  let total = 0;
+  for (const pattern of patterns) {
+    const count = await deleteByTitlePattern(pattern);
+    if (count > 0) {
+      process.stdout.write(`Deleted ${count} tasks matching "${pattern}"\n`);
+      total += count;
+    }
+  }
+
+  process.stdout.write(`\nTotal deleted: ${total}\n`);
+  await pool.end();
+  process.exit(0);
+}
+
 if (command === "daemon") {
   runDaemon().catch((err) => {
     logger.error(err, "Failed to start daemon");
@@ -170,6 +219,11 @@ if (command === "daemon") {
 } else if (command === "run") {
   runProducer().catch((err) => {
     logger.error(err, "Failed to run producer");
+    process.exit(1);
+  });
+} else if (command === "cleanup-refusals") {
+  cleanupRefusals().catch((err) => {
+    logger.error(err, "Failed to cleanup refusal tasks");
     process.exit(1);
   });
 }

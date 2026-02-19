@@ -20,6 +20,21 @@ import { layout } from "./layout.js";
 
 export type SettingsTab = "global" | "repos";
 
+const ALL_PRODUCER_NAMES = [
+  "log-scanner",
+  "bug-hunter",
+  "security-scanner",
+  "feature-scout",
+  "self-monitor",
+] as const;
+
+const ALL_ENRICHER_NAMES = [
+  "codebase",
+  "docs",
+  "git-history",
+  "dependencies",
+] as const;
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function kvRow(label: string, value: string, highlight?: boolean): string {
@@ -175,6 +190,36 @@ export function repoSettingsCard(repo: RepoRow): string {
 
   // Edit form for per-repo settings (HTMX POST)
   const safeId = escapeHtml(String(repo.id));
+
+  // Producer toggles
+  const producersSettings = (settings.producers ?? {}) as Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
+  const producerToggles = ALL_PRODUCER_NAMES.map((name) => {
+    const entry = producersSettings[name];
+    const isEnabled = entry?.enabled === true;
+    const configJson = entry?.config ? JSON.stringify(entry.config, null, 2) : "";
+    const configId = `producer_config_${name}_${repo.id}`;
+    const detailsId = `producer_details_${name}_${repo.id}`;
+
+    return `<div class="space-y-1">
+      ${checkbox(`producer_enabled_${name}_${repo.id}`, name, isEnabled)}
+      <details id="${detailsId}" class="ml-7">
+        <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-400">Config JSON</summary>
+        <textarea id="${configId}" name="${configId}" rows="3"
+          placeholder='{ "focus": "auth, payments" }'
+          class="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs text-slate-50 placeholder-slate-500 font-mono focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">${escapeHtml(configJson)}</textarea>
+      </details>
+    </div>`;
+  }).join("");
+
+  // Enricher toggles
+  const enrichersSettings = (settings.enrichers ?? {}) as Record<string, { enabled?: boolean }>;
+  const enricherToggles = ALL_ENRICHER_NAMES.map((name) => {
+    const entry = enrichersSettings[name];
+    // Default to enabled (matches global config default)
+    const isEnabled = entry ? entry.enabled === true : true;
+    return checkbox(`enricher_enabled_${name}_${repo.id}`, name, isEnabled);
+  }).join("");
+
   const form = `<form class="mt-4 space-y-3 border-t border-slate-700 pt-4"
     hx-post="/settings/repos/${safeId}"
     hx-target="#repo-card-${safeId}"
@@ -195,6 +240,18 @@ export function repoSettingsCard(repo: RepoRow): string {
       value: settings.dailyBudget != null ? String(settings.dailyBudget) : "",
       placeholder: "Use global default",
     })}
+    <div class="border-t border-slate-700 pt-3 mt-3">
+      <h4 class="text-sm font-medium text-slate-300 mb-2">Producers</h4>
+      <div class="space-y-2">
+        ${producerToggles}
+      </div>
+    </div>
+    <div class="border-t border-slate-700 pt-3 mt-3">
+      <h4 class="text-sm font-medium text-slate-300 mb-2">Enrichers</h4>
+      <div class="space-y-2">
+        ${enricherToggles}
+      </div>
+    </div>
     <div class="flex justify-end">
       ${button("Save", { variant: "primary", attrs: `type="submit"` })}
     </div>
