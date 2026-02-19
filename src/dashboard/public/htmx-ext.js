@@ -138,10 +138,55 @@
     }
   }
 
+  // ── Clarification form submission ──────────────────────────────────────────
+
+  function submitClarification(taskId, btn) {
+    var form = document.getElementById("clarify-form-" + taskId);
+    if (!form) return;
+
+    var textareas = form.querySelectorAll("textarea[name='answers']");
+    var answers = [];
+    for (var i = 0; i < textareas.length; i++) {
+      answers.push(textareas[i].value.trim());
+    }
+
+    // Require at least one non-empty answer
+    if (answers.every(function (a) { return a === ""; })) {
+      showToast("Please provide at least one answer", "error");
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Submitting…";
+
+    fetch("/api/tasks/" + encodeURIComponent(taskId) + "/clarify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers: answers }),
+    })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        return resp.text();
+      })
+      .then(function (html) {
+        // Swap the task list like HTMX would
+        var taskList = document.getElementById("task-list");
+        if (taskList) taskList.innerHTML = html;
+        showToast("Clarification answers submitted", "success");
+        closePanel();
+      })
+      .catch(function (err) {
+        showToast("Failed to submit: " + err.message, "error");
+        btn.disabled = false;
+        btn.textContent = "Submit Answers";
+      });
+  }
+
   // Expose globally for other scripts
   window.openPanel = openPanel;
   window.closePanel = closePanel;
   window.showToast = showToast;
+  window.submitClarification = submitClarification;
 
   // ── Event Listeners ─────────────────────────────────────────────────────────
 

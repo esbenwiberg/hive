@@ -288,12 +288,16 @@ function blueprintSection(task: TaskRow): string {
 
   // ── Awaiting input ─────────────────────────────────────────────────────
   if (bp.awaitingInput && bp.clarificationQuestions?.length) {
-    const questions = bp.clarificationQuestions
+    const questionFields = bp.clarificationQuestions
       .map(
         (q, i) =>
-          `<li class="flex items-start gap-2 py-0.5">
-            <span class="shrink-0 text-amber-400 font-medium">${i + 1}.</span>
-            <span>${escapeHtml(q)}</span>
+          `<li class="space-y-1.5 py-1">
+            <label class="flex items-start gap-2">
+              <span class="shrink-0 text-amber-400 font-medium">${i + 1}.</span>
+              <span class="text-sm text-slate-300">${escapeHtml(q)}</span>
+            </label>
+            <textarea name="answers" rows="2" placeholder="Your answer…"
+              class="w-full rounded border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-amber-500 focus:outline-none"></textarea>
           </li>`,
       )
       .join("");
@@ -304,7 +308,12 @@ function blueprintSection(task: TaskRow): string {
         <div class="flex items-center gap-2 mb-2">
           ${badge("Awaiting Input", "amber")}
         </div>
-        <ul class="space-y-0.5 text-sm text-slate-300">${questions}</ul>
+        <form id="clarify-form-${escapeHtml(task.id)}" onsubmit="return false">
+          <ul class="space-y-2">${questionFields}</ul>
+          <div class="mt-3">
+            ${button("Submit Answers", { variant: "primary", attrs: `type="button" onclick="submitClarification('${escapeHtml(task.id)}', this)"` })}
+          </div>
+        </form>
       </div>
     </div>`;
   }
