@@ -36,8 +36,12 @@ function execGit(args: string[], cwd: string): Promise<string> {
 
 // ── Interface ───────────────────────────────────────────────────────────────
 
+export interface CloneOptions {
+  depth?: number;
+}
+
 export interface GitProvider {
-  clone(repoUrl: string, targetDir: string, branch: string, creds: GitCredentials): Promise<void>;
+  clone(repoUrl: string, targetDir: string, branch: string, creds: GitCredentials, opts?: CloneOptions): Promise<void>;
   createBranch(repoDir: string, branchName: string): Promise<void>;
   commitAll(repoDir: string, message: string): Promise<void>;
   push(repoDir: string, branch: string, creds: GitCredentials): Promise<void>;
@@ -59,14 +63,15 @@ export class GitHubProvider implements GitProvider {
     targetDir: string,
     branch: string,
     creds: GitCredentials,
+    opts?: CloneOptions,
   ): Promise<void> {
     const url = `https://x-access-token:${creds.token}@github.com/${repoFullName}.git`;
     const sanitizedUrl = `https://github.com/${repoFullName}.git`;
     logger.info({ repoFullName, branch, targetDir }, "Cloning GitHub repo");
-    await execGit(
-      ["clone", "--branch", branch, "--single-branch", url, targetDir],
-      process.cwd(),
-    );
+    const args = ["clone", "--branch", branch, "--single-branch"];
+    if (opts?.depth) args.push("--depth", String(opts.depth));
+    args.push(url, targetDir);
+    await execGit(args, process.cwd());
     // Strip embedded token from .git/config to avoid credentials persisting on disk
     await execGit(["remote", "set-url", "origin", sanitizedUrl], targetDir);
   }
@@ -154,6 +159,7 @@ export class AzureDevOpsProvider implements GitProvider {
     targetDir: string,
     branch: string,
     creds: GitCredentials,
+    opts?: CloneOptions,
   ): Promise<void> {
     // repoFullName format: org/project/repo
     const [org, project, repo] = repoFullName.split("/");
@@ -166,10 +172,10 @@ export class AzureDevOpsProvider implements GitProvider {
     const url = `https://${creds.token}@dev.azure.com/${org}/${project}/_git/${repo}`;
     const sanitizedUrl = `https://dev.azure.com/${org}/${project}/_git/${repo}`;
     logger.info({ repoFullName, branch, targetDir }, "Cloning Azure DevOps repo");
-    await execGit(
-      ["clone", "--branch", branch, "--single-branch", url, targetDir],
-      process.cwd(),
-    );
+    const args = ["clone", "--branch", branch, "--single-branch"];
+    if (opts?.depth) args.push("--depth", String(opts.depth));
+    args.push(url, targetDir);
+    await execGit(args, process.cwd());
     // Strip embedded token from .git/config to avoid credentials persisting on disk
     await execGit(["remote", "set-url", "origin", sanitizedUrl], targetDir);
   }

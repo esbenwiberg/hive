@@ -54,8 +54,11 @@ const mockProducerRun = vi.fn().mockResolvedValue({
   costUsd: 0,
 });
 
+const REPO_PRODUCERS = new Set(["bug-hunter", "security-scanner", "feature-scout"]);
+
 const makeProducerMock = (name: string) => ({
   name,
+  needsRepo: REPO_PRODUCERS.has(name),
   run: mockProducerRun,
 });
 
@@ -135,6 +138,17 @@ vi.mock("../../src/domain/config.js", () => ({
 const mockCleanupExpiredPreviews = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../src/daemon/preview-cleanup.js", () => ({
   cleanupExpiredPreviews: mockCleanupExpiredPreviews,
+}));
+
+// Mock git cloning (used by producer clone-before-run)
+const mockResolveGitCredentials = vi.fn().mockResolvedValue({ provider: "github", token: "mock-token" });
+vi.mock("../../src/execution/worktree.js", () => ({
+  resolveGitCredentials: mockResolveGitCredentials,
+}));
+
+const mockGitClone = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../src/execution/git-provider.js", () => ({
+  getGitProvider: vi.fn().mockReturnValue({ clone: mockGitClone }),
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────

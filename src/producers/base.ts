@@ -24,6 +24,8 @@ export interface ProducerResult {
 
 export interface Producer {
   name: string;
+  /** When true the daemon will shallow-clone the repo before running. */
+  needsRepo?: boolean;
   run(ctx: ProducerContext): Promise<ProducerResult>;
 }
 

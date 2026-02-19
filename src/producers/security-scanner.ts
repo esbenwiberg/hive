@@ -11,6 +11,7 @@ import type { Producer, ProducerContext, ProducerResult } from "./base.js";
  */
 export class SecurityScannerProducer implements Producer {
   name = "security-scanner";
+  needsRepo = true;
 
   async run(ctx: ProducerContext): Promise<ProducerResult> {
     const result: ProducerResult = {

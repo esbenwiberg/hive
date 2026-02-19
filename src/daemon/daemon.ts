@@ -1,5 +1,7 @@
-import { existsSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import logger from "../logger.js";
+import { resolveGitCredentials } from "../execution/worktree.js";
+import { getGitProvider } from "../execution/git-provider.js";
 import { Scheduler } from "./scheduler.js";
 import { findStaleTasks, STALE_THRESHOLD_MS } from "./stale-tasks.js";
 import { cleanupStale } from "../db/queries/active-agents.js";
@@ -278,17 +280,35 @@ export class Daemon {
         continue;
       }
 
-      const repoDir = `/tmp/hive-repos/${repo.id}`;
-      const ctx: ProducerContext = {
-        repoId: repo.id,
-        repoFullName: repo.fullName,
-        repoDir: existsSync(repoDir) ? repoDir : undefined,
-        createdBy,
-        config: producerEntry.config ?? {},
-      };
-
       const start = Date.now();
+      let cloneDir: string | undefined;
+
       try {
+        // Shallow-clone the repo if the producer needs filesystem access
+        let repoDir: string | undefined;
+        if (producer.needsRepo) {
+          cloneDir = `/tmp/hive-producer-clones/${repo.id}-${Date.now()}`;
+          await mkdir("/tmp/hive-producer-clones", { recursive: true });
+          const creds = await resolveGitCredentials(createdBy, repo.provider);
+          const gitProvider = getGitProvider(repo.provider);
+          await gitProvider.clone(
+            repo.fullName,
+            cloneDir,
+            repo.defaultBranch ?? "main",
+            creds,
+            { depth: 1 },
+          );
+          repoDir = cloneDir;
+        }
+
+        const ctx: ProducerContext = {
+          repoId: repo.id,
+          repoFullName: repo.fullName,
+          repoDir,
+          createdBy,
+          config: producerEntry.config ?? {},
+        };
+
         const result = await producer.run(ctx);
         const durationMs = Date.now() - start;
 
@@ -302,21 +322,30 @@ export class Daemon {
           durationMs,
         });
 
-        logger.info(
-          {
-            producer: producer.name,
-            repo: repo.fullName,
-            tasksCreated: result.tasksCreated,
-            duplicatesSkipped: result.duplicatesSkipped,
-            errors: result.errors.length,
-            durationMs,
-          },
-          "Daemon: producer run completed",
-        );
+        if (result.errors.length > 0) {
+          logger.warn(
+            {
+              producer: producer.name,
+              repo: repo.fullName,
+              errors: result.errors,
+              durationMs,
+            },
+            "Daemon: producer run completed with errors",
+          );
+        } else {
+          logger.info(
+            {
+              producer: producer.name,
+              repo: repo.fullName,
+              tasksCreated: result.tasksCreated,
+              duplicatesSkipped: result.duplicatesSkipped,
+              durationMs,
+            },
+            "Daemon: producer run completed",
+          );
+        }
 
         if (result.tasksCreated > 0) {
-          // We don't have individual task titles/IDs from ProducerResult,
-          // so pass summary info
           await notifyTasksCreated(
             producer.name,
             repo.fullName,
@@ -351,6 +380,12 @@ export class Daemon {
             { err: recordErr, producer: producer.name },
             "Daemon: failed to record producer run error",
           );
+        }
+      } finally {
+        if (cloneDir) {
+          await rm(cloneDir, { recursive: true, force: true }).catch((cleanupErr) => {
+            logger.warn({ err: cleanupErr, path: cloneDir }, "Daemon: failed to clean up producer clone");
+          });
         }
       }
     }

@@ -11,6 +11,7 @@ import type { Producer, ProducerContext, ProducerResult } from "./base.js";
  */
 export class FeatureScoutProducer implements Producer {
   name = "feature-scout";
+  needsRepo = true;
 
   async run(ctx: ProducerContext): Promise<ProducerResult> {
     const result: ProducerResult = {

@@ -132,9 +132,15 @@ export function producerCardPartial(producer: ProducerData): string {
     const headers = ["Time", "Tasks", "Dupes", "Cost", "Duration", "Status"];
     const rows = producer.runs.slice(0, 5).map((run) => {
       const errors = Array.isArray(run.errors) ? run.errors : [];
-      const statusBadge = errors.length > 0
-        ? badge(`${errors.length} error${errors.length > 1 ? "s" : ""}`, "red")
-        : badge("OK", "emerald");
+      let statusCell: string;
+      if (errors.length > 0) {
+        const errorList = errors
+          .map((e: unknown) => `<li class="text-red-400 text-xs">${escapeHtml(String(e))}</li>`)
+          .join("");
+        statusCell = `${badge(`${errors.length} error${errors.length > 1 ? "s" : ""}`, "red")}<ul class="mt-1 list-disc list-inside">${errorList}</ul>`;
+      } else {
+        statusCell = badge("OK", "emerald");
+      }
 
       return [
         run.createdAt ? `<span class="font-mono text-xs">${escapeHtml(formatTimestamp(run.createdAt))}</span>` : "N/A",
@@ -142,7 +148,7 @@ export function producerCardPartial(producer: ProducerData): string {
         String(run.duplicatesSkipped ?? 0),
         `<span class="font-mono">${formatUsd(run.costUsd ?? "0")}</span>`,
         run.durationMs != null ? formatDuration(run.durationMs) : "N/A",
-        statusBadge,
+        statusCell,
       ];
     });
 
