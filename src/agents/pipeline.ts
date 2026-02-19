@@ -10,7 +10,7 @@ import { routeTask } from "./router.js";
 import { evaluateGate } from "./gate.js";
 import { callClaude } from "./sdk.js";
 import { runEnrichers } from "../enrichers/base.js";
-import { getEnabledEnrichers } from "../enrichers/index.js";
+import { ALL_ENRICHERS } from "../enrichers/index.js";
 import { architectEnricher } from "../enrichers/architect.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { resolveGitCredentials } from "../execution/worktree.js";
@@ -73,29 +73,27 @@ export async function runPipeline(taskId: string): Promise<void> {
 
   // ── Step 4: Run enrichers ─────────────────────────────────────────────────
   try {
-    const config = getAutonomousConfig();
-    const enrichers = getEnabledEnrichers(config);
-
-    // Build enricher config map: global defaults, then per-repo overrides
+    // Build enricher config from per-repo settings (default: disabled)
     const enricherConfigs: Record<string, EnricherConfig> = {};
-    for (const entry of config.enrichers) {
-      enricherConfigs[entry.name] = { enabled: entry.enabled };
+    for (const e of ALL_ENRICHERS) {
+      enricherConfigs[e.name] = { enabled: false };
     }
 
-    // Reload task to read its repoId for per-repo overrides
     const taskForRepo = await getById(taskId);
     if (taskForRepo) {
       const repo = await getRepoById(taskForRepo.repoId);
       if (repo) {
         const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
-        const enricherOverrides = (repoSettings.enrichers ?? {}) as Record<string, { enabled?: boolean }>;
-        for (const [name, override] of Object.entries(enricherOverrides)) {
-          if (enricherConfigs[name] && override.enabled !== undefined) {
-            enricherConfigs[name].enabled = override.enabled;
+        const repoEnrichers = (repoSettings.enrichers ?? {}) as Record<string, { enabled?: boolean }>;
+        for (const [name, entry] of Object.entries(repoEnrichers)) {
+          if (enricherConfigs[name] && entry.enabled) {
+            enricherConfigs[name].enabled = true;
           }
         }
       }
     }
+
+    const enrichers = ALL_ENRICHERS.filter((e) => enricherConfigs[e.name]?.enabled);
 
     // Reload task to get latest state after routing
     const enrichingTask = await getById(taskId);

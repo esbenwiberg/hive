@@ -163,7 +163,6 @@ export interface ConfigOverrides {
   classification?: Partial<ClassificationConfig>;
   gate?: Partial<GateConfig>;
   budget?: Partial<BudgetConfig>;
-  enrichers?: EnricherEntry[];
   clarification?: Partial<ClarificationConfig>;
 }
 
@@ -207,7 +206,6 @@ function mergeOverrides(
     classification: { ...base.classification, ...overrides.classification },
     gate: { ...base.gate, ...overrides.gate },
     budget: { ...base.budget, ...overrides.budget },
-    enrichers: overrides.enrichers ?? base.enrichers,
     clarification: { ...base.clarification, ...overrides.clarification },
   };
 }

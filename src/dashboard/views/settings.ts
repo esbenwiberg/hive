@@ -149,19 +149,6 @@ export function globalSettingsPartial(
     padding: "compact",
   });
 
-  // Enrichers card
-  const enricherFields =
-    config.enrichers.length > 0
-      ? `<div class="space-y-2">${config.enrichers
-          .map((e) => checkbox(`enricher_${e.name}`, e.name, e.enabled))
-          .join("")}</div>`
-      : `<p class="text-sm text-slate-500">No enrichers configured in YAML.</p>`;
-
-  const enricherCard = card(enricherFields, {
-    title: "Enrichers",
-    padding: "compact",
-  });
-
   return `<form hx-post="/settings/global" hx-target="#settings-content" hx-swap="innerHTML">
   <div class="space-y-4">
     <p class="text-sm text-slate-400">Overrides saved to database. <code class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">autonomous.config.yaml</code> provides defaults.</p>
@@ -170,7 +157,6 @@ export function globalSettingsPartial(
       ${gateCard}
       ${budgetCard}
       ${clarificationCard}
-      ${enricherCard}
     </div>
     <div class="flex justify-end">
       ${button("Save Global Settings", { variant: "primary", attrs: `type="submit"` })}
@@ -220,8 +206,8 @@ export function repoSettingsCard(repo: RepoRow): string {
   const enrichersSettings = (settings.enrichers ?? {}) as Record<string, { enabled?: boolean }>;
   const enricherToggles = ALL_ENRICHER_NAMES.map((name) => {
     const entry = enrichersSettings[name];
-    // Default to enabled (matches global config default)
-    const isEnabled = entry ? entry.enabled === true : true;
+    // Default to disabled — enrichers must be explicitly enabled per repo
+    const isEnabled = entry?.enabled === true;
     return checkbox(`enricher_enabled_${name}_${repo.id}`, name, isEnabled);
   }).join("");
 

@@ -153,15 +153,6 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
       overrides.clarification = { mode: clarificationMode as ClarificationConfig["mode"] };
     }
 
-    // Handle enricher toggles — look for enricher_* checkbox fields
-    const config = getAutonomousConfig();
-    if (config.enrichers.length > 0) {
-      overrides.enrichers = config.enrichers.map((e) => ({
-        name: e.name,
-        enabled: body[`enricher_${e.name}`] === "true",
-      }));
-    }
-
     const updatedConfig = await saveConfigOverrides(overrides);
 
     res.setHeader(
