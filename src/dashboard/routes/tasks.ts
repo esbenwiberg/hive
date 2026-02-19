@@ -286,9 +286,9 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
     const updatedEnrichment = { ...enrichment, architect: updatedArchitect };
     await taskQueries.updateEnrichment(id, updatedEnrichment);
 
-    // Transition task back to "enriching" (uses ready → enriching transition)
+    // Transition back to "pending" so the daemon picks it up and re-runs the pipeline
     const user = req.session.user!;
-    await taskQueries.updateStatus(id, "enriching", user.id);
+    await taskQueries.updateStatus(id, "pending", user.id);
 
     logger.info({ taskId: id, answerCount: answers.length }, "Clarification answers submitted, task re-entering enrichment");
 
