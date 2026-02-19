@@ -14,6 +14,14 @@ vi.mock("../../src/db/connection.js", async () => {
   return { db: setup.db, pool: setup.pool };
 });
 
+vi.mock("../../src/producers/base.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../src/producers/base.js")>();
+  return {
+    ...original,
+    gatherRepoSummary: vi.fn(() => "## File tree\nindex.ts\npackage.json"),
+  };
+});
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 const { callClaude } = await import("../../src/agents/sdk.js");
