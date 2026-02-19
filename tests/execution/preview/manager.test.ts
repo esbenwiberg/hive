@@ -359,6 +359,74 @@ describe("PreviewManager", () => {
       const expired = await manager.cleanupExpired();
       expect(expired).toEqual([]);
     });
+
+    it("uses custom timeout from resolver when provided", async () => {
+      const fakeChild = createFakeChildProcess();
+      mockSpawn.mockReturnValue(fakeChild);
+
+      const config = {
+        type: "process" as const,
+        port: 3000,
+        start_command: "npm start",
+      };
+
+      await manager.startPreview("HIVE-CUSTOM1", "/tmp/custom1", config);
+
+      // Age the preview by 10 minutes
+      const info = manager.getPreviewInfo("HIVE-CUSTOM1")!;
+      info.startedAt = new Date(Date.now() - 10 * 60 * 1000);
+
+      // Custom resolver returns 5 minutes (shorter than global 30 min)
+      const resolver = vi.fn().mockResolvedValue(5 * 60 * 1000);
+
+      const expired = await manager.cleanupExpired(resolver);
+      expect(expired).toEqual(["HIVE-CUSTOM1"]);
+      expect(resolver).toHaveBeenCalledWith("HIVE-CUSTOM1");
+    });
+
+    it("falls back to global timeout when resolver returns undefined", async () => {
+      const fakeChild = createFakeChildProcess();
+      mockSpawn.mockReturnValue(fakeChild);
+
+      const config = {
+        type: "process" as const,
+        port: 3000,
+        start_command: "npm start",
+      };
+
+      await manager.startPreview("HIVE-FALLBACK1", "/tmp/fb1", config);
+
+      // Age by 10 minutes — less than global 30 min timeout
+      const info = manager.getPreviewInfo("HIVE-FALLBACK1")!;
+      info.startedAt = new Date(Date.now() - 10 * 60 * 1000);
+
+      const resolver = vi.fn().mockResolvedValue(undefined);
+
+      const expired = await manager.cleanupExpired(resolver);
+      expect(expired).toEqual([]); // Should NOT be expired (10 min < 30 min global)
+    });
+
+    it("falls back to global timeout when resolver throws", async () => {
+      const fakeChild = createFakeChildProcess();
+      mockSpawn.mockReturnValue(fakeChild);
+
+      const config = {
+        type: "process" as const,
+        port: 3000,
+        start_command: "npm start",
+      };
+
+      await manager.startPreview("HIVE-ERR1", "/tmp/err1", config);
+
+      // Age by 10 minutes — less than global 30 min timeout
+      const info = manager.getPreviewInfo("HIVE-ERR1")!;
+      info.startedAt = new Date(Date.now() - 10 * 60 * 1000);
+
+      const resolver = vi.fn().mockRejectedValue(new Error("DB down"));
+
+      const expired = await manager.cleanupExpired(resolver);
+      expect(expired).toEqual([]); // Falls back to global 30 min, so not expired
+    });
   });
 
   // ── extendPreview ───────────────────────────────────────────────────────

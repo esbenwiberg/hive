@@ -184,14 +184,32 @@ export class PreviewManager {
 
   /**
    * Finds and stops previews that have exceeded the cleanup timeout.
+   * Accepts an optional resolver that returns a per-task timeout in ms.
+   * Falls back to the global cleanup_timeout_minutes when the resolver
+   * returns undefined or throws.
    * Returns the list of task IDs that were cleaned up.
    */
-  async cleanupExpired(): Promise<string[]> {
-    const timeoutMs = this.settings.cleanup_timeout_minutes * 60 * 1000;
+  async cleanupExpired(
+    getTimeoutMs?: (taskId: string) => Promise<number | undefined>,
+  ): Promise<string[]> {
+    const globalTimeoutMs = this.settings.cleanup_timeout_minutes * 60 * 1000;
     const now = Date.now();
     const expired: string[] = [];
 
     for (const [taskId, info] of this.previews) {
+      let timeoutMs = globalTimeoutMs;
+
+      if (getTimeoutMs) {
+        try {
+          const custom = await getTimeoutMs(taskId);
+          if (custom != null) {
+            timeoutMs = custom;
+          }
+        } catch {
+          // Fall back to global timeout
+        }
+      }
+
       if (now - info.startedAt.getTime() > timeoutMs) {
         expired.push(taskId);
       }

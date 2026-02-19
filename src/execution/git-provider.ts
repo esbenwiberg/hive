@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import logger from "../logger.js";
 import type { GitCredentials } from "../domain/types.js";
-import { parseAdoRepoName, createPullRequest } from "../integrations/azure-devops.js";
+import { parseAdoRepoName, createPullRequest, createPRComment as adoCreatePRComment, getPullRequest } from "../integrations/azure-devops.js";
 
 // ── Helper ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +34,32 @@ function execGit(args: string[], cwd: string): Promise<string> {
   });
 }
 
+// ── PR Number Extractors ────────────────────────────────────────────────────
+
+/**
+ * Extracts the PR number from a GitHub pull request URL.
+ * e.g. "https://github.com/owner/repo/pull/42" → 42
+ */
+export function extractGitHubPRNumber(prUrl: string): number {
+  const match = prUrl.match(/\/pull\/(\d+)/);
+  if (!match) {
+    throw new Error(`Cannot extract PR number from GitHub URL: ${prUrl}`);
+  }
+  return parseInt(match[1], 10);
+}
+
+/**
+ * Extracts the PR number from an Azure DevOps pull request URL.
+ * e.g. "https://dev.azure.com/org/project/_git/repo/pullrequest/77" → 77
+ */
+export function extractAdoPRNumber(prUrl: string): number {
+  const match = prUrl.match(/\/pullrequest\/(\d+)/);
+  if (!match) {
+    throw new Error(`Cannot extract PR number from Azure DevOps URL: ${prUrl}`);
+  }
+  return parseInt(match[1], 10);
+}
+
 // ── Interface ───────────────────────────────────────────────────────────────
 
 export interface GitProvider {
@@ -49,6 +75,17 @@ export interface GitProvider {
     body: string,
     creds: GitCredentials,
   ): Promise<string>;
+  commentOnPR(
+    repoFullName: string,
+    prUrl: string,
+    comment: string,
+    creds: GitCredentials,
+  ): Promise<void>;
+  getPRState(
+    repoFullName: string,
+    prUrl: string,
+    creds: GitCredentials,
+  ): Promise<"open" | "closed" | "merged">;
 }
 
 // ── GitHubProvider ──────────────────────────────────────────────────────────
@@ -144,6 +181,73 @@ export class GitHubProvider implements GitProvider {
     logger.info({ prUrl: data.html_url }, "GitHub PR created");
     return data.html_url;
   }
+
+  async commentOnPR(
+    repoFullName: string,
+    prUrl: string,
+    comment: string,
+    creds: GitCredentials,
+  ): Promise<void> {
+    const prNumber = extractGitHubPRNumber(prUrl);
+    const [owner, repo] = repoFullName.split("/");
+    if (!owner || !repo) {
+      throw new Error(`Invalid GitHub repo format: "${repoFullName}" (expected owner/repo)`);
+    }
+
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${prNumber}/comments`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ body: comment }),
+      },
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`GitHub PR comment failed (${response.status}): ${text}`);
+    }
+
+    logger.info({ repoFullName, prNumber }, "GitHub PR comment posted");
+  }
+
+  async getPRState(
+    repoFullName: string,
+    prUrl: string,
+    creds: GitCredentials,
+  ): Promise<"open" | "closed" | "merged"> {
+    const prNumber = extractGitHubPRNumber(prUrl);
+    const [owner, repo] = repoFullName.split("/");
+    if (!owner || !repo) {
+      throw new Error(`Invalid GitHub repo format: "${repoFullName}" (expected owner/repo)`);
+    }
+
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${prNumber}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          Accept: "application/vnd.github+json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`GitHub get PR state failed (${response.status}): ${text}`);
+    }
+
+    const data = (await response.json()) as { state: string; merged: boolean };
+
+    if (data.merged) return "merged";
+    if (data.state === "closed") return "closed";
+    return "open";
+  }
 }
 
 // ── AzureDevOpsProvider ─────────────────────────────────────────────────────
@@ -214,6 +318,32 @@ export class AzureDevOpsProvider implements GitProvider {
     const { org, project, repo } = parseAdoRepoName(repoFullName);
     const result = await createPullRequest(org, project, repo, head, base, title, body, creds.token);
     return result.url;
+  }
+
+  async commentOnPR(
+    repoFullName: string,
+    prUrl: string,
+    comment: string,
+    creds: GitCredentials,
+  ): Promise<void> {
+    const { org, project, repo } = parseAdoRepoName(repoFullName);
+    const prId = extractAdoPRNumber(prUrl);
+    await adoCreatePRComment(org, project, repo, prId, comment, creds.token);
+  }
+
+  async getPRState(
+    repoFullName: string,
+    prUrl: string,
+    creds: GitCredentials,
+  ): Promise<"open" | "closed" | "merged"> {
+    const { org, project, repo } = parseAdoRepoName(repoFullName);
+    const prId = extractAdoPRNumber(prUrl);
+    const pr = await getPullRequest(org, project, repo, prId, creds.token);
+
+    // ADO statuses: active, completed, abandoned, notSet
+    if (pr.status === "completed") return "merged";
+    if (pr.status === "abandoned") return "closed";
+    return "open";
   }
 }
 

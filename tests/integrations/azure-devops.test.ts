@@ -12,7 +12,7 @@ vi.mock("../../src/logger.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
-const { parseAdoRepoName, createPullRequest, getPullRequest } = await import(
+const { parseAdoRepoName, createPullRequest, getPullRequest, createPRComment } = await import(
   "../../src/integrations/azure-devops.js"
 );
 
@@ -164,6 +164,52 @@ describe("createPullRequest", () => {
     await expect(
       createPullRequest("org", "proj", "repo", "branch", "main", "T", "D", "pat"),
     ).rejects.toThrow("Azure DevOps PR creation failed (400): Bad Request: missing fields");
+  });
+});
+
+describe("createPRComment", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends correct URL, headers, and body for PR thread", async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+    await createPRComment("myorg", "myproject", "myrepo", 42, "Preview is ready!", "my-pat");
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+
+    expect(url).toBe(
+      "https://dev.azure.com/myorg/myproject/_apis/git/repositories/myrepo/pullrequests/42/threads?api-version=7.1",
+    );
+    expect(opts.method).toBe("POST");
+    expect(opts.headers.Authorization).toBe(
+      `Basic ${Buffer.from(":my-pat").toString("base64")}`,
+    );
+
+    const body = JSON.parse(opts.body);
+    expect(body.comments[0].content).toBe("Preview is ready!");
+    expect(body.comments[0].commentType).toBe(1);
+  });
+
+  it("throws on non-2xx response", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => "Forbidden",
+    });
+
+    await expect(
+      createPRComment("org", "proj", "repo", 1, "test", "pat"),
+    ).rejects.toThrow("Azure DevOps PR comment failed (403): Forbidden");
   });
 });
 
