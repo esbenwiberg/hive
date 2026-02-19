@@ -168,24 +168,30 @@ function stageColors(state: StageState): {
 
 /**
  * Renders a single stage block with vertical timeline connector.
+ * When taskBadge is provided and this stage is active, shows the task info badge.
  */
 function renderStage(
   stage: StageDefinition,
   stageIndex: number,
   state: StageState,
   isLast: boolean,
+  taskBadge?: string,
 ): string {
   const colors = stageColors(state);
 
   // The vertical line should extend through this stage unless it is the last
   const lineHtml = !isLast
-    ? `<div class="absolute left-3 top-0 bottom-0 w-0.5 ${colors.line}"></div>`
-    : `<div class="absolute left-3 top-0 h-4 w-0.5 ${colors.line}"></div>`;
+    ? `<div class="absolute left-3 top-0 bottom-0 w-0.5 ${colors.line} transition-colors duration-300"></div>`
+    : `<div class="absolute left-3 top-0 h-4 w-0.5 ${colors.line} transition-colors duration-300"></div>`;
 
-  return `<div class="relative pl-8">
+  // Active stage: scroll into view and show task badge
+  const scrollAttr = state === "active" ? ' id="active-stage" style="scroll-margin-top:6rem"' : "";
+  const badgeHtml = state === "active" && taskBadge ? `\n    ${taskBadge}` : "";
+
+  return `<div class="relative pl-8"${scrollAttr}>
   ${lineHtml}
-  <div class="absolute left-1.5 top-4 h-3 w-3 rounded-full ${colors.dot}"></div>
-  <div class="ml-4 rounded-lg border ${colors.border} bg-slate-800 p-4 ${isLast ? "" : "mb-4"}">
+  <div class="absolute left-1.5 top-4 h-3 w-3 rounded-full ${colors.dot} transition-all duration-300"></div>
+  <div class="ml-4 rounded-lg border ${colors.border} bg-slate-800 p-4 ${isLast ? "" : "mb-4"} transition-colors duration-300">${badgeHtml}
     <h4 class="text-sm font-semibold ${colors.text}">${stage.name}</h4>
     <div class="text-xs text-slate-400">${stage.content}</div>
   </div>
@@ -195,6 +201,17 @@ function renderStage(
 // ── Pipeline partial (HTMX fragment) ────────────────────────────────────────
 
 /**
+ * Builds a task info badge shown next to the active stage.
+ */
+function taskInfoBadge(taskId: string, taskTitle: string, taskStatus: string): string {
+  return `<div class="mb-3 flex items-center gap-2 rounded-lg bg-amber-400/5 border border-amber-400/20 px-3 py-2">
+      <span class="font-mono text-xs text-amber-400/70">${escapeHtml(taskId)}</span>
+      <span class="text-xs text-slate-300 truncate">${escapeHtml(taskTitle)}</span>
+      <span class="ml-auto inline-flex items-center rounded-full bg-amber-400/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-400/20">${escapeHtml(taskStatus)}</span>
+    </div>`;
+}
+
+/**
  * Returns an HTML fragment for the full pipeline diagram.
  * When taskStatus is set, highlights the active stage and enables HTMX polling.
  * When no task is selected, renders all stages in default/slate colors.
@@ -202,21 +219,28 @@ function renderStage(
 export function pipelinePartial(
   taskStatus: string | null,
   taskId?: string,
+  taskTitle?: string,
 ): string {
   const activeIndex = taskStatus ? getStageIndex(taskStatus) : -1;
   const stages = buildStages();
 
+  // Build task badge for the active stage
+  const badge = taskId && taskStatus && taskTitle
+    ? taskInfoBadge(taskId, taskTitle, taskStatus)
+    : undefined;
+
   const stagesHtml = stages
     .map((stage, i) => {
       const state = stageState(i, activeIndex);
-      return renderStage(stage, i, state, i === stages.length - 1);
+      return renderStage(stage, i, state, i === stages.length - 1, badge);
     })
     .join("\n");
 
-  // Header with status badge when a task is selected
+  // Header with status info when a task is selected
   const statusIndicator = taskStatus
     ? `<div class="flex items-center gap-2 mb-4">
-        <span class="text-sm text-slate-400">Current status:</span>
+        <span class="text-sm text-slate-400">Tracking:</span>
+        <span class="font-mono text-sm text-amber-400">${escapeHtml(taskId ?? "")}</span>
         <span class="inline-flex items-center rounded-full bg-amber-400/10 px-2.5 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-400/20">${escapeHtml(taskStatus)}</span>
       </div>`
     : `<p class="text-sm text-slate-400 mb-4">Select a task above to highlight its position in the pipeline.</p>`;
@@ -229,9 +253,9 @@ export function pipelinePartial(
 
   return `<div id="pipeline-container"${htmxAttrs}>
   <div class="rounded-xl border border-slate-700 bg-slate-800 p-6">
-    <h3 class="text-lg font-semibold text-slate-50 mb-4">Pipeline Status</h3>
+    <h3 class="text-lg font-semibold text-slate-50 mb-4">Pipeline</h3>
     ${statusIndicator}
-    <div class="py-2">
+    <div class="py-2 overflow-x-auto">
       ${stagesHtml}
     </div>
   </div>
@@ -565,7 +589,17 @@ export function workflowPage(tasks: TaskRow[], user: SessionUser): string {
     ${detailsSection("Daemon Processes", daemonDiagram())}
     ${detailsSection("Tech Stack", techStackDiagram())}
   </div>
-</div>`;
+</div>
+
+<script>
+  // Scroll active stage into view after HTMX swaps the pipeline
+  document.body.addEventListener("htmx:afterSwap", function(e) {
+    if (e.detail.target && e.detail.target.id === "pipeline-container") {
+      var el = document.getElementById("active-stage");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  });
+</script>`;
 
   return layout("Workflow", content, user);
 }
