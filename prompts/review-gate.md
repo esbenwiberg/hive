@@ -46,8 +46,7 @@ Respond with a JSON object:
 ## Verdict Guidelines
 
 - **pass**: Changes are correct, secure, and well-structured. Minor style issues are acceptable.
-- **rework**: Changes have correctness issues, missing tests, or significant code quality problems that should be fixed. No security vulnerabilities.
-- **fail**: Changes have critical security vulnerabilities, data loss risks, or fundamentally wrong approach.
+- **rework**: Changes have any issues — correctness, security, quality, wrong approach, missing tests. All non-passing code should be reworked, never failed outright.
 
 ## Rules
 
@@ -56,4 +55,4 @@ Respond with a JSON object:
 3. Don't flag style preferences unless they violate clear conventions
 4. Security issues are always at least "major" severity
 5. Missing tests for new functionality is grounds for "rework"
-6. Hardcoded secrets, SQL injection, XSS, or command injection are grounds for "fail"
+6. **Never return "fail"** — always use "rework" so the system can retry with refined instructions

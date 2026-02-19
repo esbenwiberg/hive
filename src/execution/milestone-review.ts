@@ -86,6 +86,7 @@ async function getDiff(worktreePath: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync("git", ["diff", "HEAD~1"], {
       cwd: worktreePath,
+      timeout: SHELL_TIMEOUT_MS,
       maxBuffer: 2 * 1024 * 1024,
     });
     return stdout;
@@ -94,6 +95,7 @@ async function getDiff(worktreePath: string): Promise<string> {
     try {
       const { stdout } = await execFileAsync("git", ["diff", "HEAD"], {
         cwd: worktreePath,
+        timeout: SHELL_TIMEOUT_MS,
         maxBuffer: 2 * 1024 * 1024,
       });
       return stdout;
@@ -110,6 +112,7 @@ async function getChangedFiles(worktreePath: string): Promise<string[]> {
   try {
     const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD~1"], {
       cwd: worktreePath,
+      timeout: SHELL_TIMEOUT_MS,
     });
     return stdout.trim().split("\n").filter(Boolean);
   } catch {

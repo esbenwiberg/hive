@@ -398,8 +398,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       return { success: true, prUrl, previewUrl, branch: branchName, reviewResult };
     }
 
-    if (reviewResult.verdict === "rework" && (task.reworkCount ?? 0) < MAX_REWORK_CYCLES) {
-      // Transition to rework, refine, and the daemon will re-execute
+    if ((task.reworkCount ?? 0) < MAX_REWORK_CYCLES) {
+      // Always rework if under max cycles — no terminal "fail" verdict
       await updateStatus(taskId, "rework");
       await refineTask(taskId, reviewResult);
 
@@ -408,11 +408,10 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       return { success: false, branch: branchName, reviewResult, error: "Sent for rework" };
     }
 
-    // Fail: either verdict is "fail" or max rework exceeded
-    const reason = reviewResult.verdict === "fail"
-      ? "Review gate failed: critical issues found"
-      : `Max rework cycles (${MAX_REWORK_CYCLES}) exceeded`;
+    // Only fail when max rework cycles exhausted
+    const reason = `Max rework cycles (${MAX_REWORK_CYCLES}) exceeded`;
 
+    await addEvent(taskId, "error", "worker", `Failed: ${reason}`);
     await db
       .update(tasks)
       .set({ failureReason: reason, updatedAt: new Date() })
@@ -430,6 +429,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     logger.error({ taskId, err }, "Worker: unexpected error");
 
     try {
+      await addEvent(taskId, "error", "worker", `Execution failed: ${reason}`);
       await db
         .update(tasks)
         .set({ failureReason: reason, updatedAt: new Date() })

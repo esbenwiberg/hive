@@ -25,21 +25,21 @@ function getReviewPrompt(): string {
 async function getGitDiff(worktreePath: string): Promise<string> {
   try {
     // Find the merge-base with the default branch to capture all commits on the feature branch
-    const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "origin/HEAD", "HEAD"], { cwd: worktreePath });
+    const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "origin/HEAD", "HEAD"], { cwd: worktreePath, timeout: 120_000 });
     const base = mergeBase.trim();
-    const { stdout } = await execFileAsync("git", ["diff", "--stat", `${base}..HEAD`], { cwd: worktreePath });
-    const { stdout: fullDiff } = await execFileAsync("git", ["diff", `${base}..HEAD`], { cwd: worktreePath, maxBuffer: 1024 * 1024 });
+    const { stdout } = await execFileAsync("git", ["diff", "--stat", `${base}..HEAD`], { cwd: worktreePath, timeout: 120_000 });
+    const { stdout: fullDiff } = await execFileAsync("git", ["diff", `${base}..HEAD`], { cwd: worktreePath, timeout: 120_000, maxBuffer: 1024 * 1024 });
     return `${stdout}\n\n${fullDiff}`;
   } catch {
     // Fallback: try HEAD~1 for repos without origin/HEAD configured
     try {
-      const { stdout } = await execFileAsync("git", ["diff", "--stat", "HEAD~1..HEAD"], { cwd: worktreePath });
-      const { stdout: fullDiff } = await execFileAsync("git", ["diff", "HEAD~1..HEAD"], { cwd: worktreePath, maxBuffer: 1024 * 1024 });
+      const { stdout } = await execFileAsync("git", ["diff", "--stat", "HEAD~1..HEAD"], { cwd: worktreePath, timeout: 120_000 });
+      const { stdout: fullDiff } = await execFileAsync("git", ["diff", "HEAD~1..HEAD"], { cwd: worktreePath, timeout: 120_000, maxBuffer: 1024 * 1024 });
       return `${stdout}\n\n${fullDiff}`;
     } catch {
       // If no commits yet or single commit, diff against empty tree
       try {
-        const { stdout } = await execFileAsync("git", ["diff", "--cached"], { cwd: worktreePath });
+        const { stdout } = await execFileAsync("git", ["diff", "--cached"], { cwd: worktreePath, timeout: 120_000 });
         return stdout;
       } catch {
         return "(no diff available)";
@@ -53,14 +53,14 @@ async function getGitDiff(worktreePath: string): Promise<string> {
  */
 async function getChangedFiles(worktreePath: string): Promise<string[]> {
   try {
-    const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "origin/HEAD", "HEAD"], { cwd: worktreePath });
+    const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "origin/HEAD", "HEAD"], { cwd: worktreePath, timeout: 120_000 });
     const base = mergeBase.trim();
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", `${base}..HEAD`], { cwd: worktreePath });
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", `${base}..HEAD`], { cwd: worktreePath, timeout: 120_000 });
     return stdout.trim().split("\n").filter(Boolean);
   } catch {
     // Fallback: try HEAD~1 for repos without origin/HEAD configured
     try {
-      const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD~1..HEAD"], { cwd: worktreePath });
+      const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD~1..HEAD"], { cwd: worktreePath, timeout: 120_000 });
       return stdout.trim().split("\n").filter(Boolean);
     } catch {
       return [];
@@ -78,10 +78,9 @@ export function parseReviewResult(text: string): ReviewGateResult {
   try {
     const parsed = JSON.parse(cleaned);
 
-    const verdict = parsed.verdict;
-    if (!["pass", "rework", "fail"].includes(verdict)) {
-      throw new Error(`Invalid verdict: ${verdict}`);
-    }
+    // Normalize any non-pass verdict to "rework" — fail is no longer terminal
+    const rawVerdict = parsed.verdict;
+    const verdict = rawVerdict === "pass" ? "pass" : "rework";
 
     return {
       verdict,

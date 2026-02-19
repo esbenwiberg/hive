@@ -187,6 +187,12 @@ export async function evaluateGate(taskId: string): Promise<void> {
       taskContext,
     );
 
+    // Write verdict to task record so the dashboard can display it
+    await db
+      .update(tasks)
+      .set({ gateVerdict: result.verdict, updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+
     // Transition task status
     await updateStatus(taskId, targetStatus);
 

@@ -336,6 +336,12 @@ async function failTask(taskId: string, err: unknown): Promise<void> {
     err instanceof Error ? err.message : String(err);
 
   try {
+    await addEvent(taskId, "error", "pipeline", `Pipeline failed: ${reason}`);
+  } catch {
+    // Best effort — don't let event logging block status transition
+  }
+
+  try {
     await updateStatus(taskId, "failed");
   } catch (transitionErr) {
     // The task may already be in a state that can't transition to failed.
