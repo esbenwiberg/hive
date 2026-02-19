@@ -286,8 +286,8 @@ function blueprintSection(task: TaskRow): string {
   const bp = enrichment.architect as BlueprintData;
   if (bp.skipped) return "";
 
-  // ── Awaiting input ─────────────────────────────────────────────────────
-  if (bp.awaitingInput && bp.clarificationQuestions?.length) {
+  // ── Awaiting input (only show form when task is actually in ready status) ─
+  if (bp.awaitingInput && bp.clarificationQuestions?.length && task.status === "ready") {
     const questionFields = bp.clarificationQuestions
       .map(
         (q, i) =>

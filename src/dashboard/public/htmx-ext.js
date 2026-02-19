@@ -165,7 +165,7 @@
       body: JSON.stringify({ answers: answers }),
     })
       .then(function (resp) {
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        if (!resp.ok) return resp.text().then(function (body) { throw new Error(body || "HTTP " + resp.status); });
         return resp.text();
       })
       .then(function (html) {
