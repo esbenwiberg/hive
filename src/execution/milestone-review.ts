@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import logger from "../logger.js";
 import { callClaude } from "../agents/sdk.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
+import { loadPrompt } from "../prompt-cache.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,9 +30,13 @@ interface ClaudeReviewResponse {
 const SHELL_TIMEOUT_MS = 120_000;
 const MAX_DIFF_CHARS = 50_000;
 
-const REVIEW_SYSTEM_PROMPT =
-  "Review this diff for obvious bugs, security issues, or logic errors. " +
-  'Return JSON `{ "issues": ["description", ...] }` or `{ "issues": [] }` if clean.';
+function getReviewPrompt(): string {
+  return loadPrompt("enrichers/milestone-review");
+}
+
+function getFixPrompt(): string {
+  return loadPrompt("enrichers/milestone-fix");
+}
 
 // ── quickVerify ──────────────────────────────────────────────────────────────
 
@@ -148,7 +153,7 @@ async function claudeReview(
   const response = await callClaude({
     prompt: truncatedDiff,
     model,
-    systemPrompt: REVIEW_SYSTEM_PROMPT,
+    systemPrompt: getReviewPrompt(),
   });
 
   const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
@@ -188,9 +193,7 @@ async function claudeFix(
   const response = await callClaude({
     prompt,
     model,
-    systemPrompt:
-      "You are a senior developer. Fix the issues described. " +
-      "Return corrected code only for the files that need changes.",
+    systemPrompt: getFixPrompt(),
   });
 
   const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
