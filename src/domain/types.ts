@@ -10,7 +10,7 @@ export interface SessionUser {
   role: string;
 }
 
-// ── Task Status (13 states) ─────────────────────────────────────────────────
+// ── Task Status (14 states) ─────────────────────────────────────────────────
 
 export const TaskStatus = {
   PENDING: "pending",
@@ -26,6 +26,7 @@ export const TaskStatus = {
   CANCELLED: "cancelled",
   REWORK: "rework",
   APPROVED: "approved",
+  SUSPENDED: "suspended",
 } as const;
 
 export type TaskStatusValue = (typeof TaskStatus)[keyof typeof TaskStatus];

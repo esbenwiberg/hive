@@ -85,6 +85,7 @@ export function statusBadge(status: string): string {
     rejected: "red",
     cancelled: "slate",
     rework: "red",
+    suspended: "blue",
   };
 
   return badge(status, map[status] ?? "slate");
@@ -220,6 +221,7 @@ export function pipelineSteps(currentStatus: string): string {
     rejected: -1,
     cancelled: -1,
     rework: 3,
+    suspended: -1,
   };
 
   const activeIdx = statusMap[currentStatus] ?? -1;

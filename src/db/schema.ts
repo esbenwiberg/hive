@@ -100,6 +100,7 @@ export const tasks = pgTable(
     blueprint: text("blueprint"),
     previewPort: integer("preview_port"),
     previewStatus: text("preview_status"),
+    suspendedFrom: text("suspended_from"),
     previewStartedAt: timestamp("preview_started_at", tz),
     createdAt: timestamp("created_at", tz).defaultNow(),
     updatedAt: timestamp("updated_at", tz).defaultNow(),

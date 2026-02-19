@@ -12,6 +12,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
     TaskStatus.ENRICHING,
     TaskStatus.FAILED,
     TaskStatus.CANCELLED,
+    TaskStatus.SUSPENDED,
   ],
   [TaskStatus.ENRICHING]: [
     TaskStatus.PENDING,
@@ -21,6 +22,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
     TaskStatus.REWORK,
     TaskStatus.FAILED,
     TaskStatus.CANCELLED,
+    TaskStatus.SUSPENDED,
   ],
   [TaskStatus.READY]: [
     TaskStatus.PENDING,
@@ -38,11 +40,13 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
     TaskStatus.APPROVED,
     TaskStatus.FAILED,
     TaskStatus.CANCELLED,
+    TaskStatus.SUSPENDED,
   ],
   [TaskStatus.REVIEWING]: [
     TaskStatus.DONE,
     TaskStatus.REWORK,
     TaskStatus.FAILED,
+    TaskStatus.SUSPENDED,
   ],
   [TaskStatus.DONE]: [
     TaskStatus.MERGED,
@@ -60,6 +64,11 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   ],
   [TaskStatus.REWORK]: [
     TaskStatus.EXECUTING,
+    TaskStatus.CANCELLED,
+  ],
+  [TaskStatus.SUSPENDED]: [
+    TaskStatus.PENDING,
+    TaskStatus.APPROVED,
     TaskStatus.CANCELLED,
   ],
 };
@@ -128,6 +137,10 @@ export function getAvailableActions(status: string): Action[] {
     [TaskStatus.REWORK]: [
       { action: "cancel", targetStatus: TaskStatus.CANCELLED, label: "Cancel" },
     ],
+    [TaskStatus.SUSPENDED]: [
+      { action: "resume", targetStatus: TaskStatus.PENDING, label: "Resume" },
+      { action: "cancel", targetStatus: TaskStatus.CANCELLED, label: "Cancel" },
+    ],
   };
 
   return map[status] ?? [];
@@ -155,6 +168,7 @@ export function getAllowedTargets(status: string): { status: string; label: stri
     [TaskStatus.REJECTED]: "Rejected",
     [TaskStatus.CANCELLED]: "Cancelled",
     [TaskStatus.REWORK]: "Rework",
+    [TaskStatus.SUSPENDED]: "Suspended",
   };
 
   return allTargets

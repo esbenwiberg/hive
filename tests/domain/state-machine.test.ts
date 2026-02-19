@@ -78,6 +78,40 @@ describe("canTransition", () => {
     expect(canTransition("rework", "executing")).toBe(true);
   });
 
+  // ── SUSPENDED transitions ─────────────────────────────────────────────────
+
+  it("allows queued -> suspended", () => {
+    expect(canTransition("queued", "suspended")).toBe(true);
+  });
+
+  it("allows enriching -> suspended", () => {
+    expect(canTransition("enriching", "suspended")).toBe(true);
+  });
+
+  it("allows executing -> suspended", () => {
+    expect(canTransition("executing", "suspended")).toBe(true);
+  });
+
+  it("allows reviewing -> suspended", () => {
+    expect(canTransition("reviewing", "suspended")).toBe(true);
+  });
+
+  it("allows suspended -> pending (resume early stages)", () => {
+    expect(canTransition("suspended", "pending")).toBe(true);
+  });
+
+  it("allows suspended -> approved (resume execution stages)", () => {
+    expect(canTransition("suspended", "approved")).toBe(true);
+  });
+
+  it("allows suspended -> cancelled", () => {
+    expect(canTransition("suspended", "cancelled")).toBe(true);
+  });
+
+  it("disallows pending -> suspended", () => {
+    expect(canTransition("pending", "suspended")).toBe(false);
+  });
+
   it("returns false for unknown status", () => {
     expect(canTransition("nonexistent", "pending")).toBe(false);
   });
@@ -144,6 +178,14 @@ describe("getAvailableActions", () => {
 
   it("returns empty array for cancelled (terminal state)", () => {
     expect(getAvailableActions("cancelled")).toEqual([]);
+  });
+
+  it("returns resume, cancel for suspended", () => {
+    const actions = getAvailableActions("suspended");
+    expect(actions).toHaveLength(2);
+    const actionNames = actions.map((a) => a.action);
+    expect(actionNames).toContain("resume");
+    expect(actionNames).toContain("cancel");
   });
 
   it("returns empty array for unknown status", () => {

@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import logger from "../logger.js";
-import { callClaude } from "../agents/sdk.js";
+import { callClaude, callClaudeWithTools } from "../agents/sdk.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
+import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import { loadPrompt } from "../prompt-cache.js";
 
 const execFileAsync = promisify(execFile);
@@ -166,8 +167,8 @@ async function claudeReview(
 }
 
 /**
- * Asks Claude to fix the identified issues.
- * Returns the fix response text and cost.
+ * Asks Claude to fix the identified issues using tools to read and write files directly.
+ * Returns cost in USD.
  */
 async function claudeFix(
   worktreePath: string,
@@ -175,7 +176,7 @@ async function claudeFix(
   errors: string[],
   changedFiles: string[],
   model: string,
-): Promise<{ text: string; costUsd: number }> {
+): Promise<{ costUsd: number }> {
   const prompt = [
     "## Milestone",
     milestoneSummary,
@@ -189,18 +190,19 @@ async function claudeFix(
     "## Working Directory",
     worktreePath,
     "",
-    "Apply the minimal fixes needed to resolve the issues above.",
-    "Return the corrected file contents.",
+    "Read the files above, apply the minimal fixes needed, and verify with a build.",
   ].join("\n");
 
-  const response = await callClaude({
+  const response = await callClaudeWithTools({
     prompt,
     model,
     systemPrompt: getFixPrompt(),
+    tools: WORKER_TOOLS,
+    executeTool: createWorktreeToolExecutor(worktreePath),
   });
 
   const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
-  return { text: response.text, costUsd };
+  return { costUsd };
 }
 
 // ── reviewFix ────────────────────────────────────────────────────────────────

@@ -5,7 +5,8 @@ import { getGitProvider } from "../execution/git-provider.js";
 import { Scheduler } from "./scheduler.js";
 import { findStaleTasks, STALE_THRESHOLD_MS } from "./stale-tasks.js";
 import { cleanupStale } from "../db/queries/active-agents.js";
-import { list, updateStatus } from "../db/queries/tasks.js";
+import { list, updateStatus, suspendTask, findSuspended } from "../db/queries/tasks.js";
+import { addEvent } from "../db/queries/task-events.js";
 import { checkBudget } from "../db/queries/costs.js";
 import { runPipeline } from "../agents/pipeline.js";
 import { executeTask } from "../execution/worker.js";
@@ -41,8 +42,7 @@ const RETROSPECTIVE_MIN_GAP_MS = 7 * 24 * 60 * 60 * 1_000; // 7 days
 const DECAY_MIN_GAP_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 const PREVIEW_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const PR_CLOSE_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
-const DRAIN_POLL_MS = 500;
-const MAX_DRAIN_TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
+const SUSPEND_DRAIN_MS = 10_000; // 10s for _dispatch finally blocks to clean up
 
 const ALL_PRODUCERS: Producer[] = [
   logScanner,
@@ -107,6 +107,39 @@ export class Daemon {
       }
     }
 
+    // Resume suspended tasks from a prior graceful shutdown
+    const suspendedTasks = await findSuspended();
+    for (const task of suspendedTasks) {
+      try {
+        // queued/enriching → re-enrich from pending; executing/reviewing → re-execute from approved
+        const resumeTo =
+          task.suspendedFrom === "executing" || task.suspendedFrom === "reviewing"
+            ? "approved"
+            : "pending";
+        await updateStatus(task.id, resumeTo);
+        await addEvent(
+          task.id,
+          "resumed",
+          "daemon",
+          `Task resumed from suspended (was ${task.suspendedFrom}) → ${resumeTo}`,
+        );
+        logger.info(
+          { taskId: task.id, suspendedFrom: task.suspendedFrom, resumeTo },
+          "Daemon: suspended task resumed",
+        );
+      } catch (err) {
+        logger.warn(
+          { taskId: task.id, err },
+          "Daemon: could not resume suspended task, transitioning to failed",
+        );
+        try {
+          await updateStatus(task.id, "failed");
+        } catch {
+          // Already logged, nothing more we can do
+        }
+      }
+    }
+
     this.scheduler.start();
 
     // Start a scheduler for each producer, staggered evenly across the interval
@@ -161,29 +194,25 @@ export class Daemon {
     this.prCloseCleanupScheduler.stop();
     this.scheduler.stop();
 
-    // Wait for in-flight tasks to drain
+    // Suspend all in-flight tasks so they survive a deploy
     if (this.activeTaskIds.size > 0) {
       logger.info(
         { active: this.activeTaskIds.size },
-        "Daemon: waiting for in-flight tasks to drain",
+        "Daemon: suspending in-flight tasks",
       );
 
-      await new Promise<void>((resolve) => {
-        const started = Date.now();
-        const timer = setInterval(() => {
-          if (this.activeTaskIds.size === 0) {
-            clearInterval(timer);
-            resolve();
-          } else if (Date.now() - started >= MAX_DRAIN_TIMEOUT_MS) {
-            clearInterval(timer);
-            logger.warn(
-              { remaining: this.activeTaskIds.size },
-              "Daemon: drain timeout exceeded, stopping with tasks still in flight",
-            );
-            resolve();
-          }
-        }, DRAIN_POLL_MS);
-      });
+      for (const taskId of this.activeTaskIds) {
+        try {
+          await suspendTask(taskId);
+          await addEvent(taskId, "suspended", "daemon", "Task suspended on shutdown");
+          logger.info({ taskId }, "Daemon: task suspended");
+        } catch (err) {
+          logger.warn({ taskId, err }, "Daemon: could not suspend task");
+        }
+      }
+
+      // Brief drain for _dispatch finally blocks to clean up in-memory tracking
+      await new Promise((resolve) => setTimeout(resolve, SUSPEND_DRAIN_MS));
     }
 
     logger.info("Daemon stopped");

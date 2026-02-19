@@ -15,6 +15,13 @@
       "when": 1771512822508,
       "tag": "0001_oval_calypso",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771530388121,
+      "tag": "0002_warm_black_tom",
+      "breakpoints": true
     }
   ]
 }

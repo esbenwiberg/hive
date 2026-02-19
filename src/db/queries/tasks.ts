@@ -138,6 +138,11 @@ export async function updateStatus(
     updates.retryInstructions = null;
   }
 
+  // Clear suspendedFrom when resuming from suspended
+  if (existing.status === "suspended") {
+    updates.suspendedFrom = null;
+  }
+
   const [updated] = await db
     .update(tasks)
     .set(updates)
@@ -241,4 +246,43 @@ export async function countByStatus(): Promise<Record<string, number>> {
     result[row.status] = row.count;
   }
   return result;
+}
+
+/**
+ * Suspends a task by recording its current status in `suspendedFrom`
+ * and transitioning it to `suspended`.
+ */
+export async function suspendTask(id: string) {
+  const existing = await getById(id);
+  if (!existing) {
+    throw new Error(`Task ${id} not found`);
+  }
+
+  if (!canTransition(existing.status, "suspended")) {
+    throw new Error(
+      `Cannot suspend task ${id}: invalid transition from '${existing.status}'`,
+    );
+  }
+
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      status: "suspended",
+      suspendedFrom: existing.status,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, id))
+    .returning();
+
+  return updated;
+}
+
+/**
+ * Returns all tasks currently in `suspended` status.
+ */
+export async function findSuspended() {
+  return db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.status, "suspended"));
 }

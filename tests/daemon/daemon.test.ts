@@ -23,10 +23,19 @@ vi.mock("../../src/execution/worker.js", () => ({
 
 const mockList = vi.fn().mockResolvedValue({ tasks: [], total: 0 });
 const mockUpdateStatus = vi.fn().mockResolvedValue({});
+const mockSuspendTask = vi.fn().mockResolvedValue({});
+const mockFindSuspended = vi.fn().mockResolvedValue([]);
 vi.mock("../../src/db/queries/tasks.js", () => ({
   list: mockList,
   updateStatus: mockUpdateStatus,
+  suspendTask: mockSuspendTask,
+  findSuspended: mockFindSuspended,
   create: vi.fn().mockResolvedValue({}),
+}));
+
+const mockAddEvent = vi.fn().mockResolvedValue({});
+vi.mock("../../src/db/queries/task-events.js", () => ({
+  addEvent: mockAddEvent,
 }));
 
 const mockCleanupStale = vi.fn().mockResolvedValue(0);
@@ -186,6 +195,9 @@ describe("Daemon", () => {
     mockList.mockResolvedValue({ tasks: [], total: 0 });
     mockCheckBudget.mockResolvedValue(50);
     mockFindStaleTasks.mockResolvedValue([]);
+    mockFindSuspended.mockResolvedValue([]);
+    mockSuspendTask.mockResolvedValue({});
+    mockAddEvent.mockResolvedValue({});
     mockRunPipeline.mockResolvedValue(undefined);
     mockExecuteTask.mockResolvedValue({ success: true });
     mockProducerRun.mockResolvedValue({
@@ -459,5 +471,105 @@ describe("Daemon", () => {
 
     // Producers never called because there are no repos to scan
     expect(mockProducerRun).not.toHaveBeenCalled();
+  });
+
+  // ── Suspend / Resume tests ─────────────────────────────────────────────────
+
+  it("suspends in-flight tasks on stop", async () => {
+    const task = makeFakeTask({ id: "HIVE-SUSP-0001", status: "pending" });
+
+    let called = false;
+    mockList.mockImplementation(async (filters: { status?: string }) => {
+      if (filters.status === "pending" && !called) {
+        called = true;
+        return { tasks: [task], total: 1 };
+      }
+      return { tasks: [], total: 0 };
+    });
+
+    // Make runPipeline take a while so the task is still in-flight when we stop
+    mockRunPipeline.mockImplementation(
+      () => new Promise((r) => setTimeout(r, 5000)),
+    );
+
+    const daemon = new Daemon({ pollIntervalMs: 50, maxConcurrent: 5 });
+    await daemon.start();
+
+    // Wait for task to be dispatched
+    await new Promise((r) => setTimeout(r, 200));
+
+    await daemon.stop();
+
+    expect(mockSuspendTask).toHaveBeenCalledWith("HIVE-SUSP-0001");
+    expect(mockAddEvent).toHaveBeenCalledWith(
+      "HIVE-SUSP-0001",
+      "suspended",
+      "daemon",
+      "Task suspended on shutdown",
+    );
+  });
+
+  it("resumes suspended tasks to pending when suspendedFrom is enriching", async () => {
+    mockFindSuspended.mockResolvedValue([
+      makeFakeTask({ id: "HIVE-RES-0001", status: "suspended", suspendedFrom: "enriching" }),
+    ]);
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000 });
+    await daemon.start();
+    await daemon.stop();
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith("HIVE-RES-0001", "pending");
+  });
+
+  it("resumes suspended tasks to approved when suspendedFrom is executing", async () => {
+    mockFindSuspended.mockResolvedValue([
+      makeFakeTask({ id: "HIVE-RES-0002", status: "suspended", suspendedFrom: "executing" }),
+    ]);
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000 });
+    await daemon.start();
+    await daemon.stop();
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith("HIVE-RES-0002", "approved");
+  });
+
+  it("resumes suspended tasks to approved when suspendedFrom is reviewing", async () => {
+    mockFindSuspended.mockResolvedValue([
+      makeFakeTask({ id: "HIVE-RES-0003", status: "suspended", suspendedFrom: "reviewing" }),
+    ]);
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000 });
+    await daemon.start();
+    await daemon.stop();
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith("HIVE-RES-0003", "approved");
+  });
+
+  it("resumes suspended tasks to pending when suspendedFrom is queued", async () => {
+    mockFindSuspended.mockResolvedValue([
+      makeFakeTask({ id: "HIVE-RES-0004", status: "suspended", suspendedFrom: "queued" }),
+    ]);
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000 });
+    await daemon.start();
+    await daemon.stop();
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith("HIVE-RES-0004", "pending");
+  });
+
+  it("falls back to failed when resume fails", async () => {
+    mockFindSuspended.mockResolvedValue([
+      makeFakeTask({ id: "HIVE-RES-FAIL", status: "suspended", suspendedFrom: "enriching" }),
+    ]);
+    mockUpdateStatus
+      .mockRejectedValueOnce(new Error("resume failed"))
+      .mockResolvedValueOnce({}); // second call is the fallback to failed
+
+    const daemon = new Daemon({ pollIntervalMs: 100_000 });
+    await daemon.start();
+    await daemon.stop();
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith("HIVE-RES-FAIL", "pending");
+    expect(mockUpdateStatus).toHaveBeenCalledWith("HIVE-RES-FAIL", "failed");
   });
 });

@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
-import { callClaude } from "../agents/sdk.js";
+import { callClaudeWithTools } from "../agents/sdk.js";
+import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import { getById as getTask, updateStatus } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
 import { recordCost, checkBudget } from "../db/queries/costs.js";
@@ -141,16 +142,19 @@ async function executeMilestones(
     await addEvent(task.id, "claude_call_started", "worker", `Calling Claude (${model})`);
     await heartbeat(task.id);
 
-    const response = await callClaude({
+    const response = await callClaudeWithTools({
       prompt: milestonePrompt,
       model,
       systemPrompt,
+      tools: WORKER_TOOLS,
+      executeTool: createWorktreeToolExecutor(worktreePath),
+      onTurnComplete: () => heartbeat(task.id),
     });
 
     const implCost = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
     totalCostUsd += implCost;
 
-    await addEvent(task.id, "claude_call_complete", "worker", `Claude complete (${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCost.toFixed(2)})`, {
+    await addEvent(task.id, "claude_call_complete", "worker", `Claude complete (${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCost.toFixed(2)}, ${response.turns} turns)`, {
       inputTokens: response.cost.inputTokens,
       outputTokens: response.cost.outputTokens,
       costUsd: implCost,
@@ -292,14 +296,17 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       await addEvent(taskId, "claude_call_started", "worker", `Calling Claude (${model})`);
       await heartbeat(taskId);
 
-      const response = await callClaude({
+      const response = await callClaudeWithTools({
         prompt: userPrompt,
         model,
         systemPrompt: getFlowPrompt(),
+        tools: WORKER_TOOLS,
+        executeTool: createWorktreeToolExecutor(worktree.path),
+        onTurnComplete: () => heartbeat(taskId),
       });
       implCostUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
 
-      await addEvent(taskId, "claude_call_complete", "worker", `Claude complete (${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCostUsd.toFixed(2)})`, {
+      await addEvent(taskId, "claude_call_complete", "worker", `Claude complete (${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCostUsd.toFixed(2)}, ${response.turns} turns)`, {
         inputTokens: response.cost.inputTokens,
         outputTokens: response.cost.outputTokens,
         costUsd: implCostUsd,
