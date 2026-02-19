@@ -1,6 +1,6 @@
 import { eq, sql, and, gte, lte } from "drizzle-orm";
 import { db } from "../connection.js";
-import { costs, users } from "../schema.js";
+import { costs, users, tasks, repos } from "../schema.js";
 
 // ── Shared types ────────────────────────────────────────────────────────────
 
@@ -240,7 +240,8 @@ export async function getBreakdownByUser(
 }
 
 /**
- * Cost breakdown grouped by repo. Coalesces NULL repo to 'unknown'.
+ * Cost breakdown grouped by repo.
+ * Joins costs → tasks → repos to resolve the repo full name.
  */
 export async function getBreakdownByRepo(
   range?: DateRange,
@@ -250,13 +251,15 @@ export async function getBreakdownByRepo(
 
   const rows = await db
     .select({
-      dimension: sql<string>`coalesce(${costs.repo}, 'unknown')`,
+      dimension: sql<string>`coalesce(${repos.fullName}, 'unknown')`,
       totalUsd: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
       count: sql<number>`count(*)::int`,
     })
     .from(costs)
+    .leftJoin(tasks, eq(costs.taskId, tasks.id))
+    .leftJoin(repos, eq(tasks.repoId, repos.id))
     .where(where)
-    .groupBy(sql`coalesce(${costs.repo}, 'unknown')`)
+    .groupBy(repos.fullName)
     .orderBy(sql`sum(${costs.costUsd}) desc`);
 
   return rows.map((r) => ({

@@ -58,7 +58,7 @@ function filterTabs(
 
 // ── Task table ──────────────────────────────────────────────────────────────
 
-function taskTable(tasks: TaskRow[]): string {
+function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
   if (tasks.length === 0) {
     return emptyState(
       "No tasks found",
@@ -79,7 +79,8 @@ function taskTable(tasks: TaskRow[]): string {
 
     const title = `<span class="text-slate-50 font-medium">${escapeHtml(t.title)}</span>`;
     const status = statusBadge(t.status);
-    const repo = `<span class="text-xs text-slate-400">#${t.repoId}</span>`;
+    const repoLabel = repoNames.get(t.repoId) ?? `#${t.repoId}`;
+    const repo = `<span class="text-xs text-slate-400">${escapeHtml(repoLabel)}</span>`;
     const created = t.createdAt
       ? `<span class="text-xs text-slate-400">${escapeHtml(new Date(t.createdAt).toLocaleDateString())}</span>`
       : "-";
@@ -288,9 +289,10 @@ export function taskListPartial(
   tasks: TaskRow[],
   counts: Record<string, number>,
   activeStatus?: string,
+  repoNames: Map<number, string> = new Map(),
 ): string {
   return `${filterTabs(activeStatus ?? "", counts)}
-<div class="mt-4">${taskTable(tasks)}</div>`;
+<div class="mt-4">${taskTable(tasks, repoNames)}</div>`;
 }
 
 /**
@@ -316,9 +318,11 @@ export function taskListPage(
   })}
 </div>`;
 
+  const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
+
   const content = `${header}
 <div id="task-list">
-  ${taskListPartial(tasks, counts, activeStatus)}
+  ${taskListPartial(tasks, counts, activeStatus, repoNames)}
 </div>
 
 <!-- Create panel (slide-over) -->
@@ -330,7 +334,7 @@ ${taskCreateForm(repos)}`;
 /**
  * Task detail slide-over panel.
  */
-export function taskDetailPanel(task: TaskRow): string {
+export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = new Map()): string {
   const actions = getAvailableActions(task.status);
 
   const actionButtons = actions
@@ -356,7 +360,7 @@ export function taskDetailPanel(task: TaskRow): string {
     ["Type", task.type ? escapeHtml(task.type) : `<span class="text-slate-500">-</span>`],
     ["Size", task.size ? escapeHtml(task.size) : `<span class="text-slate-500">-</span>`],
     ["Workflow", task.workflow ? escapeHtml(task.workflow) : `<span class="text-slate-500">-</span>`],
-    ["Repo", `#${task.repoId}`],
+    ["Repo", escapeHtml(repoNames.get(task.repoId) ?? `#${task.repoId}`)],
     [
       "Created",
       task.createdAt

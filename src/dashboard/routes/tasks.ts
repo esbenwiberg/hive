@@ -41,8 +41,10 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
       repoQueries.listAll(),
     ]);
 
+    const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
+
     if (req.headers["hx-request"]) {
-      res.send(taskListPartial(tasks, counts, filters.status));
+      res.send(taskListPartial(tasks, counts, filters.status, repoNames));
     } else {
       res.send(taskListPage(tasks, filters, counts, req.session.user!, repos));
     }
@@ -57,12 +59,14 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
   try {
     const filters = parseTaskFilters(req.query);
 
-    const [{ tasks }, counts] = await Promise.all([
+    const [{ tasks }, counts, repos] = await Promise.all([
       taskQueries.list(filters),
       taskQueries.countByStatus(),
+      repoQueries.listAll(),
     ]);
+    const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
-    res.send(taskListPartial(tasks, counts, filters.status));
+    res.send(taskListPartial(tasks, counts, filters.status, repoNames));
   } catch (err) {
     next(err);
   }
@@ -113,16 +117,18 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
     });
 
     // Return updated task list
-    const [{ tasks }, counts] = await Promise.all([
+    const [{ tasks }, counts, allRepos] = await Promise.all([
       taskQueries.list(),
       taskQueries.countByStatus(),
+      repoQueries.listAll(),
     ]);
+    const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
 
     res.setHeader(
       "HX-Trigger",
       JSON.stringify({ showToast: { message: "Task created", type: "success" } }),
     );
-    res.send(taskListPartial(tasks, counts));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames));
   } catch (err) {
     next(err);
   }
@@ -133,12 +139,16 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
 router.get("/api/tasks/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    const task = await taskQueries.getById(id);
+    const [task, repos] = await Promise.all([
+      taskQueries.getById(id),
+      repoQueries.listAll(),
+    ]);
     if (!task) {
       res.status(404).send("Task not found");
       return;
     }
-    res.send(taskDetailPanel(task));
+    const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
+    res.send(taskDetailPanel(task, repoNames));
   } catch (err) {
     next(err);
   }
@@ -182,10 +192,12 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
     }
 
     // Return updated task list partial
-    const [{ tasks }, counts] = await Promise.all([
+    const [{ tasks }, counts, allRepos] = await Promise.all([
       taskQueries.list(),
       taskQueries.countByStatus(),
+      repoQueries.listAll(),
     ]);
+    const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
 
     res.setHeader(
       "HX-Trigger",
@@ -196,7 +208,7 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
         },
       }),
     );
-    res.send(taskListPartial(tasks, counts));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames));
   } catch (err) {
     next(err);
   }
@@ -252,10 +264,12 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
     logger.info({ taskId: id, answerCount: answers.length }, "Clarification answers submitted, task re-entering enrichment");
 
     // Return updated task list partial with toast
-    const [{ tasks }, counts] = await Promise.all([
+    const [{ tasks }, counts, allRepos] = await Promise.all([
       taskQueries.list(),
       taskQueries.countByStatus(),
+      repoQueries.listAll(),
     ]);
+    const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
 
     res.setHeader(
       "HX-Trigger",
@@ -266,7 +280,7 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
         },
       }),
     );
-    res.send(taskListPartial(tasks, counts));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames));
   } catch (err) {
     next(err);
   }
