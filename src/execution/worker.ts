@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { callClaude } from "../agents/sdk.js";
@@ -11,18 +13,160 @@ import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
 import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktree.js";
 import { getGitProvider } from "./git-provider.js";
 import { reviewChanges } from "./review-gate.js";
+import { reviewFix } from "./milestone-review.js";
 import { refineTask } from "../agents/refiner.js";
 import { parseHiveYaml } from "../hive-yaml.js";
 import { previewManager } from "./preview/manager.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { loadPrompt } from "../prompt-cache.js";
+import type { ArchitectBlueprint } from "../enrichers/architect.js";
 import type { WorkerResult, WorktreeInfo } from "../domain/types.js";
 
 const MAX_REWORK_CYCLES = 2;
 
+const execFileAsync = promisify(execFile);
+
 function getFlowPrompt(): string {
   return loadPrompt("flow");
+}
+
+// ── Milestone helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Commits all changes in the worktree for the given milestone.
+ * Silently succeeds when there is nothing to commit (empty working tree).
+ */
+async function commitMilestone(
+  worktreePath: string,
+  title: string,
+  taskId: string,
+): Promise<void> {
+  try {
+    await execFileAsync("git", ["add", "-A"], { cwd: worktreePath });
+    await execFileAsync(
+      "git",
+      ["commit", "-m", `feat: ${title}\n\nTask: ${taskId}`],
+      { cwd: worktreePath },
+    );
+  } catch (err: unknown) {
+    // Exit code 1 from `git commit` means "nothing to commit" — that's fine.
+    const code = (err as { code?: number }).code;
+    if (code !== 1) {
+      throw err;
+    }
+    logger.debug({ worktreePath, title }, "commitMilestone: nothing to commit");
+  }
+}
+
+/**
+ * Executes an architect blueprint milestone-by-milestone:
+ *
+ * For each milestone:
+ *  1. Build a milestone-scoped prompt
+ *  2. Call Claude for implementation
+ *  3. Run reviewFix (lint/build/test + AI review-fix loop)
+ *  4. Commit the milestone
+ *  5. Accumulate a summary for subsequent milestones
+ */
+async function executeMilestones(
+  task: { id: string; title: string; body: string },
+  worktreePath: string,
+  blueprint: ArchitectBlueprint,
+  model: string,
+  learningsStr: string,
+): Promise<{ totalCostUsd: number }> {
+  const milestones = blueprint.milestones!;
+  let totalCostUsd = 0;
+  const priorSummaries: string[] = [];
+
+  for (let i = 0; i < milestones.length; i++) {
+    const ms = milestones[i];
+    logger.info(
+      { taskId: task.id, milestone: i + 1, total: milestones.length, title: ms.title },
+      "Starting milestone",
+    );
+
+    // ── 1. Build milestone-scoped prompt ──────────────────────────────────
+    const sections: string[] = [
+      `## Task: ${task.title}`,
+      "",
+      task.body,
+      "",
+      `## Overall Approach`,
+      blueprint.approach,
+      "",
+      `## Current Milestone (${i + 1}/${milestones.length}): ${ms.title}`,
+      "",
+      ms.description,
+      "",
+      `### Files to Modify`,
+      ms.filesToModify.map((f) => `- ${f}`).join("\n"),
+      "",
+      `### Acceptance Criteria`,
+      ms.acceptanceCriteria.map((c) => `- ${c}`).join("\n"),
+    ];
+
+    if (priorSummaries.length > 0) {
+      sections.push(
+        "",
+        `## Prior Milestones (already committed)`,
+        priorSummaries.map((s, idx) => `${idx + 1}. ${s}`).join("\n"),
+      );
+    }
+
+    if (learningsStr) {
+      sections.push(learningsStr);
+    }
+
+    sections.push("", `## Working Directory`, worktreePath);
+
+    const milestonePrompt = sections.join("\n");
+
+    const systemPrompt = [
+      getFlowPrompt(),
+      "",
+      "## Milestone Mode",
+      "You are implementing a single milestone of a larger task.",
+      "Focus exclusively on this milestone's scope.",
+      "Only modify listed files unless absolutely necessary.",
+      "Previous milestones have already been committed — build on their changes.",
+      "Ensure your changes satisfy the milestone's acceptance criteria.",
+    ].join("\n");
+
+    // ── 2. Call Claude for implementation ─────────────────────────────────
+    const response = await callClaude({
+      prompt: milestonePrompt,
+      model,
+      systemPrompt,
+    });
+
+    const implCost = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+    totalCostUsd += implCost;
+
+    // ── 3. Review-fix loop ────────────────────────────────────────────────
+    const review = await reviewFix(worktreePath, ms.title, model);
+    totalCostUsd += review.costUsd;
+
+    // ── 4. Commit the milestone ───────────────────────────────────────────
+    await commitMilestone(worktreePath, ms.title, task.id);
+
+    // ── 5. Accumulate summary ─────────────────────────────────────────────
+    priorSummaries.push(`${ms.title} — completed (review ${review.passed ? "passed" : "had issues"})`);
+
+    logger.info(
+      {
+        taskId: task.id,
+        milestone: i + 1,
+        title: ms.title,
+        reviewPassed: review.passed,
+        milestoneCostUsd: implCost + review.costUsd,
+      },
+      "Milestone completed",
+    );
+  }
+
+  return { totalCostUsd };
 }
 
 /**
@@ -118,14 +262,23 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       branchName,
     ].join("\n");
 
-    // Call Claude (the "implementation" step)
-    const response = await callClaude({
-      prompt: userPrompt,
-      model,
-      systemPrompt: getFlowPrompt(),
-    });
+    // Check for architect milestones
+    const architectData = (task.enrichment as Record<string, unknown> | null)?.architect as ArchitectBlueprint | undefined;
+    const hasMilestones = architectData?.milestones && architectData.milestones.length > 0;
 
-    const implCostUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+    let implCostUsd: number;
+    if (hasMilestones) {
+      const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr);
+      implCostUsd = totalCostUsd;
+    } else {
+      // Single-call path (original behavior for tasks without milestones)
+      const response = await callClaude({
+        prompt: userPrompt,
+        model,
+        systemPrompt: getFlowPrompt(),
+      });
+      implCostUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+    }
     const implDurationMs = Date.now() - startTime;
     await recordCost(taskId, task.createdBy, "worker", model, implCostUsd, 1, implDurationMs);
 
