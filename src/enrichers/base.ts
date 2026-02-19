@@ -44,7 +44,9 @@ export async function runEnrichers(
   enrichers: Enricher[],
   config: Record<string, EnricherConfig>,
 ): Promise<Record<string, unknown>> {
-  const merged: Record<string, unknown> = {};
+  const merged: Record<string, unknown> = {
+    ...((task.enrichment as Record<string, unknown>) ?? {}),
+  };
   let succeeded = 0;
   let failed = 0;
   const failedNames: string[] = [];
