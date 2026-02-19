@@ -205,11 +205,10 @@ export function repoSettingsPartial(repos: RepoRow[]): string {
       hx-post="/settings/repos"
       hx-target="#repo-list"
       hx-swap="beforeend">
-      ${input("provider", "Provider", {
-        value: "github",
-        required: true,
-        placeholder: "github",
-      })}
+      ${select("provider", "Provider", [
+        { value: "github", label: "GitHub" },
+        { value: "azure_devops", label: "Azure DevOps" },
+      ], "github")}
       ${input("fullName", "Full Name", {
         required: true,
         placeholder: "owner/repo",
