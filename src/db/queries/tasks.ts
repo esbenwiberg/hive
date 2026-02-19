@@ -1,4 +1,4 @@
-import { eq, ilike, and, sql, count, desc, inArray } from "drizzle-orm";
+import { eq, ilike, and, or, sql, count, desc, inArray } from "drizzle-orm";
 import { db } from "../connection.js";
 import { tasks } from "../schema.js";
 import { generateTaskId } from "../../domain/types.js";
@@ -22,6 +22,7 @@ export async function create(data: {
   workflow?: string;
   repoId: number;
   createdBy: number;
+  visibility?: string;
 }) {
   const id = generateTaskId();
 
@@ -37,6 +38,7 @@ export async function create(data: {
       workflow: data.workflow,
       repoId: data.repoId,
       createdBy: data.createdBy,
+      visibility: data.visibility ?? "public",
       status: "pending",
     })
     .returning();
@@ -60,6 +62,7 @@ export async function list(
   filters: TaskFilters = {},
   limit?: number,
   offset?: number,
+  userContext?: { userId: number; role: string },
 ) {
   const conditions = [];
 
@@ -76,6 +79,16 @@ export async function list(
   }
   if (filters.search) {
     conditions.push(ilike(tasks.title, `%${escapeLike(filters.search)}%`));
+  }
+
+  // Visibility filter: show public, or private if user is creator or admin
+  if (userContext && userContext.role !== "admin") {
+    conditions.push(
+      or(
+        eq(tasks.visibility, "public"),
+        eq(tasks.createdBy, userContext.userId),
+      )!,
+    );
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;

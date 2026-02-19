@@ -65,9 +65,25 @@ function filterTabs(
   return `<div class="flex gap-1 border-b border-slate-700 overflow-x-auto">${tabs.join("")}</div>`;
 }
 
+// ── Creator label helper ─────────────────────────────────────────────────────
+
+function creatorLabel(
+  task: TaskRow,
+  userNames: Map<number, string>,
+): string {
+  if (task.source.startsWith("producer:")) {
+    const slug = task.source.slice("producer:".length);
+    return slug
+      .split(/[-_]/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+  return userNames.get(task.createdBy) ?? `User #${task.createdBy}`;
+}
+
 // ── Task table ──────────────────────────────────────────────────────────────
 
-function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
+function taskTable(tasks: TaskRow[], repoNames: Map<number, string>, userNames: Map<number, string> = new Map()): string {
   if (tasks.length === 0) {
     return emptyState(
       "No tasks found",
@@ -78,7 +94,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
     );
   }
 
-  const headers = ["ID", "Title", "Status", "Score", "Repo", "Updated", "Actions"];
+  const headers = ["ID", "Title", "Status", "Score", "Repo", "Creator", "Updated", "Actions"];
 
   const rows = tasks.map((t) => {
     const id = `<span class="font-mono text-xs text-slate-400 cursor-pointer"
@@ -91,6 +107,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
     const score = scorerInlineBadges(t) || `<span class="text-slate-600">-</span>`;
     const repoLabel = repoNames.get(t.repoId) ?? `#${t.repoId}`;
     const repo = `<span class="text-xs text-slate-400">${escapeHtml(repoLabel)}</span>`;
+    const creator = `<span class="text-xs text-slate-400">${escapeHtml(creatorLabel(t, userNames))}</span>`;
     const ts = t.updatedAt ?? t.createdAt;
     const updated = ts
       ? `<span class="text-xs text-slate-400">${escapeHtml(relativeTime(new Date(ts)))}</span>`
@@ -100,7 +117,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
       hx-target="#detail-panel"
       hx-swap="innerHTML">View</button>`;
 
-    return [id, title, status, score, repo, updated, viewBtn];
+    return [id, title, status, score, repo, creator, updated, viewBtn];
   });
 
   // Build table manually for row-level data attributes
@@ -739,9 +756,10 @@ export function taskListPartial(
   counts: Record<string, number>,
   activeStatus?: string,
   repoNames: Map<number, string> = new Map(),
+  userNames: Map<number, string> = new Map(),
 ): string {
   return `${filterTabs(activeStatus ?? "", counts)}
-<div class="mt-4">${taskTable(tasks, repoNames)}</div>`;
+<div class="mt-4">${taskTable(tasks, repoNames, userNames)}</div>`;
 }
 
 /**
@@ -753,6 +771,8 @@ export function taskListPage(
   counts: Record<string, number>,
   user: SessionUser,
   repos: RepoRow[] = [],
+  userNames: Map<number, string> = new Map(),
+  selfRepoFullName?: string,
 ): string {
   const activeStatus = filters?.statuses?.length ? "attention" : (filters?.status ?? "");
 
@@ -771,11 +791,11 @@ export function taskListPage(
 
   const content = `${header}
 <div id="task-list">
-  ${taskListPartial(tasks, counts, activeStatus, repoNames)}
+  ${taskListPartial(tasks, counts, activeStatus, repoNames, userNames)}
 </div>
 
 <!-- Create panel (slide-over) -->
-${taskCreateForm(repos)}`;
+${taskCreateForm(repos, user, selfRepoFullName)}`;
 
   return layout("Tasks", content, user);
 }
@@ -783,7 +803,7 @@ ${taskCreateForm(repos)}`;
 /**
  * Task detail slide-over panel.
  */
-export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow): string {
+export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map()): string {
   const actions = getAvailableActions(task.status);
 
   const actionButtons = actions
@@ -810,6 +830,8 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
     ["Size", task.size ? escapeHtml(task.size) : `<span class="text-slate-500">-</span>`],
     ["Workflow", task.workflow ? escapeHtml(task.workflow) : `<span class="text-slate-500">-</span>`],
     ["Repo", escapeHtml(repoNames.get(task.repoId) ?? `#${task.repoId}`)],
+    ["Created By", escapeHtml(creatorLabel(task, userNames))],
+    ["Visibility", task.visibility === "private" ? badge("private", "amber") : badge("public", "slate")],
     [
       "Created",
       task.createdAt
@@ -937,12 +959,13 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
 /**
  * Task create form in a slide-over panel.
  */
-export function taskCreateForm(repos: RepoRow[]): string {
+export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFullName?: string): string {
+  const isAdmin = user?.role === "admin";
   const repoOptions = [
     { value: "", label: "Select a repository" },
     ...repos.map((r) => ({
       value: String(r.id),
-      label: r.fullName,
+      label: r.fullName + (selfRepoFullName && r.fullName === selfRepoFullName && !isAdmin ? " (admin only)" : ""),
     })),
   ];
 
@@ -986,6 +1009,13 @@ export function taskCreateForm(repos: RepoRow[]): string {
     ${select("repoId", "Repository", repoOptions)}
     ${select("type", "Type", typeOptions)}
     ${select("size", "Size", sizeOptions)}
+
+    <label class="flex items-center gap-3 cursor-pointer">
+      <input type="checkbox" name="visibility" value="private"
+        class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400 focus:ring-offset-slate-900" />
+      <span class="text-sm text-slate-300">Private</span>
+      <span class="text-xs text-slate-500">(only visible to you and admins)</span>
+    </label>
 
     <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">
       ${button("Cancel", {

@@ -102,6 +102,7 @@ export const tasks = pgTable(
     previewStatus: text("preview_status"),
     suspendedFrom: text("suspended_from"),
     previewStartedAt: timestamp("preview_started_at", tz),
+    visibility: text("visibility").notNull().default("public"),
     createdAt: timestamp("created_at", tz).defaultNow(),
     updatedAt: timestamp("updated_at", tz).defaultNow(),
   },
@@ -110,6 +111,7 @@ export const tasks = pgTable(
     index("tasks_repo_id_idx").on(t.repoId),
     index("tasks_created_by_idx").on(t.createdBy),
     index("tasks_created_at_idx").on(t.createdAt),
+    index("tasks_visibility_idx").on(t.visibility),
   ],
 );
 

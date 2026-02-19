@@ -31,3 +31,12 @@ export async function findOrCreateByEntraOid(
 
   return user;
 }
+
+/**
+ * Returns all users (id + displayName) for display purposes.
+ */
+export async function listAll() {
+  return db
+    .select({ id: users.id, displayName: users.displayName })
+    .from(users);
+}

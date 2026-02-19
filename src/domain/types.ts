@@ -87,6 +87,22 @@ export function isValidTaskSize(v: string): v is TaskSizeValue {
   return TASK_SIZE_VALUES.has(v as TaskSizeValue);
 }
 
+// ── Task Visibility ──────────────────────────────────────────────────────────
+
+export const TaskVisibility = {
+  PUBLIC: "public",
+  PRIVATE: "private",
+} as const;
+
+export type TaskVisibilityValue =
+  (typeof TaskVisibility)[keyof typeof TaskVisibility];
+
+const TASK_VISIBILITY_VALUES = new Set(Object.values(TaskVisibility));
+
+export function isValidVisibility(v: string): v is TaskVisibilityValue {
+  return TASK_VISIBILITY_VALUES.has(v as TaskVisibilityValue);
+}
+
 // ── Task Filters ────────────────────────────────────────────────────────────
 
 export interface TaskFilters {
@@ -95,6 +111,7 @@ export interface TaskFilters {
   repoId?: number;
   createdBy?: number;
   search?: string;
+  visibility?: string;
 }
 
 // ── Execution Types ────────────────────────────────────────────────────────

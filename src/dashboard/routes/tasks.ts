@@ -3,9 +3,10 @@ import type { Request, Response, NextFunction } from "express";
 import { requireAuth } from "../../auth/middleware.js";
 import * as taskQueries from "../../db/queries/tasks.js";
 import * as repoQueries from "../../db/queries/repos.js";
+import * as userQueries from "../../db/queries/users.js";
 import { recordDecision } from "../../db/queries/gate-decisions.js";
 import type { TaskFilters } from "../../domain/types.js";
-import { isValidTaskType, isValidTaskSize, TaskStatus } from "../../domain/types.js";
+import { isValidTaskType, isValidTaskSize, isValidVisibility, TaskStatus } from "../../domain/types.js";
 import { canTransition } from "../../domain/state-machine.js";
 import {
   taskListPage,
@@ -22,9 +23,16 @@ import logger from "../../logger.js";
 
 const router = Router();
 
+const HIVE_SELF_REPO = process.env.HIVE_SELF_REPO ?? "";
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const ATTENTION_STATUSES = ["ready", "reviewing", "done", "failed"];
+
+async function fetchUserNames(): Promise<Map<number, string>> {
+  const allUsers = await userQueries.listAll();
+  return new Map(allUsers.map((u) => [u.id, u.displayName]));
+}
 
 function parseTaskFilters(query: Request["query"]): TaskFilters {
   const filters: TaskFilters = {};
@@ -49,19 +57,22 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     }
     const filters = parseTaskFilters(req.query);
     const activeStatus = (req.query.status as string) || "";
+    const user = req.session.user!;
+    const userContext = { userId: user.id, role: user.role };
 
-    const [{ tasks }, counts, repos] = await Promise.all([
-      taskQueries.list(filters),
+    const [{ tasks }, counts, repos, userNames] = await Promise.all([
+      taskQueries.list(filters, undefined, undefined, userContext),
       taskQueries.countByStatus(),
       repoQueries.listAll(),
+      fetchUserNames(),
     ]);
 
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
     if (req.headers["hx-request"]) {
-      res.send(taskListPartial(tasks, counts, activeStatus, repoNames));
+      res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames));
     } else {
-      res.send(taskListPage(tasks, filters, counts, req.session.user!, repos));
+      res.send(taskListPage(tasks, filters, counts, user, repos, userNames, HIVE_SELF_REPO));
     }
   } catch (err) {
     next(err);
@@ -74,15 +85,18 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
   try {
     const filters = parseTaskFilters(req.query);
     const activeStatus = (req.query.status as string) || "";
+    const user = req.session.user!;
+    const userContext = { userId: user.id, role: user.role };
 
-    const [{ tasks }, counts, repos] = await Promise.all([
-      taskQueries.list(filters),
+    const [{ tasks }, counts, repos, userNames] = await Promise.all([
+      taskQueries.list(filters, undefined, undefined, userContext),
       taskQueries.countByStatus(),
       repoQueries.listAll(),
+      fetchUserNames(),
     ]);
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
-    res.send(taskListPartial(tasks, counts, activeStatus, repoNames));
+    res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames));
   } catch (err) {
     next(err);
   }
@@ -92,7 +106,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
 
 router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { title, body, repoId, type, size } = req.body;
+    const { title, body, repoId, type, size, visibility } = req.body;
     const user = req.session.user!;
 
     if (!title || typeof title !== "string" || title.trim().length === 0) {
@@ -116,10 +130,26 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       return;
     }
 
+    // Validate visibility if provided
+    const resolvedVisibility = visibility === "private" ? "private" : "public";
+    if (visibility && !isValidVisibility(resolvedVisibility)) {
+      res.status(400).send("Invalid visibility value");
+      return;
+    }
+
     const trimmedBody = typeof body === "string" ? body.trim() : "";
     if (trimmedBody.length > 10000) {
       res.status(400).send("Description must be 10,000 characters or fewer");
       return;
+    }
+
+    // Admin-only self-repo check
+    if (HIVE_SELF_REPO) {
+      const repo = await repoQueries.getById(Number(repoId));
+      if (repo && repo.fullName === HIVE_SELF_REPO && user.role !== "admin") {
+        res.status(403).send("Only admins can create tasks for the Hive repository");
+        return;
+      }
     }
 
     await taskQueries.create({
@@ -130,13 +160,16 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       size: size || undefined,
       repoId: Number(repoId),
       createdBy: user.id,
+      visibility: resolvedVisibility,
     });
 
     // Return updated task list
-    const [{ tasks }, counts, allRepos] = await Promise.all([
-      taskQueries.list(),
+    const userContext = { userId: user.id, role: user.role };
+    const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
+      taskQueries.list({}, undefined, undefined, userContext),
       taskQueries.countByStatus(),
       repoQueries.listAll(),
+      fetchUserNames(),
     ]);
     const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
 
@@ -144,7 +177,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       "HX-Trigger",
       JSON.stringify({ showToast: { message: "Task created", type: "success" } }),
     );
-    res.send(taskListPartial(tasks, counts, undefined, repoNames));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames));
   } catch (err) {
     next(err);
   }
@@ -155,18 +188,19 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
 router.get("/api/tasks/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    const [task, repos, events, latestReview] = await Promise.all([
+    const [task, repos, events, latestReview, userNames] = await Promise.all([
       taskQueries.getById(id),
       repoQueries.listAll(),
       getEvents(id, 50),
       getLatestReview(id),
+      fetchUserNames(),
     ]);
     if (!task) {
       res.status(404).send("Task not found");
       return;
     }
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
-    res.send(taskDetailPanel(task, repoNames, events, latestReview));
+    res.send(taskDetailPanel(task, repoNames, events, latestReview, userNames));
   } catch (err) {
     next(err);
   }
@@ -214,6 +248,15 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       return;
     }
 
+    // Admin-only self-repo check for transitions
+    if (HIVE_SELF_REPO && user.role !== "admin") {
+      const repo = await repoQueries.getById(task.repoId);
+      if (repo && repo.fullName === HIVE_SELF_REPO) {
+        res.status(403).send("Only admins can action tasks for the Hive repository");
+        return;
+      }
+    }
+
     const updated = await taskQueries.updateStatus(id, targetStatus, user.id);
 
     // Record gate decision for approval/rejection/rework actions
@@ -223,10 +266,12 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
     }
 
     // Return updated task list partial
-    const [{ tasks }, counts, allRepos] = await Promise.all([
-      taskQueries.list(),
+    const userContext = { userId: user.id, role: user.role };
+    const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
+      taskQueries.list({}, undefined, undefined, userContext),
       taskQueries.countByStatus(),
       repoQueries.listAll(),
+      fetchUserNames(),
     ]);
     const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
 
@@ -239,7 +284,7 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
         },
       }),
     );
-    res.send(taskListPartial(tasks, counts, undefined, repoNames));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames));
   } catch (err) {
     next(err);
   }
@@ -295,10 +340,12 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
     logger.info({ taskId: id, answerCount: answers.length }, "Clarification answers submitted, task re-entering enrichment");
 
     // Return updated task list partial with toast
-    const [{ tasks }, counts, allRepos] = await Promise.all([
-      taskQueries.list(),
+    const userContext = { userId: user.id, role: user.role };
+    const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
+      taskQueries.list({}, undefined, undefined, userContext),
       taskQueries.countByStatus(),
       repoQueries.listAll(),
+      fetchUserNames(),
     ]);
     const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
 
@@ -311,7 +358,7 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
         },
       }),
     );
-    res.send(taskListPartial(tasks, counts, undefined, repoNames));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames));
   } catch (err) {
     next(err);
   }
