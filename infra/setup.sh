@@ -199,6 +199,15 @@ ENTRA_CLIENT_SECRET=$(az ad app credential reset \
   --query password -o tsv)
 ok "Created Entra ID client secret"
 
+# Remove the default User.Read permission that Azure AD auto-adds — the app only
+# needs standard OIDC scopes (openid, profile, email) which don't require consent.
+az ad app permission delete \
+  --id "$ENTRA_APP_ID" \
+  --api 00000003-0000-0000-c000-000000000000 \
+  --api-permissions e1fe6dd8-ba31-4d61-89e7-88639da4683d \
+  2>/dev/null || true
+ok "Removed unnecessary User.Read permission"
+
 # We'll update the redirect URI after the Container App is deployed (need the FQDN)
 
 # ── 3. Deploy infrastructure via Bicep (without Container App first) ─────────
