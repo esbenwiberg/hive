@@ -51,7 +51,9 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
     TaskStatus.CANCELLED,
   ],
   [TaskStatus.REJECTED]: [],
-  [TaskStatus.CANCELLED]: [],
+  [TaskStatus.CANCELLED]: [
+    TaskStatus.PENDING,
+  ],
   [TaskStatus.REWORK]: [
     TaskStatus.EXECUTING,
     TaskStatus.CANCELLED,
@@ -114,6 +116,9 @@ export function getAvailableActions(status: string): Action[] {
     [TaskStatus.FAILED]: [
       { action: "retry", targetStatus: TaskStatus.PENDING, label: "Retry" },
       { action: "archive", targetStatus: TaskStatus.CANCELLED, label: "Archive" },
+    ],
+    [TaskStatus.CANCELLED]: [
+      { action: "retry", targetStatus: TaskStatus.PENDING, label: "Retry" },
     ],
     [TaskStatus.REWORK]: [
       { action: "cancel", targetStatus: TaskStatus.CANCELLED, label: "Cancel" },
