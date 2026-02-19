@@ -48,12 +48,14 @@ const mockProducer: ProducerData = {
   name: "bug-hunter",
   runs: [mockRun, mockRunWithErrors],
   schedule: "every 6h",
+  enabledRepos: ["acme/frontend", "acme/backend"],
 };
 
 const mockProducerNoRuns: ProducerData = {
   name: "feature-scout",
   runs: [],
   schedule: null,
+  enabledRepos: [],
 };
 
 const mockPageData: ProducersPageData = {
@@ -115,6 +117,7 @@ describe("producerCardPartial", () => {
       name: "log-scanner",
       runs: [mockRunWithErrors],
       schedule: "daily",
+      enabledRepos: [],
     };
     const html = producerCardPartial(producerWithErrors);
     expect(html).toContain("Errors");
@@ -133,6 +136,17 @@ describe("producerCardPartial", () => {
   it("renders No schedule badge when schedule is null", () => {
     const html = producerCardPartial(mockProducerNoRuns);
     expect(html).toContain("No schedule");
+  });
+
+  it("renders repo badges when repos are enabled", () => {
+    const html = producerCardPartial(mockProducer);
+    expect(html).toContain("acme/frontend");
+    expect(html).toContain("acme/backend");
+  });
+
+  it("renders 'No repos enabled' when enabledRepos is empty", () => {
+    const html = producerCardPartial(mockProducerNoRuns);
+    expect(html).toContain("No repos enabled");
   });
 
   it("renders last run stat cards with correct values", () => {
@@ -190,6 +204,7 @@ describe("producerCardPartial", () => {
         durationMs: 125000, // 2m 5s
       }],
       schedule: null,
+      enabledRepos: [],
     };
     const html = producerCardPartial(producerLongRun);
     expect(html).toContain("2m 5s");

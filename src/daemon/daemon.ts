@@ -107,6 +107,7 @@ export class Daemon {
     for (const producer of ALL_PRODUCERS) {
       const s = new Scheduler(this.producerIntervalMs, () =>
         this._runProducer(producer),
+        { label: `producer:${producer.name}` },
       );
       this.producerSchedulers.push(s);
       s.start();

@@ -75,4 +75,20 @@ describe("Scheduler", () => {
     scheduler.start(); // Second call should be a no-op
     scheduler.stop();
   });
+
+  it("recovers from a hung tick via timeout", async () => {
+    const tick = vi.fn()
+      .mockImplementationOnce(() => new Promise(() => {})) // hangs forever
+      .mockResolvedValue(undefined); // subsequent calls resolve normally
+
+    scheduler = new Scheduler(50, tick, { tickTimeoutMs: 100, label: "test" });
+    scheduler.start();
+
+    // Wait for the hung tick to time out (100ms) + another interval (50ms) + buffer
+    await new Promise((r) => setTimeout(r, 350));
+    scheduler.stop();
+
+    // The hung tick timed out, then subsequent ticks ran normally
+    expect(tick.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
 });

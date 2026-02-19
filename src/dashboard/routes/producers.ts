@@ -2,13 +2,16 @@ import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth, requireRole } from "../../auth/middleware.js";
 import * as producerRunQueries from "../../db/queries/producer-runs.js";
-import { getConfig, setConfig } from "../../domain/config.js";
+import { listAll as listAllRepos } from "../../db/queries/repos.js";
+import { setConfig } from "../../domain/config.js";
 import type { ProducerData, ProducersPageData } from "../views/producers.js";
 import { producersPage } from "../views/producers.js";
 
 const router = Router();
 
 // ── Constants ────────────────────────────────────────────────────────────────
+
+const DEFAULT_PRODUCER_INTERVAL_MS = 15 * 60 * 1_000;
 
 const PRODUCER_NAMES = [
   "bug-hunter",
@@ -18,17 +21,45 @@ const PRODUCER_NAMES = [
   "self-monitor",
 ];
 
+function formatIntervalMs(ms: number): string {
+  if (ms < 60_000) return `Every ${Math.round(ms / 1000)}s`;
+  const mins = Math.round(ms / 60_000);
+  if (mins < 60) return `Every ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem > 0 ? `Every ${hours}h ${rem}m` : `Every ${hours}h`;
+}
+
 // ── GET /producers ─ Full producers page ─────────────────────────────────────
 
 router.get("/producers", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = req.session.user!;
 
+    const intervalMs = parseInt(
+      process.env.HIVE_PRODUCER_INTERVAL_MS ?? String(DEFAULT_PRODUCER_INTERVAL_MS),
+      10,
+    );
+    const schedule = formatIntervalMs(intervalMs);
+
+    // Fetch repos to determine which repos have each producer enabled
+    const allRepos = await listAllRepos();
+
     const producers: ProducerData[] = await Promise.all(
       PRODUCER_NAMES.map(async (name) => {
         const runs = await producerRunQueries.listRecent(name);
-        const schedule = (await getConfig(`producer.${name}.schedule`)) as string | null ?? null;
-        return { name, runs, schedule };
+
+        // Collect repo names where this producer is enabled
+        const enabledRepos: string[] = [];
+        for (const repo of allRepos) {
+          const settings = (repo.settings ?? {}) as Record<string, unknown>;
+          const producersMap = (settings.producers ?? {}) as Record<string, { enabled?: boolean }>;
+          if (producersMap[name]?.enabled === true) {
+            enabledRepos.push(repo.fullName);
+          }
+        }
+
+        return { name, runs, schedule, enabledRepos };
       }),
     );
 

@@ -29,6 +29,7 @@ export interface ProducerData {
   name: string;
   runs: ProducerRun[];
   schedule: string | null;
+  enabledRepos: string[];
 }
 
 export interface ProducersPageData {
@@ -88,15 +89,23 @@ export function producerCardPartial(producer: ProducerData): string {
   const health = getHealthStatus(producer.runs);
   const lastRun = producer.runs.length > 0 ? producer.runs[0] : null;
 
+  // Repo badges row
+  const repoBadgesHtml = producer.enabledRepos.length > 0
+    ? `<div class="flex flex-wrap items-center gap-1.5 mb-4">
+        ${producer.enabledRepos.map((r) => badge(r, "blue")).join("")}
+      </div>`
+    : `<div class="mb-4">${badge("No repos enabled", "slate")}</div>`;
+
   // Header with name and health badge
   const headerHtml = `
     <div class="flex items-center justify-between mb-4">
       <h3 class="text-lg font-semibold text-slate-50">${escapeHtml(producer.name)}</h3>
       <div class="flex items-center gap-2">
         ${badge(health.label, health.color)}
-        ${producer.schedule ? badge(producer.schedule, "blue") : badge("No schedule", "slate")}
+        ${producer.schedule ? badge(producer.schedule, "emerald") : badge("No schedule", "slate")}
       </div>
-    </div>`;
+    </div>
+    ${repoBadgesHtml}`;
 
   // Last run stats
   let statsHtml: string;
