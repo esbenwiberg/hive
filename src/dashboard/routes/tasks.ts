@@ -202,6 +202,76 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
   }
 });
 
+// ── POST /api/tasks/:id/clarify ─ Submit clarification answers ───────────
+
+router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const { answers } = req.body;
+
+    // Validate answers payload
+    if (!Array.isArray(answers) || answers.length === 0) {
+      res.status(400).send("answers must be a non-empty array of strings");
+      return;
+    }
+
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+
+    // Task must be in "ready" status (paused for human clarification)
+    if (task.status !== "ready") {
+      res.status(400).send(`Task must be in 'ready' status to submit clarification (current: ${task.status})`);
+      return;
+    }
+
+    // Validate that the task has clarification questions
+    const enrichment = (task.enrichment ?? {}) as Record<string, unknown>;
+    const architect = enrichment.architect as Record<string, unknown> | undefined;
+
+    if (!architect?.clarificationQuestions || !Array.isArray(architect.clarificationQuestions)) {
+      res.status(400).send("Task does not have pending clarification questions");
+      return;
+    }
+
+    // Store answers in enrichment, clear awaitingInput
+    const updatedArchitect = {
+      ...architect,
+      clarificationAnswers: answers.map(String),
+      awaitingInput: false,
+    };
+    const updatedEnrichment = { ...enrichment, architect: updatedArchitect };
+    await taskQueries.updateEnrichment(id, updatedEnrichment);
+
+    // Transition task back to "enriching" (uses ready → enriching transition)
+    const user = req.session.user!;
+    await taskQueries.updateStatus(id, "enriching", user.id);
+
+    logger.info({ taskId: id, answerCount: answers.length }, "Clarification answers submitted, task re-entering enrichment");
+
+    // Return updated task list partial with toast
+    const [{ tasks }, counts] = await Promise.all([
+      taskQueries.list(),
+      taskQueries.countByStatus(),
+    ]);
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({
+        showToast: {
+          message: "Clarification answers submitted — task re-entering enrichment",
+          type: "success",
+        },
+      }),
+    );
+    res.send(taskListPartial(tasks, counts));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── POST /api/tasks/:id/preview/stop ─ Stop preview ─────────────────────
 
 router.post("/api/tasks/:id/preview/stop", requireAuth, async (req: Request, res: Response, next: NextFunction) => {

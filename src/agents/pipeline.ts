@@ -3,14 +3,17 @@ import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
-import { getById, updateStatus } from "../db/queries/tasks.js";
+import { getById, updateStatus, updateEnrichment } from "../db/queries/tasks.js";
 import { getById as getRepoById } from "../db/queries/repos.js";
 import { routeTask } from "./router.js";
 import { evaluateGate } from "./gate.js";
+import { callClaude } from "./sdk.js";
 import { runEnrichers } from "../enrichers/base.js";
 import { getEnabledEnrichers } from "../enrichers/index.js";
+import { architectEnricher } from "../enrichers/architect.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import type { EnricherConfig } from "../enrichers/base.js";
+import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -108,6 +111,56 @@ export async function runPipeline(taskId: string): Promise<void> {
     return;
   }
 
+  // ── Step 4b: Clarification check ────────────────────────────────────────
+  try {
+    const postEnrichTask = await getById(taskId);
+    if (!postEnrichTask) {
+      throw new Error(`Pipeline: task ${taskId} disappeared after enrichment`);
+    }
+
+    const enrichment = (postEnrichTask.enrichment ?? {}) as Record<string, unknown>;
+    const architect = enrichment.architect as ArchitectBlueprint | undefined;
+
+    if (architect?.awaitingInput) {
+      const config = getAutonomousConfig();
+      const clarificationMode = config.clarification.mode;
+
+      logger.info(
+        { taskId, clarificationMode },
+        "Pipeline: architect requesting clarification",
+      );
+
+      if (clarificationMode === "human") {
+        // Transition to "ready" so the dashboard shows questions for human review
+        await updateStatus(taskId, "ready");
+        logger.info({ taskId }, "Pipeline: paused for human clarification (status → ready)");
+        return;
+      }
+
+      if (clarificationMode === "ai") {
+        // AI answers the questions, then re-runs architect
+        await handleAiClarification(postEnrichTask, enrichment, architect);
+      } else {
+        // "auto" mode: skip clarification for trivial/small, AI-answer for medium/large
+        const taskSize = postEnrichTask.size ?? "medium";
+        if (taskSize === "trivial" || taskSize === "small") {
+          // Clear questions and proceed without answers
+          const updatedArchitect = { ...architect, awaitingInput: false };
+          const updatedEnrichment = { ...enrichment, architect: updatedArchitect };
+          await updateEnrichment(taskId, updatedEnrichment);
+          logger.info({ taskId }, "Pipeline: auto-mode skipping clarification for small/trivial task");
+        } else {
+          // Medium/large: AI answers
+          await handleAiClarification(postEnrichTask, enrichment, architect);
+        }
+      }
+    }
+  } catch (err) {
+    logger.error({ taskId, err }, "Pipeline: clarification check failed");
+    await failTask(taskId, err);
+    return;
+  }
+
   // ── Step 5: Gate evaluation ───────────────────────────────────────────────
   try {
     await evaluateGate(taskId);
@@ -151,6 +204,96 @@ export async function runPipeline(taskId: string): Promise<void> {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Uses Claude to answer the architect's clarification questions, then re-runs
+ * the architect enricher with the answers so it can produce a full blueprint.
+ */
+async function handleAiClarification(
+  task: { id: string; title: string; body: string; size: string | null; repoId: number; enrichment: unknown },
+  enrichment: Record<string, unknown>,
+  architect: ArchitectBlueprint,
+): Promise<void> {
+  const questions = architect.clarificationQuestions ?? [];
+  if (questions.length === 0) {
+    logger.warn({ taskId: task.id }, "Pipeline: awaitingInput but no questions found");
+    return;
+  }
+
+  // Build a prompt asking Claude to answer the clarification questions
+  const prompt = [
+    "You are helping plan an engineering task. The architect enricher has asked the following clarification questions.",
+    "Please answer each question concisely based on the task context provided.",
+    "",
+    "Task title: " + task.title,
+    "Task body: " + task.body,
+    "Task size: " + (task.size ?? "medium"),
+    "",
+    "Existing enrichment data:",
+    JSON.stringify(enrichment, null, 2),
+    "",
+    "Questions to answer:",
+    ...questions.map((q, i) => `${i + 1}. ${q}`),
+    "",
+    "Respond with a JSON array of strings, one answer per question. Example: [\"answer1\", \"answer2\"]",
+  ].join("\n");
+
+  const autonomousConfig = getAutonomousConfig();
+  const model = autonomousConfig.models.gate;
+
+  const response = await callClaude({ prompt, model });
+
+  // Parse answers from response
+  let answers: string[];
+  try {
+    const cleaned = response.text
+      .replace(/```(?:json)?\s*/g, "")
+      .replace(/```\s*/g, "")
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    answers = Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+  } catch {
+    // If parsing fails, use the raw text as a single answer
+    answers = [response.text.trim()];
+    logger.warn({ taskId: task.id }, "Pipeline: could not parse AI clarification answers as JSON, using raw text");
+  }
+
+  logger.info(
+    { taskId: task.id, questionCount: questions.length, answerCount: answers.length },
+    "Pipeline: AI answered clarification questions",
+  );
+
+  // Store answers in enrichment, clear awaitingInput
+  const updatedArchitect = {
+    ...architect,
+    clarificationAnswers: answers,
+    awaitingInput: false,
+  };
+  const updatedEnrichment = { ...enrichment, architect: updatedArchitect };
+  await updateEnrichment(task.id, updatedEnrichment);
+
+  // Re-run the architect enricher with the updated enrichment (Phase 2)
+  const reloadedTask = await getById(task.id);
+  if (!reloadedTask) {
+    throw new Error(`Pipeline: task ${task.id} disappeared during AI clarification`);
+  }
+
+  const repoDir = `/tmp/hive-repos/${reloadedTask.repoId}`;
+  const architectConfig: EnricherConfig = { enabled: true };
+
+  const result = await architectEnricher.run(
+    reloadedTask,
+    repoDir,
+    updatedEnrichment,
+    architectConfig,
+  );
+
+  // Merge the re-run result back into enrichment
+  const finalEnrichment = { ...updatedEnrichment, ...result.data };
+  await updateEnrichment(task.id, finalEnrichment);
+
+  logger.info({ taskId: task.id }, "Pipeline: architect re-run after AI clarification complete");
+}
 
 /**
  * Transitions a task to 'failed' status with a failure reason.
