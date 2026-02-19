@@ -159,6 +159,18 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
   location: location
 }
 
+// ── Role Assignment: Log Analytics Reader for Managed Identity ───────────────
+// Allows the Container App to query Log Analytics via KQL (used by log-scanner producer).
+resource logAnalyticsReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(logAnalytics.id, managedIdentity.id, 'log-analytics-reader')
+  scope: logAnalytics
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '73c42c96-874c-492b-b04d-ab87d138a893') // Log Analytics Reader
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // ── Key Vault Secrets ────────────────────────────────────────────────────────
 // database-url is always set by Bicep (derived from PG server FQDN).
 // Other secrets are only seeded as placeholders on first run (!deployContainerApp)
@@ -239,6 +251,7 @@ module containerApp 'container-app.bicep' = if (deployContainerApp) {
     keyVaultName: keyVault.name
     managedIdentityId: managedIdentity.id
     managedIdentityClientId: managedIdentity.properties.clientId
+    logAnalyticsWorkspaceId: logAnalytics.properties.customerId
   }
 }
 

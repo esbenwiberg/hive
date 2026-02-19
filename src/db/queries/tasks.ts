@@ -1,4 +1,4 @@
-import { eq, ilike, and, sql, count } from "drizzle-orm";
+import { eq, ilike, and, sql, count, desc, inArray } from "drizzle-orm";
 import { db } from "../connection.js";
 import { tasks } from "../schema.js";
 import { generateTaskId } from "../../domain/types.js";
@@ -63,7 +63,9 @@ export async function list(
 ) {
   const conditions = [];
 
-  if (filters.status) {
+  if (filters.statuses && filters.statuses.length > 0) {
+    conditions.push(inArray(tasks.status, filters.statuses));
+  } else if (filters.status) {
     conditions.push(eq(tasks.status, filters.status));
   }
   if (filters.repoId !== undefined) {
@@ -85,7 +87,7 @@ export async function list(
       .where(where)
       .limit(limit ?? 50)
       .offset(offset ?? 0)
-      .orderBy(tasks.createdAt),
+      .orderBy(desc(tasks.updatedAt)),
     db
       .select({ total: count() })
       .from(tasks)

@@ -20,7 +20,10 @@ import { layout } from "./layout.js";
 
 // ── Status filter tabs ──────────────────────────────────────────────────────
 
+const ATTENTION_STATUSES = ["ready", "reviewing", "done", "failed"];
+
 const STATUS_TABS = [
+  { key: "attention", label: "Needs Attention" },
   { key: "", label: "All" },
   { key: "pending", label: "Pending" },
   { key: "queued", label: "Queued" },
@@ -29,6 +32,7 @@ const STATUS_TABS = [
   { key: "reviewing", label: "Reviewing" },
   { key: "done", label: "Done" },
   { key: "failed", label: "Failed" },
+  { key: "cancelled", label: "Archived" },
 ];
 
 function filterTabs(
@@ -36,20 +40,25 @@ function filterTabs(
   counts: Record<string, number>,
 ): string {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const attentionCount = ATTENTION_STATUSES.reduce((sum, s) => sum + (counts[s] ?? 0), 0);
 
   const tabs = STATUS_TABS.map((tab) => {
-    const count = tab.key === "" ? total : (counts[tab.key] ?? 0);
+    const cnt = tab.key === "" ? total : tab.key === "attention" ? attentionCount : (counts[tab.key] ?? 0);
     const isActive = tab.key === activeStatus;
     const activeClasses = isActive
       ? "border-amber-400 text-amber-400"
       : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-300";
 
+    const url = tab.key === "attention"
+      ? `/api/tasks?status=attention`
+      : tab.key ? `/api/tasks?status=${tab.key}` : "/api/tasks";
+
     return `<button
       class="inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${activeClasses}"
-      hx-get="/api/tasks${tab.key ? `?status=${tab.key}` : ""}"
+      hx-get="${url}"
       hx-target="#task-list"
       hx-swap="innerHTML">${escapeHtml(tab.label)}
-      <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">${count}</span>
+      <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">${cnt}</span>
     </button>`;
   });
 
@@ -69,7 +78,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
     );
   }
 
-  const headers = ["ID", "Title", "Status", "Score", "Repo", "Created", "Actions"];
+  const headers = ["ID", "Title", "Status", "Score", "Repo", "Updated", "Actions"];
 
   const rows = tasks.map((t) => {
     const id = `<span class="font-mono text-xs text-slate-400 cursor-pointer"
@@ -82,15 +91,16 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
     const score = scorerInlineBadges(t) || `<span class="text-slate-600">-</span>`;
     const repoLabel = repoNames.get(t.repoId) ?? `#${t.repoId}`;
     const repo = `<span class="text-xs text-slate-400">${escapeHtml(repoLabel)}</span>`;
-    const created = t.createdAt
-      ? `<span class="text-xs text-slate-400">${escapeHtml(new Date(t.createdAt).toLocaleDateString())}</span>`
+    const ts = t.updatedAt ?? t.createdAt;
+    const updated = ts
+      ? `<span class="text-xs text-slate-400">${escapeHtml(relativeTime(new Date(ts)))}</span>`
       : "-";
     const viewBtn = `<button class="text-xs text-amber-400 hover:text-amber-300"
       hx-get="/api/tasks/${escapeHtml(t.id)}"
       hx-target="#detail-panel"
       hx-swap="innerHTML">View</button>`;
 
-    return [id, title, status, score, repo, created, viewBtn];
+    return [id, title, status, score, repo, updated, viewBtn];
   });
 
   // Build table manually for row-level data attributes
@@ -628,7 +638,7 @@ export function taskListPage(
   user: SessionUser,
   repos: RepoRow[] = [],
 ): string {
-  const activeStatus = filters?.status ?? "";
+  const activeStatus = filters?.statuses?.length ? "attention" : (filters?.status ?? "");
 
   const header = `<div class="mb-6 flex items-center justify-between">
   <div>

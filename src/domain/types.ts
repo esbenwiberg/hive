@@ -90,6 +90,7 @@ export function isValidTaskSize(v: string): v is TaskSizeValue {
 
 export interface TaskFilters {
   status?: string;
+  statuses?: string[];
   repoId?: number;
   createdBy?: number;
   search?: string;

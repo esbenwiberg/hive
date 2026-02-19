@@ -32,6 +32,9 @@ param managedIdentityId string
 @description('Client ID of the user-assigned managed identity')
 param managedIdentityClientId string
 
+@description('Log Analytics workspace customer ID (for Azure Monitor KQL queries)')
+param logAnalyticsWorkspaceId string
+
 // ── Derived names ────────────────────────────────────────────────────────────
 var containerAppName = environmentName
 var containerAppEnvDefaultDomain = reference(containerAppEnvironmentId, '2024-03-01').defaultDomain
@@ -174,6 +177,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'HIVE_DAEMON_USER_ID'
               value: '1'
+            }
+            {
+              name: 'AZURE_MONITOR_WORKSPACE_ID'
+              value: logAnalyticsWorkspaceId
             }
             {
               name: 'HIVE_DEFAULT_REPO_ID'

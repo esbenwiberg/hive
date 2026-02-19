@@ -26,6 +26,8 @@ export interface Producer {
   name: string;
   /** When true the daemon will shallow-clone the repo before running. */
   needsRepo?: boolean;
+  /** When true, runs once per daemon tick against the self-repo (not per-repo). */
+  global?: boolean;
   run(ctx: ProducerContext): Promise<ProducerResult>;
 }
 

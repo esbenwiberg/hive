@@ -43,16 +43,24 @@ export class BugHunterProducer implements Producer {
         return result;
       }
 
-      const titles = response.text
-        .split("\n")
-        .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
-        .filter((line) => line.length > 0 && line.length <= 200)
-        .filter((line) => !isRefusalTitle(line))
+      const suggestions = response.text
+        .split(/^## /m)
+        .map((block) => block.trim())
+        .filter((block) => block.length > 0)
+        .map((block) => {
+          const newlineIdx = block.indexOf("\n");
+          if (newlineIdx === -1) return { title: block.slice(0, 200), description: "" };
+          return {
+            title: block.slice(0, newlineIdx).trim().slice(0, 200),
+            description: block.slice(newlineIdx + 1).trim(),
+          };
+        })
+        .filter(({ title }) => !isRefusalTitle(title))
         .slice(0, 5);
 
       const source = `producer:${this.name}`;
 
-      for (const title of titles) {
+      for (const { title, description } of suggestions) {
         try {
           if (await isDuplicate(source, title)) {
             result.duplicatesSkipped++;
@@ -62,7 +70,7 @@ export class BugHunterProducer implements Producer {
           if (!ctx.dryRun) {
             await create({
               title,
-              body: `Potential bug identified by bug-hunter producer for ${ctx.repoFullName}.`,
+              body: description || `Potential bug identified by bug-hunter producer for ${ctx.repoFullName}.`,
               source,
               type: "bug",
               repoId: ctx.repoId,

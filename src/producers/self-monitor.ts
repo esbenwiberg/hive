@@ -1,17 +1,18 @@
-import { sql } from "drizzle-orm";
-import { db } from "../db/connection.js";
-import { tasks } from "../db/schema.js";
+import { logBuffer } from "../log-buffer.js";
 import { create } from "../db/queries/tasks.js";
 import { isDuplicate } from "./base.js";
+import logger from "../logger.js";
 import type { Producer, ProducerContext, ProducerResult } from "./base.js";
 
 /**
- * Monitors for tasks stuck in transitional statuses for too long.
- * Creates self-healing tasks for any task stuck in enriching, executing,
- * or reviewing status for more than 30 minutes.
+ * Reads Hive's own pino logs (from the in-memory log buffer) to detect
+ * recurring errors and create investigation tasks.
+ *
+ * Global producer — hardcoded to the Hive self-repo.
  */
 export class SelfMonitorProducer implements Producer {
   name = "self-monitor";
+  global = true;
 
   async run(ctx: ProducerContext): Promise<ProducerResult> {
     const result: ProducerResult = {
@@ -21,53 +22,93 @@ export class SelfMonitorProducer implements Producer {
       costUsd: 0,
     };
 
-    try {
-      const stuckStatuses = ["enriching", "executing", "reviewing"];
-      const cutoff = new Date(Date.now() - 30 * 60 * 1000);
+    const source = `producer:${this.name}`;
+    const cutoff = Date.now() - 60 * 60 * 1000; // last hour
 
-      const stuckTasks = await db
-        .select({ id: tasks.id, status: tasks.status })
-        .from(tasks)
-        .where(
-          sql`${tasks.status} IN (${sql.join(
-            stuckStatuses.map((s) => sql`${s}`),
-            sql`, `,
-          )}) AND ${tasks.updatedAt} < ${cutoff.toISOString()}`,
-        );
+    // Read recent logs from pino ring buffer
+    const entries = logBuffer.getRecent();
+    const recentErrors = entries.filter(
+      (e) => e.level >= 50 && e.time >= cutoff,
+    );
 
-      const source = `producer:${this.name}`;
+    if (recentErrors.length === 0) return result;
 
-      for (const stuck of stuckTasks) {
-        try {
-          const title = `Self-monitor: task ${stuck.id} stuck in ${stuck.status}`;
+    // Group by message prefix (first 100 chars) to find recurring patterns
+    const groups = new Map<
+      string,
+      { count: number; firstTime: number; lastTime: number; sampleErr?: string; sampleTaskId?: string }
+    >();
 
-          if (await isDuplicate(source, title)) {
-            result.duplicatesSkipped++;
-            continue;
-          }
-
-          if (!ctx.dryRun) {
-            await create({
-              title,
-              body: `Task ${stuck.id} has been stuck in '${stuck.status}' status for over 30 minutes. Requires investigation.`,
-              source,
-              type: "bug",
-              repoId: ctx.repoId,
-              createdBy: ctx.createdBy,
-            });
-          }
-
-          result.tasksCreated++;
-        } catch (err) {
-          result.errors.push(
-            `Failed to create self-monitor task for ${stuck.id}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
+    for (const entry of recentErrors) {
+      const key = entry.msg.slice(0, 100);
+      const existing = groups.get(key);
+      if (existing) {
+        existing.count++;
+        existing.lastTime = Math.max(existing.lastTime, entry.time);
+        if (!existing.sampleErr && entry.err) existing.sampleErr = entry.err;
+        if (!existing.sampleTaskId && entry.taskId) existing.sampleTaskId = entry.taskId;
+      } else {
+        groups.set(key, {
+          count: 1,
+          firstTime: entry.time,
+          lastTime: entry.time,
+          sampleErr: entry.err,
+          sampleTaskId: entry.taskId,
+        });
       }
-    } catch (err) {
-      result.errors.push(
-        `Self-monitor query failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    }
+
+    // Create tasks for patterns with 2+ occurrences
+    for (const [msg, info] of groups) {
+      if (info.count < 2) continue;
+
+      const title = `Recurring error: ${msg.slice(0, 120)}`;
+
+      try {
+        if (await isDuplicate(source, title)) {
+          result.duplicatesSkipped++;
+          continue;
+        }
+
+        const firstSeen = new Date(info.firstTime).toISOString();
+        const lastSeen = new Date(info.lastTime).toISOString();
+
+        const body = [
+          `Recurring error detected ${info.count} times in the last hour.`,
+          `First seen: ${firstSeen}. Last seen: ${lastSeen}.`,
+          info.sampleTaskId ? `Affected task: ${info.sampleTaskId}.` : null,
+          ``,
+          `## Error message`,
+          `\`${msg}\``,
+          info.sampleErr
+            ? `\n## Stack / detail\n\`\`\`\n${info.sampleErr.slice(0, 1000)}\n\`\`\``
+            : null,
+          ``,
+          `## Investigation`,
+          `Search the codebase for the error message to find the throw site. ` +
+            `Check the daemon (src/daemon/daemon.ts), pipeline (src/agents/pipeline.ts), ` +
+            `and worker (src/execution/worker.ts) for the originating component. ` +
+            `Review recent deployments for regressions.`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        if (!ctx.dryRun) {
+          await create({
+            title,
+            body,
+            source,
+            type: "bug",
+            repoId: ctx.repoId,
+            createdBy: ctx.createdBy,
+          });
+        }
+        result.tasksCreated++;
+      } catch (err) {
+        result.errors.push(
+          `Failed to create task for "${msg.slice(0, 60)}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     return result;

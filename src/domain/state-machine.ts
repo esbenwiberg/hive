@@ -48,6 +48,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   [TaskStatus.MERGED]: [],
   [TaskStatus.FAILED]: [
     TaskStatus.PENDING,
+    TaskStatus.CANCELLED,
   ],
   [TaskStatus.REJECTED]: [],
   [TaskStatus.CANCELLED]: [],
@@ -113,6 +114,7 @@ export function getAvailableActions(status: string): Action[] {
     ],
     [TaskStatus.FAILED]: [
       { action: "retry", targetStatus: TaskStatus.PENDING, label: "Retry" },
+      { action: "archive", targetStatus: TaskStatus.CANCELLED, label: "Archive" },
     ],
     [TaskStatus.REWORK]: [
       { action: "execute", targetStatus: TaskStatus.EXECUTING, label: "Execute" },

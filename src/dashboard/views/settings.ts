@@ -20,13 +20,17 @@ import { layout } from "./layout.js";
 
 export type SettingsTab = "global" | "repos";
 
+// self-monitor is a global producer (hardcoded to Hive self-repo), not per-repo configurable
 const ALL_PRODUCER_NAMES = [
   "log-scanner",
   "bug-hunter",
   "security-scanner",
   "feature-scout",
-  "self-monitor",
 ] as const;
+
+const PRODUCER_CONFIG_PLACEHOLDERS: Record<string, string> = {
+  "log-scanner": '{ "workspaceId": "...", "containerAppName": "..." }',
+};
 
 const ALL_ENRICHER_NAMES = [
   "codebase",
@@ -191,12 +195,14 @@ export function repoSettingsCard(repo: RepoRow): string {
     const configId = `producer_config_${name}_${repo.id}`;
     const detailsId = `producer_details_${name}_${repo.id}`;
 
+    const placeholder = PRODUCER_CONFIG_PLACEHOLDERS[name] ?? '{ }';
+
     return `<div class="space-y-1">
       ${checkbox(`producer_enabled_${name}_${repo.id}`, name, isEnabled)}
       <details id="${detailsId}" class="ml-7">
         <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-400">Config JSON</summary>
         <textarea id="${configId}" name="${configId}" rows="3"
-          placeholder='{ "focus": "auth, payments" }'
+          placeholder='${escapeHtml(placeholder)}'
           class="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs text-slate-50 placeholder-slate-500 font-mono focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">${escapeHtml(configJson)}</textarea>
       </details>
     </div>`;

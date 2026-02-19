@@ -23,9 +23,16 @@ const router = Router();
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+const ATTENTION_STATUSES = ["ready", "reviewing", "done", "failed"];
+
 function parseTaskFilters(query: Request["query"]): TaskFilters {
   const filters: TaskFilters = {};
-  if (query.status) filters.status = query.status as string;
+  const status = query.status as string | undefined;
+  if (status === "attention") {
+    filters.statuses = ATTENTION_STATUSES;
+  } else if (status) {
+    filters.status = status;
+  }
   if (query.repoId) filters.repoId = Number(query.repoId);
   if (query.search) filters.search = query.search as string;
   return filters;
@@ -35,7 +42,12 @@ function parseTaskFilters(query: Request["query"]): TaskFilters {
 
 router.get("/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Default to "attention" view when no status specified
+    if (!req.query.status) {
+      req.query.status = "attention";
+    }
     const filters = parseTaskFilters(req.query);
+    const activeStatus = (req.query.status as string) || "";
 
     const [{ tasks }, counts, repos] = await Promise.all([
       taskQueries.list(filters),
@@ -46,7 +58,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
     if (req.headers["hx-request"]) {
-      res.send(taskListPartial(tasks, counts, filters.status, repoNames));
+      res.send(taskListPartial(tasks, counts, activeStatus, repoNames));
     } else {
       res.send(taskListPage(tasks, filters, counts, req.session.user!, repos));
     }
@@ -60,6 +72,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
 router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const filters = parseTaskFilters(req.query);
+    const activeStatus = (req.query.status as string) || "";
 
     const [{ tasks }, counts, repos] = await Promise.all([
       taskQueries.list(filters),
@@ -68,7 +81,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
     ]);
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
-    res.send(taskListPartial(tasks, counts, filters.status, repoNames));
+    res.send(taskListPartial(tasks, counts, activeStatus, repoNames));
   } catch (err) {
     next(err);
   }

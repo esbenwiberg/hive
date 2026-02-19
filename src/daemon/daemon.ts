@@ -279,6 +279,22 @@ export class Daemon {
       return;
     }
 
+    // Global producers run once against the self-repo, not per user repo
+    if (producer.global) {
+      const selfRepoName = process.env.HIVE_SELF_REPO;
+      if (!selfRepoName) {
+        logger.debug({ producer: producer.name }, "Daemon: HIVE_SELF_REPO not set, skipping global producer");
+        return;
+      }
+      const selfRepo = allRepos.find((r) => r.fullName === selfRepoName);
+      if (!selfRepo) {
+        logger.warn({ producer: producer.name, selfRepoName }, "Daemon: self-repo not found in DB, skipping global producer");
+        return;
+      }
+      await this._runProducerForRepo(producer, selfRepo, createdBy);
+      return;
+    }
+
     for (const repo of allRepos) {
       // Per-repo producer toggle: skip unless explicitly enabled
       const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
@@ -292,113 +308,122 @@ export class Daemon {
         continue;
       }
 
-      const start = Date.now();
-      let cloneDir: string | undefined;
+      await this._runProducerForRepo(producer, repo, createdBy, producerEntry.config);
+    }
+  }
+
+  private async _runProducerForRepo(
+    producer: Producer,
+    repo: { id: number; fullName: string; defaultBranch: string | null; provider: string },
+    createdBy: number,
+    config?: Record<string, unknown>,
+  ): Promise<void> {
+    const start = Date.now();
+    let cloneDir: string | undefined;
+
+    try {
+      // Shallow-clone the repo if the producer needs filesystem access
+      let repoDir: string | undefined;
+      if (producer.needsRepo) {
+        cloneDir = `/tmp/hive-producer-clones/${repo.id}-${producer.name}-${Date.now()}`;
+        await mkdir("/tmp/hive-producer-clones", { recursive: true });
+        const creds = await resolveGitCredentials(createdBy, repo.provider);
+        const gitProvider = getGitProvider(repo.provider);
+        await gitProvider.clone(
+          repo.fullName,
+          cloneDir,
+          repo.defaultBranch ?? "main",
+          creds,
+          { depth: 1 },
+        );
+        repoDir = cloneDir;
+      }
+
+      const ctx: ProducerContext = {
+        repoId: repo.id,
+        repoFullName: repo.fullName,
+        repoDir,
+        createdBy,
+        config: config ?? {},
+      };
+
+      const result = await producer.run(ctx);
+      const durationMs = Date.now() - start;
+
+      await recordRun({
+        producer: producer.name,
+        repo: repo.fullName,
+        tasksCreated: result.tasksCreated,
+        duplicatesSkipped: result.duplicatesSkipped,
+        errors: result.errors,
+        costUsd: result.costUsd,
+        durationMs,
+      });
+
+      if (result.errors.length > 0) {
+        logger.warn(
+          {
+            producer: producer.name,
+            repo: repo.fullName,
+            errors: result.errors,
+            durationMs,
+          },
+          "Daemon: producer run completed with errors",
+        );
+      } else {
+        logger.info(
+          {
+            producer: producer.name,
+            repo: repo.fullName,
+            tasksCreated: result.tasksCreated,
+            duplicatesSkipped: result.duplicatesSkipped,
+            durationMs,
+          },
+          "Daemon: producer run completed",
+        );
+      }
+
+      if (result.tasksCreated > 0) {
+        await notifyTasksCreated(
+          producer.name,
+          repo.fullName,
+          [`${result.tasksCreated} task(s) created`],
+          [],
+        ).catch((notifyErr) => {
+          logger.warn(
+            { err: notifyErr, producer: producer.name },
+            "Daemon: notification failed",
+          );
+        });
+      }
+    } catch (err) {
+      const durationMs = Date.now() - start;
+      logger.error(
+        { err, producer: producer.name, repo: repo.fullName },
+        "Daemon: producer run failed",
+      );
 
       try {
-        // Shallow-clone the repo if the producer needs filesystem access
-        let repoDir: string | undefined;
-        if (producer.needsRepo) {
-          cloneDir = `/tmp/hive-producer-clones/${repo.id}-${producer.name}-${Date.now()}`;
-          await mkdir("/tmp/hive-producer-clones", { recursive: true });
-          const creds = await resolveGitCredentials(createdBy, repo.provider);
-          const gitProvider = getGitProvider(repo.provider);
-          await gitProvider.clone(
-            repo.fullName,
-            cloneDir,
-            repo.defaultBranch ?? "main",
-            creds,
-            { depth: 1 },
-          );
-          repoDir = cloneDir;
-        }
-
-        const ctx: ProducerContext = {
-          repoId: repo.id,
-          repoFullName: repo.fullName,
-          repoDir,
-          createdBy,
-          config: producerEntry.config ?? {},
-        };
-
-        const result = await producer.run(ctx);
-        const durationMs = Date.now() - start;
-
         await recordRun({
           producer: producer.name,
           repo: repo.fullName,
-          tasksCreated: result.tasksCreated,
-          duplicatesSkipped: result.duplicatesSkipped,
-          errors: result.errors,
-          costUsd: result.costUsd,
+          tasksCreated: 0,
+          duplicatesSkipped: 0,
+          errors: [err instanceof Error ? err.message : String(err)],
+          costUsd: 0,
           durationMs,
         });
-
-        if (result.errors.length > 0) {
-          logger.warn(
-            {
-              producer: producer.name,
-              repo: repo.fullName,
-              errors: result.errors,
-              durationMs,
-            },
-            "Daemon: producer run completed with errors",
-          );
-        } else {
-          logger.info(
-            {
-              producer: producer.name,
-              repo: repo.fullName,
-              tasksCreated: result.tasksCreated,
-              duplicatesSkipped: result.duplicatesSkipped,
-              durationMs,
-            },
-            "Daemon: producer run completed",
-          );
-        }
-
-        if (result.tasksCreated > 0) {
-          await notifyTasksCreated(
-            producer.name,
-            repo.fullName,
-            [`${result.tasksCreated} task(s) created`],
-            [],
-          ).catch((notifyErr) => {
-            logger.warn(
-              { err: notifyErr, producer: producer.name },
-              "Daemon: notification failed",
-            );
-          });
-        }
-      } catch (err) {
-        const durationMs = Date.now() - start;
+      } catch (recordErr) {
         logger.error(
-          { err, producer: producer.name, repo: repo.fullName },
-          "Daemon: producer run failed",
+          { err: recordErr, producer: producer.name },
+          "Daemon: failed to record producer run error",
         );
-
-        try {
-          await recordRun({
-            producer: producer.name,
-            repo: repo.fullName,
-            tasksCreated: 0,
-            duplicatesSkipped: 0,
-            errors: [err instanceof Error ? err.message : String(err)],
-            costUsd: 0,
-            durationMs,
-          });
-        } catch (recordErr) {
-          logger.error(
-            { err: recordErr, producer: producer.name },
-            "Daemon: failed to record producer run error",
-          );
-        }
-      } finally {
-        if (cloneDir) {
-          await rm(cloneDir, { recursive: true, force: true }).catch((cleanupErr) => {
-            logger.warn({ err: cleanupErr, path: cloneDir }, "Daemon: failed to clean up producer clone");
-          });
-        }
+      }
+    } finally {
+      if (cloneDir) {
+        await rm(cloneDir, { recursive: true, force: true }).catch((cleanupErr) => {
+          logger.warn({ err: cleanupErr, path: cloneDir }, "Daemon: failed to clean up producer clone");
+        });
       }
     }
   }
