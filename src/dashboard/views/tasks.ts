@@ -1,8 +1,8 @@
 // Task list views — pure functions returning HTML strings
 
 import type { SessionUser, TaskFilters } from "../../domain/types.js";
-import type { TaskRow, RepoRow, TaskEventRow } from "../../db/schema.js";
-import { getAvailableActions } from "../../domain/state-machine.js";
+import type { TaskRow, RepoRow, TaskEventRow, CodeReviewRow } from "../../db/schema.js";
+import { getAvailableActions, getAllowedTargets } from "../../domain/state-machine.js";
 import {
   escapeHtml,
   badge,
@@ -502,6 +502,113 @@ function gateDecisionSection(task: TaskRow): string {
   </div>`;
 }
 
+// ── Review findings display ──────────────────────────────────────────────
+
+interface ReworkHistoryEntry {
+  cycle: number;
+  findings?: { severity: string; file: string; line?: number; message: string; category?: string }[];
+  securityFindings?: { severity: string; type: string; description: string; file?: string }[];
+  refinedInstructions?: string;
+  timestamp?: string;
+}
+
+function severityColor(severity: string): "red" | "amber" | "slate" {
+  if (severity === "critical" || severity === "high" || severity === "major") return "red";
+  if (severity === "medium" || severity === "minor") return "amber";
+  return "slate";
+}
+
+function findingsList(findings: ReworkHistoryEntry["findings"]): string {
+  if (!findings || findings.length === 0) return "";
+  const items = findings.map((f) =>
+    `<div class="flex items-start gap-2 py-1.5">
+      ${badge(f.severity, severityColor(f.severity))}
+      <div class="min-w-0">
+        <code class="text-xs text-slate-400">${escapeHtml(f.file)}${f.line ? `:${f.line}` : ""}</code>
+        <p class="text-sm text-slate-300">${escapeHtml(f.message)}</p>
+      </div>
+    </div>`,
+  ).join("");
+  return `<div class="divide-y divide-slate-800">${items}</div>`;
+}
+
+function securityFindingsList(findings: ReworkHistoryEntry["securityFindings"]): string {
+  if (!findings || findings.length === 0) return "";
+  const items = findings.map((f) =>
+    `<div class="flex items-start gap-2 py-1.5">
+      ${badge(f.severity, severityColor(f.severity))}
+      <div class="min-w-0">
+        <span class="text-xs font-medium text-slate-400">${escapeHtml(f.type)}</span>
+        ${f.file ? `<code class="ml-2 text-xs text-slate-500">${escapeHtml(f.file)}</code>` : ""}
+        <p class="text-sm text-slate-300">${escapeHtml(f.description)}</p>
+      </div>
+    </div>`,
+  ).join("");
+  return `<div class="divide-y divide-slate-800">${items}</div>`;
+}
+
+function reviewFindingsSection(task: TaskRow): string {
+  const history = task.reworkHistory as ReworkHistoryEntry[] | null;
+  if (!history || !Array.isArray(history) || history.length === 0) return "";
+
+  const cycles = history.map((entry) => {
+    const hasFindings = entry.findings && entry.findings.length > 0;
+    const hasSecFindings = entry.securityFindings && entry.securityFindings.length > 0;
+    if (!hasFindings && !hasSecFindings) return "";
+
+    return `<details class="group">
+      <summary class="flex cursor-pointer items-center justify-between rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800">
+        Cycle ${entry.cycle}
+        <span class="flex items-center gap-2">
+          ${hasFindings ? `<span class="text-xs text-slate-400">${entry.findings!.length} finding${entry.findings!.length !== 1 ? "s" : ""}</span>` : ""}
+          ${hasSecFindings ? `<span class="text-xs text-red-400">${entry.securityFindings!.length} security</span>` : ""}
+          <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </span>
+      </summary>
+      <div class="mt-1 rounded-lg bg-slate-900 px-4 py-3 text-xs text-slate-300">
+        ${findingsList(entry.findings)}
+        ${hasSecFindings ? `<div class="mt-2 pt-2 border-t border-slate-800"><p class="text-xs font-medium text-red-400 mb-1">Security</p>${securityFindingsList(entry.securityFindings)}</div>` : ""}
+      </div>
+    </details>`;
+  }).filter(Boolean).join("");
+
+  if (!cycles) return "";
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Rework History</h4>
+    <div class="space-y-2">${cycles}</div>
+  </div>`;
+}
+
+function latestReviewSection(review: CodeReviewRow): string {
+  const findings = review.findings as ReworkHistoryEntry["findings"] | null;
+  const secFindings = review.securityFindings as ReworkHistoryEntry["securityFindings"] | null;
+  const hasFindings = findings && findings.length > 0;
+  const hasSecFindings = secFindings && secFindings.length > 0;
+
+  if (!hasFindings && !hasSecFindings) return "";
+
+  const verdictColors: Record<string, "emerald" | "red" | "amber"> = {
+    pass: "emerald",
+    rework: "amber",
+    fail: "red",
+  };
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Latest Review</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      <div class="flex items-center gap-2 mb-3">
+        ${badge(review.verdict, verdictColors[review.verdict] ?? "slate")}
+        <span class="text-xs text-slate-400">Cycle ${review.reworkCycle ?? 0}</span>
+      </div>
+      ${hasFindings ? findingsList(findings) : ""}
+      ${hasSecFindings ? `<div class="mt-2 pt-2 border-t border-slate-800"><p class="text-xs font-medium text-red-400 mb-1">Security</p>${securityFindingsList(secFindings)}</div>` : ""}
+    </div>
+  </div>`;
+}
+
 // ── Preview section ─────────────────────────────────────────────────────
 
 function previewStatusBadge(status: string): string {
@@ -676,7 +783,7 @@ ${taskCreateForm(repos)}`;
 /**
  * Task detail slide-over panel.
  */
-export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = []): string {
+export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow): string {
   const actions = getAvailableActions(task.status);
 
   const actionButtons = actions
@@ -787,6 +894,10 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
     <!-- Gate Decision -->
     ${gateDecisionSection(task)}
 
+    <!-- Review Findings -->
+    ${latestReview ? latestReviewSection(latestReview) : ""}
+    ${reviewFindingsSection(task)}
+
     <!-- Preview -->
     ${task.previewStatus ? `<div id="preview-section">${previewSection(task)}</div>` : ""}
 
@@ -804,6 +915,21 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
     </div>`
         : ""
     }
+    ${(() => {
+      const extraTargets = getAllowedTargets(task.status);
+      if (extraTargets.length === 0) return "";
+      const opts = extraTargets
+        .map((t) => `<option value="${escapeHtml(t.status)}">${escapeHtml(t.label)}</option>`)
+        .join("");
+      return `<div>
+        <select
+          class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-400 focus:border-amber-400 focus:outline-none"
+          onchange="if(this.value){htmx.ajax('POST','/api/tasks/${escapeHtml(task.id)}/transition',{values:{targetStatus:this.value},target:'#task-list',swap:'innerHTML'});this.selectedIndex=0}">
+          <option value="">Move to...</option>
+          ${opts}
+        </select>
+      </div>`;
+    })()}
   </div>
 </div>`;
 }

@@ -50,6 +50,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   [TaskStatus.MERGED]: [],
   [TaskStatus.FAILED]: [
     TaskStatus.PENDING,
+    TaskStatus.APPROVED,
     TaskStatus.CANCELLED,
   ],
   [TaskStatus.REJECTED]: [],
@@ -129,4 +130,33 @@ export function getAvailableActions(status: string): Action[] {
   };
 
   return map[status] ?? [];
+}
+
+/**
+ * Returns all valid transition targets not already covered by `getAvailableActions()`.
+ * Used for the "Move to..." dropdown in the UI.
+ */
+export function getAllowedTargets(status: string): { status: string; label: string }[] {
+  const curatedTargets = new Set(getAvailableActions(status).map((a) => a.targetStatus));
+  const allTargets = ALLOWED_TRANSITIONS[status] ?? [];
+
+  const labels: Record<string, string> = {
+    [TaskStatus.PENDING]: "Pending",
+    [TaskStatus.QUEUED]: "Queued",
+    [TaskStatus.ENRICHING]: "Enriching",
+    [TaskStatus.READY]: "Ready",
+    [TaskStatus.APPROVED]: "Approved",
+    [TaskStatus.EXECUTING]: "Executing",
+    [TaskStatus.REVIEWING]: "Reviewing",
+    [TaskStatus.DONE]: "Done",
+    [TaskStatus.MERGED]: "Merged",
+    [TaskStatus.FAILED]: "Failed",
+    [TaskStatus.REJECTED]: "Rejected",
+    [TaskStatus.CANCELLED]: "Cancelled",
+    [TaskStatus.REWORK]: "Rework",
+  };
+
+  return allTargets
+    .filter((t) => !curatedTargets.has(t))
+    .map((t) => ({ status: t, label: labels[t] ?? t }));
 }

@@ -1,9 +1,13 @@
 import { rm, mkdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import logger from "../logger.js";
 import { getByUserAndProvider } from "../db/queries/user-credentials.js";
 import { getSecret } from "../vault/keyvault.js";
 import { getGitProvider } from "./git-provider.js";
 import type { GitCredentials, WorktreeInfo } from "../domain/types.js";
+
+const execFileAsync = promisify(execFile);
 
 const WORKTREE_BASE = process.env.HIVE_WORKTREE_DIR ?? "/tmp/hive-worktrees";
 
@@ -51,6 +55,10 @@ export async function createWorktree(
   const gitProvider = getGitProvider(provider);
   await gitProvider.clone(repoFullName, worktreePath, defaultBranch, creds);
   await gitProvider.createBranch(worktreePath, branch);
+
+  // Set git identity so commits are attributed to The Hive
+  await execFileAsync("git", ["config", "user.name", "The Hive"], { cwd: worktreePath });
+  await execFileAsync("git", ["config", "user.email", "hive@thehive.ai"], { cwd: worktreePath });
 
   logger.info({ repoFullName, branch, path: worktreePath }, "Worktree created");
 

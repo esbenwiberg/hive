@@ -312,6 +312,7 @@ export const globalConfig = pgTable("global_config", {
 
 export type TaskRow = InferSelectModel<typeof tasks>;
 export type RepoRow = InferSelectModel<typeof repos>;
+export type CodeReviewRow = InferSelectModel<typeof codeReviews>;
 export type ActiveAgentRow = InferSelectModel<typeof activeAgents>;
 export type TaskEventRow = InferSelectModel<typeof taskEvents>;
 export type UserCredentialRow = InferSelectModel<typeof userCredentials>;

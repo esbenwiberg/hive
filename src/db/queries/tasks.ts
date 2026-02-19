@@ -130,6 +130,14 @@ export async function updateStatus(
     updates.approvedBy = userId;
   }
 
+  // Reset rework state when retrying a failed task
+  if (newStatus === "pending" && existing.status === "failed") {
+    updates.reworkCount = 0;
+    updates.reworkHistory = [];
+    updates.failureReason = null;
+    updates.retryInstructions = null;
+  }
+
   const [updated] = await db
     .update(tasks)
     .set(updates)
