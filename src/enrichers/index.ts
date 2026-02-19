@@ -4,6 +4,8 @@ import { codebaseEnricher } from "./codebase.js";
 import { docsEnricher } from "./docs.js";
 import { gitHistoryEnricher } from "./git-history.js";
 import { dependenciesEnricher } from "./dependencies.js";
+import { architectEnricher } from "./architect.js";
+import { scorerEnricher } from "./scorer.js";
 
 // ── All enrichers ───────────────────────────────────────────────────────────
 
@@ -12,6 +14,8 @@ export const ALL_ENRICHERS: Enricher[] = [
   docsEnricher,
   gitHistoryEnricher,
   dependenciesEnricher,
+  architectEnricher,
+  scorerEnricher,
 ];
 
 // ── Filter by config ────────────────────────────────────────────────────────

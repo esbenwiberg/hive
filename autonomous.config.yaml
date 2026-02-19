@@ -17,6 +17,9 @@ budget:
   # Maximum spend allowed for a single task in USD
   perTaskMax: 25.00
 
+clarification:
+  mode: human
+
 enrichers:
   - name: codebase
     enabled: true
@@ -25,6 +28,10 @@ enrichers:
   - name: git-history
     enabled: true
   - name: dependencies
+    enabled: true
+  - name: architect
+    enabled: true
+  - name: scorer
     enabled: true
 
 preview:

@@ -30,6 +30,10 @@ export interface ModelConfig {
   outputCostPerM: number;
 }
 
+export interface ClarificationConfig {
+  mode: "human" | "ai" | "auto";
+}
+
 export interface EnricherEntry {
   name: string;
   enabled: boolean;
@@ -57,6 +61,7 @@ export interface AutonomousConfig {
   budget: BudgetConfig;
   models: ModelConfig;
   enrichers: EnricherEntry[];
+  clarification: ClarificationConfig;
   preview: PreviewSettings;
 }
 
@@ -73,6 +78,7 @@ const DEFAULTS: AutonomousConfig = {
     outputCostPerM: 15,
   },
   enrichers: [],
+  clarification: { mode: "human" },
   preview: {
     enabled: true,
     max_concurrent: 3,
@@ -130,6 +136,10 @@ export function loadConfig(
     enrichers: Array.isArray(raw.enrichers)
       ? (raw.enrichers as EnricherEntry[])
       : DEFAULTS.enrichers,
+    clarification: {
+      ...DEFAULTS.clarification,
+      ...(raw.clarification as Partial<ClarificationConfig> | undefined),
+    },
     preview: {
       ...DEFAULTS.preview,
       ...rawPreview,
@@ -154,6 +164,7 @@ export interface ConfigOverrides {
   gate?: Partial<GateConfig>;
   budget?: Partial<BudgetConfig>;
   enrichers?: EnricherEntry[];
+  clarification?: Partial<ClarificationConfig>;
 }
 
 const CONFIG_DB_KEY = "autonomous";
@@ -197,6 +208,7 @@ function mergeOverrides(
     gate: { ...base.gate, ...overrides.gate },
     budget: { ...base.budget, ...overrides.budget },
     enrichers: overrides.enrichers ?? base.enrichers,
+    clarification: { ...base.clarification, ...overrides.clarification },
   };
 }
 
