@@ -12,7 +12,9 @@ import {
   taskListPartial,
   taskDetailPanel,
   previewSection,
+  activityEventList,
 } from "../views/tasks.js";
+import { getEvents } from "../../db/queries/task-events.js";
 import { previewManager } from "../../execution/preview/manager.js";
 import { cleanupWorktree } from "../../execution/worktree.js";
 import logger from "../../logger.js";
@@ -139,16 +141,30 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
 router.get("/api/tasks/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    const [task, repos] = await Promise.all([
+    const [task, repos, events] = await Promise.all([
       taskQueries.getById(id),
       repoQueries.listAll(),
+      getEvents(id, 50),
     ]);
     if (!task) {
       res.status(404).send("Task not found");
       return;
     }
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
-    res.send(taskDetailPanel(task, repoNames));
+    res.send(taskDetailPanel(task, repoNames, events));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/tasks/:id/events ─ Activity log partial (HTMX auto-refresh) ────
+
+router.get("/api/tasks/:id/events", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const events = await getEvents(id, limit);
+    res.send(activityEventList(events));
   } catch (err) {
     next(err);
   }

@@ -6,7 +6,8 @@ import { callClaude } from "../agents/sdk.js";
 import { getById as getTask, updateStatus } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
 import { recordCost, checkBudget } from "../db/queries/costs.js";
-import { register, unregister } from "../db/queries/active-agents.js";
+import { register, unregister, heartbeat } from "../db/queries/active-agents.js";
+import { addEvent } from "../db/queries/task-events.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
 import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
@@ -82,6 +83,8 @@ async function executeMilestones(
 
   for (let i = 0; i < milestones.length; i++) {
     const ms = milestones[i];
+    await addEvent(task.id, "milestone_started", "worker", `Milestone ${i + 1}/${milestones.length}: ${ms.title}`);
+    await heartbeat(task.id);
     logger.info(
       { taskId: task.id, milestone: i + 1, total: milestones.length, title: ms.title },
       "Starting milestone",
@@ -135,6 +138,9 @@ async function executeMilestones(
     ].join("\n");
 
     // ── 2. Call Claude for implementation ─────────────────────────────────
+    await addEvent(task.id, "claude_call_started", "worker", `Calling Claude (${model})`);
+    await heartbeat(task.id);
+
     const response = await callClaude({
       prompt: milestonePrompt,
       model,
@@ -143,6 +149,13 @@ async function executeMilestones(
 
     const implCost = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
     totalCostUsd += implCost;
+
+    await addEvent(task.id, "claude_call_complete", "worker", `Claude complete (${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCost.toFixed(2)})`, {
+      inputTokens: response.cost.inputTokens,
+      outputTokens: response.cost.outputTokens,
+      costUsd: implCost,
+    });
+    await heartbeat(task.id);
 
     // ── 3. Review-fix loop ────────────────────────────────────────────────
     const review = await reviewFix(worktreePath, ms.title, model);
@@ -153,6 +166,9 @@ async function executeMilestones(
 
     // ── 5. Accumulate summary ─────────────────────────────────────────────
     priorSummaries.push(`${ms.title} — completed (review ${review.passed ? "passed" : "had issues"})`);
+
+    await addEvent(task.id, "milestone_complete", "worker", `Milestone ${i + 1}/${milestones.length} complete`);
+    await heartbeat(task.id);
 
     logger.info(
       {
@@ -210,6 +226,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       repo.defaultBranch ?? "main",
       task.createdBy,
     );
+    await addEvent(taskId, "worktree_created", "worker", "Git worktree created");
 
     // Retrieve relevant learnings for this task (non-blocking — failures degrade gracefully)
     let learningIds: number[] = [];
@@ -272,12 +289,22 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       implCostUsd = totalCostUsd;
     } else {
       // Single-call path (original behavior for tasks without milestones)
+      await addEvent(taskId, "claude_call_started", "worker", `Calling Claude (${model})`);
+      await heartbeat(taskId);
+
       const response = await callClaude({
         prompt: userPrompt,
         model,
         systemPrompt: getFlowPrompt(),
       });
       implCostUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+
+      await addEvent(taskId, "claude_call_complete", "worker", `Claude complete (${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCostUsd.toFixed(2)})`, {
+        inputTokens: response.cost.inputTokens,
+        outputTokens: response.cost.outputTokens,
+        costUsd: implCostUsd,
+      });
+      await heartbeat(taskId);
     }
     const implDurationMs = Date.now() - startTime;
     await recordCost(taskId, task.createdBy, "worker", model, implCostUsd, 1, implDurationMs);
@@ -295,7 +322,11 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     await updateStatus(taskId, "reviewing");
 
     // Run review gate (pass learning IDs for feedback loop)
+    await addEvent(taskId, "review_started", "worker", "Starting code review");
+    await heartbeat(taskId);
     const reviewResult = await reviewChanges(taskId, worktree, learningIds);
+    await addEvent(taskId, "review_complete", "worker", `Review: ${reviewResult.verdict}`);
+    await heartbeat(taskId);
 
     if (reviewResult.verdict === "pass") {
       // Push and create PR
@@ -320,6 +351,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         .set({ prUrl, updatedAt: new Date() })
         .where(eq(tasks.id, taskId));
 
+      await addEvent(taskId, "pr_created", "worker", "PR created", { prUrl });
       await updateStatus(taskId, "done");
 
       logger.info({ taskId, prUrl }, "Task execution complete — PR created");

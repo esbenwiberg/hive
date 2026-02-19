@@ -180,7 +180,26 @@ export const activeAgents = pgTable("active_agents", {
   model: text("model").notNull(),
   phase: text("phase"),
   startedAt: timestamp("started_at", tz).defaultNow(),
+  lastHeartbeatAt: timestamp("last_heartbeat_at", tz).defaultNow(),
 });
+
+// ── task_events ───────────────────────────────────────────────────────────
+
+export const taskEvents = pgTable(
+  "task_events",
+  {
+    id: serial("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id),
+    event: text("event").notNull(),
+    agent: text("agent").notNull(),
+    message: text("message").notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", tz).defaultNow(),
+  },
+  (t) => [index("task_events_task_created_idx").on(t.taskId, t.createdAt)],
+);
 
 // ── enrichment_runs ────────────────────────────────────────────────────────
 
@@ -294,6 +313,7 @@ export const globalConfig = pgTable("global_config", {
 export type TaskRow = InferSelectModel<typeof tasks>;
 export type RepoRow = InferSelectModel<typeof repos>;
 export type ActiveAgentRow = InferSelectModel<typeof activeAgents>;
+export type TaskEventRow = InferSelectModel<typeof taskEvents>;
 export type UserCredentialRow = InferSelectModel<typeof userCredentials>;
 export type LearningRow = InferSelectModel<typeof learnings>;
 export type LearningEventRow = InferSelectModel<typeof learningEvents>;

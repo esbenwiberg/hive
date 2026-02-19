@@ -27,11 +27,23 @@ export async function register(
         model,
         phase: phase ?? null,
         startedAt: new Date(),
+        lastHeartbeatAt: new Date(),
       },
     })
     .returning();
 
   return row;
+}
+
+/**
+ * Updates the heartbeat timestamp for an active agent.
+ * Call this periodically during long-running operations to signal liveness.
+ */
+export async function heartbeat(taskId: string): Promise<void> {
+  await db
+    .update(activeAgents)
+    .set({ lastHeartbeatAt: new Date() })
+    .where(eq(activeAgents.taskId, taskId));
 }
 
 /**

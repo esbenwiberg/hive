@@ -1,6 +1,8 @@
 import logger from "../logger.js";
 import { recordRun } from "../db/queries/enrichment-runs.js";
 import { updateEnrichment } from "../db/queries/tasks.js";
+import { addEvent } from "../db/queries/task-events.js";
+import { heartbeat } from "../db/queries/active-agents.js";
 import type { TaskRow } from "../db/schema.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -56,6 +58,9 @@ export async function runEnrichers(
     }
 
     try {
+      await addEvent(task.id, "enricher_started", enricher.name, `Starting ${enricher.name} enricher`);
+      await heartbeat(task.id);
+
       const result = await enricher.run(task, repoDir, { ...merged }, enricherConfig);
 
       // Record successful run
@@ -71,6 +76,9 @@ export async function runEnrichers(
       // Merge results
       Object.assign(merged, result.data);
       succeeded++;
+
+      await addEvent(task.id, "enricher_complete", enricher.name, `${enricher.name} completed (${result.durationMs}ms)`);
+      await heartbeat(task.id);
 
       logger.info(
         { enricher: enricher.name, taskId: task.id, durationMs: result.durationMs },
@@ -92,6 +100,8 @@ export async function runEnrichers(
 
       failed++;
       failedNames.push(enricher.name);
+
+      await addEvent(task.id, "enricher_failed", enricher.name, `${enricher.name} failed: ${message}`);
 
       logger.error(
         { enricher: enricher.name, taskId: task.id, err },

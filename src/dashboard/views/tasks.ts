@@ -1,7 +1,7 @@
 // Task list views — pure functions returning HTML strings
 
 import type { SessionUser, TaskFilters } from "../../domain/types.js";
-import type { TaskRow, RepoRow } from "../../db/schema.js";
+import type { TaskRow, RepoRow, TaskEventRow } from "../../db/schema.js";
 import { getAvailableActions } from "../../domain/state-machine.js";
 import {
   escapeHtml,
@@ -407,6 +407,68 @@ export function previewSection(task: TaskRow): string {
     </div>`;
 }
 
+// ── Activity log display ─────────────────────────────────────────────────────
+
+const AGENT_COLORS: Record<string, string> = {
+  pipeline: "bg-blue-500/20 text-blue-300",
+  router: "bg-purple-500/20 text-purple-300",
+  gate: "bg-amber-500/20 text-amber-300",
+  worker: "bg-emerald-500/20 text-emerald-300",
+  scorer: "bg-cyan-500/20 text-cyan-300",
+  architect: "bg-pink-500/20 text-pink-300",
+};
+
+function agentBadge(agent: string): string {
+  const color = AGENT_COLORS[agent] ?? "bg-slate-500/20 text-slate-300";
+  return `<span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${color}">${escapeHtml(agent)}</span>`;
+}
+
+function relativeTime(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  return `${diffHr}h ago`;
+}
+
+/**
+ * Renders the activity event list HTML (used both inline and as an HTMX partial).
+ */
+export function activityEventList(events: TaskEventRow[]): string {
+  if (events.length === 0) {
+    return `<p class="text-sm text-slate-500 italic">No activity recorded yet</p>`;
+  }
+
+  const rows = events
+    .map((e) => {
+      const time = e.createdAt ? relativeTime(new Date(e.createdAt)) : "-";
+      return `<div class="flex items-start gap-3 py-2">
+        <span class="shrink-0 w-16 text-right text-xs text-slate-500 pt-0.5">${escapeHtml(time)}</span>
+        <span class="shrink-0">${agentBadge(e.agent)}</span>
+        <span class="text-sm text-slate-300">${escapeHtml(e.message)}</span>
+      </div>`;
+    })
+    .join("");
+
+  return `<div class="divide-y divide-slate-800">${rows}</div>`;
+}
+
+function activitySection(task: TaskRow, events: TaskEventRow[]): string {
+  const isActive = ["enriching", "executing", "reviewing"].includes(task.status);
+  const autoRefresh = isActive
+    ? ` hx-get="/api/tasks/${escapeHtml(task.id)}/events" hx-trigger="every 5s" hx-swap="innerHTML"`
+    : "";
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Activity</h4>
+    <div id="activity-log" class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 max-h-80 overflow-y-auto"${autoRefresh}>
+      ${activityEventList(events)}
+    </div>
+  </div>`;
+}
+
 // ── Exported views ──────────────────────────────────────────────────────────
 
 /**
@@ -461,7 +523,7 @@ ${taskCreateForm(repos)}`;
 /**
  * Task detail slide-over panel.
  */
-export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = new Map()): string {
+export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = []): string {
   const actions = getAvailableActions(task.status);
 
   const actionButtons = actions
@@ -507,6 +569,10 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
       "PR",
       `<a href="${escapeHtml(task.prUrl)}" target="_blank" rel="noopener" class="text-amber-400 hover:text-amber-300 underline">${escapeHtml(task.prUrl)}</a>`,
     ]);
+  }
+
+  if (events.length > 0 && events[0].createdAt) {
+    metaRows.push(["Last Activity", escapeHtml(relativeTime(new Date(events[0].createdAt)))]);
   }
 
   const metaHtml = metaRows
@@ -567,6 +633,9 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
 
     <!-- Preview -->
     ${task.previewStatus ? `<div id="preview-section">${previewSection(task)}</div>` : ""}
+
+    <!-- Activity -->
+    ${activitySection(task, events)}
 
     <!-- Actions -->
     ${

@@ -15,6 +15,7 @@ import { architectEnricher } from "../enrichers/architect.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { resolveGitCredentials } from "../execution/worktree.js";
 import { getGitProvider } from "../execution/git-provider.js";
+import { addEvent } from "../db/queries/task-events.js";
 import type { EnricherConfig } from "../enrichers/base.js";
 import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
@@ -51,6 +52,8 @@ export async function runPipeline(taskId: string): Promise<void> {
   // ── Step 2: Route ─────────────────────────────────────────────────────────
   try {
     await routeTask(taskId);
+    const routed = await getById(taskId);
+    await addEvent(taskId, "route_complete", "router", `Routed: type=${routed?.type ?? "unknown"}, size=${routed?.size ?? "unknown"}`);
     logger.info({ taskId }, "Pipeline: routing complete");
   } catch (err) {
     logger.error({ taskId, err }, "Pipeline: routing failed");
@@ -128,7 +131,9 @@ export async function runPipeline(taskId: string): Promise<void> {
     }
 
     if (existsSync(repoDir)) {
+      await addEvent(taskId, "enrichment_started", "pipeline", `Starting enrichment (${enrichers.length} enrichers)`);
       await runEnrichers(enrichingTask, repoDir, enrichers, enricherConfigs);
+      await addEvent(taskId, "enrichment_complete", "pipeline", "Enrichment complete");
       logger.info({ taskId }, "Pipeline: enrichment complete");
     }
   } catch (err) {
@@ -190,6 +195,8 @@ export async function runPipeline(taskId: string): Promise<void> {
   // ── Step 5: Gate evaluation ───────────────────────────────────────────────
   try {
     await evaluateGate(taskId);
+    const gatedTask = await getById(taskId);
+    await addEvent(taskId, "gate_complete", "gate", `Gate verdict: ${gatedTask?.gateVerdict ?? "unknown"}`);
     logger.info({ taskId }, "Pipeline: gate evaluation complete");
   } catch (err) {
     logger.error({ taskId, err }, "Pipeline: gate evaluation failed");
