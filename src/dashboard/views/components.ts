@@ -308,6 +308,24 @@ export function textarea(
 
 // ── Empty State ─────────────────────────────────────────────────────────────
 
+// ── Checkbox ─────────────────────────────────────────────────────────────
+
+export function checkbox(
+  name: string,
+  label: string,
+  checked: boolean,
+): string {
+  const checkedAttr = checked ? " checked" : "";
+
+  return `<label class="flex items-center gap-3 cursor-pointer">
+  <input type="checkbox" name="${escapeHtml(name)}" value="true"${checkedAttr}
+    class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400 focus:ring-offset-0" />
+  <span class="text-sm text-slate-300">${escapeHtml(label)}</span>
+</label>`;
+}
+
+// ── Empty State ─────────────────────────────────────────────────────────────
+
 export function emptyState(message: string, actionHtml?: string): string {
   const action = actionHtml
     ? `<div class="mt-4">${actionHtml}</div>`

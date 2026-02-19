@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "yaml";
+import { getConfig, setConfig } from "./config.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -145,11 +146,26 @@ export function loadConfig(
   return config;
 }
 
+// ── DB Override Types ────────────────────────────────────────────────────────
+
+/** Partial overrides that can be stored in the DB. */
+export interface ConfigOverrides {
+  classification?: Partial<ClassificationConfig>;
+  gate?: Partial<GateConfig>;
+  budget?: Partial<BudgetConfig>;
+  enrichers?: EnricherEntry[];
+}
+
+const CONFIG_DB_KEY = "autonomous";
+
+// ── Singleton ───────────────────────────────────────────────────────────────
+
 /** Singleton instance — loaded once and reused. */
 let _config: AutonomousConfig | undefined;
 
 /**
  * Returns the cached autonomous config, loading it on first access.
+ * After `initConfig()` is called, this includes DB overrides.
  */
 export function getAutonomousConfig(): AutonomousConfig {
   if (!_config) {
@@ -163,5 +179,62 @@ export function getAutonomousConfig(): AutonomousConfig {
  */
 export function reloadConfig(): AutonomousConfig {
   _config = loadConfig();
+  return _config;
+}
+
+// ── DB Override Functions ───────────────────────────────────────────────────
+
+/**
+ * Merges partial overrides onto a base config, returning a new config.
+ */
+function mergeOverrides(
+  base: AutonomousConfig,
+  overrides: ConfigOverrides,
+): AutonomousConfig {
+  return {
+    ...base,
+    classification: { ...base.classification, ...overrides.classification },
+    gate: { ...base.gate, ...overrides.gate },
+    budget: { ...base.budget, ...overrides.budget },
+    enrichers: overrides.enrichers ?? base.enrichers,
+  };
+}
+
+/**
+ * Initializes the config cache by loading YAML defaults and merging
+ * any DB overrides on top. Call once at startup after migrations.
+ */
+export async function initConfig(): Promise<AutonomousConfig> {
+  const base = loadConfig();
+  const raw = await getConfig(CONFIG_DB_KEY);
+  if (raw && typeof raw === "object") {
+    _config = mergeOverrides(base, raw as ConfigOverrides);
+  } else {
+    _config = base;
+  }
+  return _config;
+}
+
+/**
+ * Reads the raw DB overrides (not merged with YAML defaults).
+ * Returns an empty object if nothing has been saved yet.
+ */
+export async function getConfigOverrides(): Promise<ConfigOverrides> {
+  const raw = await getConfig(CONFIG_DB_KEY);
+  if (raw && typeof raw === "object") {
+    return raw as ConfigOverrides;
+  }
+  return {};
+}
+
+/**
+ * Saves partial overrides to the DB and refreshes the cached config.
+ */
+export async function saveConfigOverrides(
+  overrides: ConfigOverrides,
+): Promise<AutonomousConfig> {
+  await setConfig(CONFIG_DB_KEY, overrides);
+  const base = loadConfig();
+  _config = mergeOverrides(base, overrides);
   return _config;
 }

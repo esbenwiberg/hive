@@ -3,12 +3,14 @@
 import type { SessionUser } from "../../domain/types.js";
 import type { RepoRow } from "../../db/schema.js";
 import type { AutonomousConfig } from "../../domain/autonomous-config.js";
+import type { ConfigOverrides } from "../../domain/autonomous-config.js";
 import {
   escapeHtml,
   card,
   button,
   input,
   select,
+  checkbox,
   emptyState,
   badge,
 } from "./components.js";
@@ -58,68 +60,93 @@ function settingsTabs(active: SettingsTab): string {
 // ── Global Settings Partial ─────────────────────────────────────────────────
 
 /**
- * Renders the read-only Global Defaults panel showing the current
- * autonomous config values (classification, gate mode, enrichers, budget).
+ * Renders the editable Global Defaults panel.
+ * Shows HTMX forms for classification, gate, budget, and enrichers.
  */
-export function globalSettingsPartial(config: AutonomousConfig): string {
-  // Classification section
-  const classificationRows = [
-    kvRow("Default Type", config.classification.defaultType),
-    kvRow("Default Size", config.classification.defaultSize),
+export function globalSettingsPartial(
+  config: AutonomousConfig,
+  _overrides?: ConfigOverrides,
+): string {
+  // Classification card
+  const classificationFields = [
+    select("defaultType", "Default Type", [
+      { value: "bug", label: "Bug" },
+      { value: "feature", label: "Feature" },
+      { value: "security", label: "Security" },
+      { value: "refactor", label: "Refactor" },
+      { value: "improvement", label: "Improvement" },
+    ], config.classification.defaultType),
+    select("defaultSize", "Default Size", [
+      { value: "trivial", label: "Trivial" },
+      { value: "small", label: "Small" },
+      { value: "medium", label: "Medium" },
+      { value: "large", label: "Large" },
+    ], config.classification.defaultSize),
   ].join("");
 
-  const classificationCard = card(classificationRows, {
+  const classificationCard = card(classificationFields, {
     title: "Classification",
     padding: "compact",
   });
 
-  // Gate section
-  const gateRows = kvRow("Mode", config.gate.mode);
+  // Gate card
+  const gateFields = select("gateMode", "Mode", [
+    { value: "ai", label: "AI" },
+    { value: "human", label: "Human" },
+    { value: "auto", label: "Auto" },
+  ], config.gate.mode);
 
-  const gateCard = card(gateRows, {
+  const gateCard = card(gateFields, {
     title: "Gate",
     padding: "compact",
   });
 
-  // Budget section
-  const budgetRows = [
-    kvRow("Daily Default (USD)", `$${config.budget.dailyDefault.toFixed(2)}`),
-    kvRow("Per-Task Max (USD)", `$${config.budget.perTaskMax.toFixed(2)}`),
+  // Budget card
+  const budgetFields = [
+    input("dailyDefault", "Daily Default (USD)", {
+      type: "number",
+      value: String(config.budget.dailyDefault),
+      placeholder: "100",
+    }),
+    input("perTaskMax", "Per-Task Max (USD)", {
+      type: "number",
+      value: String(config.budget.perTaskMax),
+      placeholder: "25",
+    }),
   ].join("");
 
-  const budgetCard = card(budgetRows, {
+  const budgetCard = card(budgetFields, {
     title: "Budget",
     padding: "compact",
   });
 
-  // Enrichers section
-  const enricherItems =
+  // Enrichers card
+  const enricherFields =
     config.enrichers.length > 0
-      ? config.enrichers
-          .map((e) => {
-            const color = e.enabled ? "emerald" : "slate";
-            return `<div class="flex items-center justify-between py-2 border-b border-slate-700 last:border-b-0">
-              <span class="text-sm text-slate-50">${escapeHtml(e.name)}</span>
-              ${badge(e.enabled ? "enabled" : "disabled", color)}
-            </div>`;
-          })
-          .join("")
-      : `<p class="text-sm text-slate-500">No enrichers configured</p>`;
+      ? `<div class="space-y-2">${config.enrichers
+          .map((e) => checkbox(`enricher_${e.name}`, e.name, e.enabled))
+          .join("")}</div>`
+      : `<p class="text-sm text-slate-500">No enrichers configured in YAML.</p>`;
 
-  const enricherCard = card(enricherItems, {
+  const enricherCard = card(enricherFields, {
     title: "Enrichers",
     padding: "compact",
   });
 
-  return `<div class="space-y-4">
-  <p class="text-sm text-slate-400">These values are loaded from <code class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">autonomous.config.yaml</code> and are read-only.</p>
-  <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-    ${classificationCard}
-    ${gateCard}
-    ${budgetCard}
-    ${enricherCard}
+  return `<form hx-post="/settings/global" hx-target="#settings-content" hx-swap="innerHTML">
+  <div class="space-y-4">
+    <p class="text-sm text-slate-400">Overrides saved to database. <code class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">autonomous.config.yaml</code> provides defaults.</p>
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      ${classificationCard}
+      ${gateCard}
+      ${budgetCard}
+      ${enricherCard}
+    </div>
+    <div class="flex justify-end">
+      ${button("Save Global Settings", { variant: "primary", attrs: `type="submit"` })}
+    </div>
   </div>
-</div>`;
+</form>`;
 }
 
 // ── Repo Card ───────────────────────────────────────────────────────────────
@@ -243,10 +270,11 @@ export function settingsPage(
   repos: RepoRow[],
   user: SessionUser,
   activeTab: SettingsTab = "global",
+  overrides?: ConfigOverrides,
 ): string {
   const tabContent =
     activeTab === "global"
-      ? globalSettingsPartial(config)
+      ? globalSettingsPartial(config, overrides)
       : repoSettingsPartial(repos);
 
   const content = `<div class="space-y-8">

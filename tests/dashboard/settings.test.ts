@@ -110,10 +110,10 @@ describe("settingsPage", () => {
 // ── globalSettingsPartial ───────────────────────────────────────────────────
 
 describe("globalSettingsPartial", () => {
-  it("renders the read-only notice about autonomous.config.yaml", () => {
+  it("renders the overrides notice about autonomous.config.yaml", () => {
     const html = globalSettingsPartial(mockConfig);
     expect(html).toContain("autonomous.config.yaml");
-    expect(html).toContain("read-only");
+    expect(html).toContain("Overrides saved to database");
   });
 
   it("renders classification defaults", () => {
@@ -130,18 +130,20 @@ describe("globalSettingsPartial", () => {
     expect(html).toContain("human");
   });
 
-  it("renders budget values", () => {
+  it("renders budget values in form inputs", () => {
     const html = globalSettingsPartial(mockConfig);
-    expect(html).toContain("$100.00");
-    expect(html).toContain("$25.00");
+    expect(html).toContain('value="100"');
+    expect(html).toContain('value="25"');
   });
 
-  it("renders enrichers with enabled/disabled badges", () => {
+  it("renders enrichers with checkbox toggles", () => {
     const html = globalSettingsPartial(mockConfig);
     expect(html).toContain("style-guide");
-    expect(html).toContain("enabled");
     expect(html).toContain("codebase-context");
-    expect(html).toContain("disabled");
+    expect(html).toContain('name="enricher_style-guide"');
+    expect(html).toContain('name="enricher_codebase-context"');
+    // style-guide is enabled, so its checkbox should be checked
+    expect(html).toContain('name="enricher_style-guide" value="true" checked');
   });
 
   it("renders empty enrichers message when none configured", () => {
