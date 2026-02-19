@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { db } from "../db/connection.js";
@@ -12,6 +13,8 @@ import { runEnrichers } from "../enrichers/base.js";
 import { getEnabledEnrichers } from "../enrichers/index.js";
 import { architectEnricher } from "../enrichers/architect.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { resolveGitCredentials } from "../execution/worktree.js";
+import { getGitProvider } from "../execution/git-provider.js";
 import type { EnricherConfig } from "../enrichers/base.js";
 import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
@@ -97,11 +100,34 @@ export async function runPipeline(taskId: string): Promise<void> {
       throw new Error(`Pipeline: task ${taskId} disappeared during enrichment`);
     }
 
-    // Determine repo directory — skip enrichment if no real repo is cloned
+    // Clone the repo for enrichment if not already available
     const repoDir = `/tmp/hive-repos/${enrichingTask.repoId}`;
+    let clonedForEnrichment = false;
     if (!existsSync(repoDir)) {
-      logger.warn({ taskId, repoId: enrichingTask.repoId }, "Pipeline: repo directory not available, skipping enrichment");
-    } else {
+      const repo = await getRepoById(enrichingTask.repoId);
+      if (repo) {
+        try {
+          await mkdir("/tmp/hive-repos", { recursive: true });
+          const creds = await resolveGitCredentials(enrichingTask.createdBy, repo.provider);
+          const gitProvider = getGitProvider(repo.provider);
+          await gitProvider.clone(
+            repo.fullName,
+            repoDir,
+            repo.defaultBranch ?? "main",
+            creds,
+            { depth: 1 },
+          );
+          clonedForEnrichment = true;
+          logger.info({ taskId, repoId: enrichingTask.repoId }, "Pipeline: cloned repo for enrichment");
+        } catch (cloneErr) {
+          logger.warn({ taskId, repoId: enrichingTask.repoId, err: cloneErr }, "Pipeline: failed to clone repo, skipping enrichment");
+        }
+      } else {
+        logger.warn({ taskId, repoId: enrichingTask.repoId }, "Pipeline: repo not found in DB, skipping enrichment");
+      }
+    }
+
+    if (existsSync(repoDir)) {
       await runEnrichers(enrichingTask, repoDir, enrichers, enricherConfigs);
       logger.info({ taskId }, "Pipeline: enrichment complete");
     }
