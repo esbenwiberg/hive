@@ -278,7 +278,7 @@ export function select(
     .join("");
 
   return `<div class="space-y-1.5">
-  <label for="${name}" class="block text-sm font-medium text-slate-300">${escapeHtml(label)}</label>
+  <label for="${name}" class="block text-sm font-medium text-slate-300">${label}</label>
   <select id="${name}" name="${name}"
     class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">
     ${optionHtml}

@@ -69,7 +69,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
     );
   }
 
-  const headers = ["ID", "Title", "Status", "Repo", "Created", "Actions"];
+  const headers = ["ID", "Title", "Status", "Score", "Repo", "Created", "Actions"];
 
   const rows = tasks.map((t) => {
     const id = `<span class="font-mono text-xs text-slate-400 cursor-pointer"
@@ -79,6 +79,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
 
     const title = `<span class="text-slate-50 font-medium">${escapeHtml(t.title)}</span>`;
     const status = statusBadge(t.status);
+    const score = scorerInlineBadges(t) || `<span class="text-slate-600">-</span>`;
     const repoLabel = repoNames.get(t.repoId) ?? `#${t.repoId}`;
     const repo = `<span class="text-xs text-slate-400">${escapeHtml(repoLabel)}</span>`;
     const created = t.createdAt
@@ -89,7 +90,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>): string {
       hx-target="#detail-panel"
       hx-swap="innerHTML">View</button>`;
 
-    return [id, title, status, repo, created, viewBtn];
+    return [id, title, status, score, repo, created, viewBtn];
   });
 
   // Build table manually for row-level data attributes
@@ -135,6 +136,7 @@ function enrichmentSection(task: TaskRow): string {
   }
 
   const sections = Object.entries(enrichment)
+    .filter(([key]) => key !== "scorer")
     .map(([key, value]) => {
       const content = formatEnrichmentValue(value);
       return `<details class="group">
@@ -186,6 +188,131 @@ function formatEnrichmentValue(value: unknown): string {
   }
 
   return escapeHtml(String(value));
+}
+
+// ── Scorer display ──────────────────────────────────────────────────────────
+
+interface ScorerDimension {
+  score: number;
+  reasoning: string;
+}
+
+interface ScorerData {
+  scores?: {
+    value?: ScorerDimension;
+    complexity?: ScorerDimension;
+    risk?: ScorerDimension;
+    feasibility?: ScorerDimension;
+  };
+  costEstimate?: {
+    totalUsd?: number;
+    breakdown?: { enrichment?: number; execution?: number; review?: number };
+    reasoning?: string;
+  };
+  recommendation?: string;
+  summary?: string;
+  skipped?: boolean;
+}
+
+function scoreColor(score: number): "emerald" | "amber" | "red" {
+  if (score >= 7) return "emerald";
+  if (score >= 4) return "amber";
+  return "red";
+}
+
+function scoreBadge(label: string, dim: ScorerDimension): string {
+  const color = scoreColor(dim.score);
+  return `<div class="flex items-center justify-between py-1.5" title="${escapeHtml(dim.reasoning)}">
+    <span class="text-xs text-slate-400">${escapeHtml(label)}</span>
+    ${badge(`${dim.score}/10`, color)}
+  </div>`;
+}
+
+function recommendationBadge(rec: string): string {
+  const colors: Record<string, "emerald" | "red" | "amber"> = {
+    approve: "emerald",
+    reject: "red",
+    rework: "amber",
+  };
+  return badge(rec, colors[rec] ?? "slate");
+}
+
+/** Compact inline badges for the task list table row. */
+function scorerInlineBadges(task: TaskRow): string {
+  const enrichment = task.enrichment as Record<string, unknown> | null;
+  if (!enrichment?.scorer) return "";
+
+  const scorer = enrichment.scorer as ScorerData;
+  if (scorer.skipped) return "";
+
+  const parts: string[] = [];
+  if (scorer.recommendation) {
+    parts.push(recommendationBadge(scorer.recommendation));
+  }
+  if (scorer.scores) {
+    const dims = scorer.scores;
+    const avg = [dims.value, dims.complexity, dims.risk, dims.feasibility]
+      .filter((d): d is ScorerDimension => d != null)
+      .reduce((sum, d, _, arr) => sum + d.score / arr.length, 0);
+    parts.push(badge(`${avg.toFixed(1)}`, scoreColor(Math.round(avg))));
+  }
+  return parts.join(" ");
+}
+
+function scorerSection(task: TaskRow): string {
+  const enrichment = task.enrichment as Record<string, unknown> | null;
+  if (!enrichment?.scorer) return "";
+
+  const scorer = enrichment.scorer as ScorerData;
+  if (scorer.skipped) return "";
+
+  // Recommendation + summary
+  const recHtml = scorer.recommendation
+    ? `<div class="flex items-center gap-2 mb-3">
+        ${recommendationBadge(scorer.recommendation)}
+        ${scorer.summary ? `<span class="text-sm text-slate-300">${escapeHtml(scorer.summary)}</span>` : ""}
+      </div>`
+    : "";
+
+  // Score badges
+  const scoreRows: string[] = [];
+  if (scorer.scores?.value) scoreRows.push(scoreBadge("Value", scorer.scores.value));
+  if (scorer.scores?.complexity) scoreRows.push(scoreBadge("Complexity", scorer.scores.complexity));
+  if (scorer.scores?.risk) scoreRows.push(scoreBadge("Risk", scorer.scores.risk));
+  if (scorer.scores?.feasibility) scoreRows.push(scoreBadge("Feasibility", scorer.scores.feasibility));
+
+  const scoresHtml = scoreRows.length > 0
+    ? `<div class="divide-y divide-slate-700">${scoreRows.join("")}</div>`
+    : "";
+
+  // Cost estimate
+  let costHtml = "";
+  if (scorer.costEstimate?.totalUsd != null) {
+    const est = scorer.costEstimate;
+    const breakdownParts: string[] = [];
+    if (est.breakdown?.enrichment != null) breakdownParts.push(`Enrich $${est.breakdown.enrichment.toFixed(2)}`);
+    if (est.breakdown?.execution != null) breakdownParts.push(`Exec $${est.breakdown.execution.toFixed(2)}`);
+    if (est.breakdown?.review != null) breakdownParts.push(`Review $${est.breakdown.review.toFixed(2)}`);
+
+    costHtml = `<div class="mt-3 pt-3 border-t border-slate-700">
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-slate-400">Est. Cost</span>
+        <span class="text-sm font-medium text-slate-200">$${est.totalUsd!.toFixed(2)}</span>
+      </div>
+      ${breakdownParts.length > 0
+        ? `<div class="flex gap-3 mt-1">${breakdownParts.map((p) => `<span class="text-xs text-slate-500">${escapeHtml(p)}</span>`).join("")}</div>`
+        : ""}
+    </div>`;
+  }
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Scorer</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      ${recHtml}
+      ${scoresHtml}
+      ${costHtml}
+    </div>
+  </div>`;
 }
 
 // ── Gate decision display ───────────────────────────────────────────────────
@@ -431,6 +558,9 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
 
     <!-- Enrichment -->
     ${enrichmentSection(task)}
+
+    <!-- Scorer -->
+    ${scorerSection(task)}
 
     <!-- Gate Decision -->
     ${gateDecisionSection(task)}

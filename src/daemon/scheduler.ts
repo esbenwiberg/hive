@@ -11,30 +11,46 @@ export class Scheduler {
   private readonly intervalMs: number;
   private readonly tick: () => Promise<void>;
   private readonly tickTimeoutMs: number;
+  private readonly initialDelayMs: number;
   private readonly label: string;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private delayTimer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
 
   constructor(
     intervalMs: number,
     tick: () => Promise<void>,
-    opts?: { tickTimeoutMs?: number; label?: string },
+    opts?: { tickTimeoutMs?: number; label?: string; initialDelayMs?: number },
   ) {
     this.intervalMs = intervalMs;
     this.tick = tick;
     this.tickTimeoutMs = opts?.tickTimeoutMs ?? DEFAULT_TICK_TIMEOUT_MS;
+    this.initialDelayMs = opts?.initialDelayMs ?? 0;
     this.label = opts?.label ?? "Scheduler";
   }
 
   start(): void {
-    if (this.timer) return;
+    if (this.timer || this.delayTimer) return;
 
-    this.timer = setInterval(() => {
-      void this.onTick();
-    }, this.intervalMs);
+    const begin = () => {
+      this.delayTimer = null;
+      this.timer = setInterval(() => {
+        void this.onTick();
+      }, this.intervalMs);
+    };
+
+    if (this.initialDelayMs > 0) {
+      this.delayTimer = setTimeout(begin, this.initialDelayMs);
+    } else {
+      begin();
+    }
   }
 
   stop(): void {
+    if (this.delayTimer) {
+      clearTimeout(this.delayTimer);
+      this.delayTimer = null;
+    }
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;

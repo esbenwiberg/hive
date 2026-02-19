@@ -33,6 +33,8 @@ const ALL_ENRICHER_NAMES = [
   "docs",
   "git-history",
   "dependencies",
+  "architect",
+  "scorer",
 ] as const;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -135,6 +137,18 @@ export function globalSettingsPartial(
     padding: "compact",
   });
 
+  // Clarification card
+  const clarificationFields = select("clarificationMode", "Mode", [
+    { value: "human", label: "Human" },
+    { value: "ai", label: "AI" },
+    { value: "auto", label: "Auto" },
+  ], config.clarification.mode);
+
+  const clarificationCard = card(clarificationFields, {
+    title: "Clarification",
+    padding: "compact",
+  });
+
   // Enrichers card
   const enricherFields =
     config.enrichers.length > 0
@@ -155,6 +169,7 @@ export function globalSettingsPartial(
       ${classificationCard}
       ${gateCard}
       ${budgetCard}
+      ${clarificationCard}
       ${enricherCard}
     </div>
     <div class="flex justify-end">
@@ -168,7 +183,6 @@ export function globalSettingsPartial(
 
 export function repoSettingsCard(repo: RepoRow): string {
   const settings = (repo.settings ?? {}) as Record<string, unknown>;
-  const hasOverrides = Object.keys(settings).length > 0;
 
   // Display repo info
   const infoRows = [
@@ -176,20 +190,11 @@ export function repoSettingsCard(repo: RepoRow): string {
     kvRow("Default Branch", repo.defaultBranch ?? "main"),
   ].join("");
 
-  // Display current per-repo setting overrides
-  let overridesHtml: string;
-  if (hasOverrides) {
-    overridesHtml = Object.entries(settings)
-      .map(([key, value]) =>
-        kvRow(key, String(value), true),
-      )
-      .join("");
-  } else {
-    overridesHtml = `<p class="text-sm text-slate-500 py-2">No per-repo overrides. Using global defaults.</p>`;
-  }
-
   // Edit form for per-repo settings (HTMX POST)
   const safeId = escapeHtml(String(repo.id));
+
+  // Helper: override marker shown next to label when a per-repo value is set
+  const overrideMarker = `<span class="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-400" title="Overridden"></span>`;
 
   // Producer toggles
   const producersSettings = (settings.producers ?? {}) as Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
@@ -220,36 +225,43 @@ export function repoSettingsCard(repo: RepoRow): string {
     return checkbox(`enricher_enabled_${name}_${repo.id}`, name, isEnabled);
   }).join("");
 
+  // Build labelled inputs with override markers
+  const gateModeLabel = `Gate Mode${(settings.gateMode as string) ? overrideMarker : ""}`;
+  const perTaskLabel = `Per-Task Budget (USD)${settings.perTaskMax != null ? overrideMarker : ""}`;
+  const dailyLabel = `Daily Budget (USD)${settings.dailyBudget != null ? overrideMarker : ""}`;
+
   const form = `<form class="mt-4 space-y-3 border-t border-slate-700 pt-4"
     hx-post="/settings/repos/${safeId}"
     hx-target="#repo-card-${safeId}"
     hx-swap="outerHTML">
-    ${select(`gateMode_${repo.id}`, "Gate Mode Override", [
+    ${select(`gateMode_${repo.id}`, gateModeLabel, [
       { value: "", label: "-- Use Global Default --" },
       { value: "ai", label: "AI" },
       { value: "human", label: "Human" },
       { value: "auto", label: "Auto" },
     ], (settings.gateMode as string) ?? "")}
-    ${input(`perTaskMax_${repo.id}`, "Per-Task Budget (USD)", {
+    ${input(`perTaskMax_${repo.id}`, perTaskLabel, {
       type: "number",
       value: settings.perTaskMax != null ? String(settings.perTaskMax) : "",
       placeholder: "Use global default",
     })}
-    ${input(`dailyBudget_${repo.id}`, "Daily Budget (USD)", {
+    ${input(`dailyBudget_${repo.id}`, dailyLabel, {
       type: "number",
       value: settings.dailyBudget != null ? String(settings.dailyBudget) : "",
       placeholder: "Use global default",
     })}
-    <div class="border-t border-slate-700 pt-3 mt-3">
-      <h4 class="text-sm font-medium text-slate-300 mb-2">Producers</h4>
-      <div class="space-y-2">
-        ${producerToggles}
+    <div class="grid grid-cols-2 gap-4 border-t border-slate-700 pt-3 mt-3">
+      <div>
+        <h4 class="text-sm font-medium text-slate-300 mb-2">Producers</h4>
+        <div class="space-y-2">
+          ${producerToggles}
+        </div>
       </div>
-    </div>
-    <div class="border-t border-slate-700 pt-3 mt-3">
-      <h4 class="text-sm font-medium text-slate-300 mb-2">Enrichers</h4>
-      <div class="space-y-2">
-        ${enricherToggles}
+      <div>
+        <h4 class="text-sm font-medium text-slate-300 mb-2">Enrichers</h4>
+        <div class="space-y-2">
+          ${enricherToggles}
+        </div>
       </div>
     </div>
     <div class="border-t border-slate-700 pt-3 mt-3">
@@ -276,10 +288,6 @@ export function repoSettingsCard(repo: RepoRow): string {
 
   const inner = `
     ${infoRows}
-    <div class="mt-3">
-      <h4 class="text-sm font-medium text-slate-300 mb-1">Overrides</h4>
-      ${overridesHtml}
-    </div>
     ${form}`;
 
   return `<div id="repo-card-${safeId}">${card(inner, {

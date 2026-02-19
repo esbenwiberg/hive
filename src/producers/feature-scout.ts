@@ -43,16 +43,24 @@ export class FeatureScoutProducer implements Producer {
         return result;
       }
 
-      const titles = response.text
-        .split("\n")
-        .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
-        .filter((line) => line.length > 0 && line.length <= 200)
-        .filter((line) => !isRefusalTitle(line))
+      const suggestions = response.text
+        .split(/^## /m)
+        .map((block) => block.trim())
+        .filter((block) => block.length > 0)
+        .map((block) => {
+          const newlineIdx = block.indexOf("\n");
+          if (newlineIdx === -1) return { title: block.slice(0, 200), description: "" };
+          return {
+            title: block.slice(0, newlineIdx).trim().slice(0, 200),
+            description: block.slice(newlineIdx + 1).trim(),
+          };
+        })
+        .filter(({ title }) => !isRefusalTitle(title))
         .slice(0, 3);
 
       const source = `producer:${this.name}`;
 
-      for (const title of titles) {
+      for (const { title, description } of suggestions) {
         try {
           if (await isDuplicate(source, title)) {
             result.duplicatesSkipped++;
@@ -62,7 +70,7 @@ export class FeatureScoutProducer implements Producer {
           if (!ctx.dryRun) {
             await create({
               title,
-              body: `Feature idea suggested by feature-scout producer for ${ctx.repoFullName}.`,
+              body: description || `Feature idea suggested by feature-scout producer for ${ctx.repoFullName}.`,
               source,
               type: "feature",
               repoId: ctx.repoId,

@@ -75,7 +75,16 @@ describe("FeatureScoutProducer", () => {
     const producer = new FeatureScoutProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "Add dark mode support\nImplement real-time notifications\nAdd CSV export for reports",
+      text: [
+        "## Add dark mode support",
+        "Allow users to toggle between light and dark themes. This improves readability in low-light environments and reduces eye strain. Should add a toggle in the settings page that persists the preference. Affects the CSS theme system and user preferences storage.",
+        "",
+        "## Implement real-time notifications",
+        "Push live updates to users when tasks change status using WebSocket connections. Users should see a notification badge and a dropdown with recent activity. This keeps the team informed without manual refreshes. Affects the dashboard layout and requires a new WebSocket server endpoint.",
+        "",
+        "## Add CSV export for reports",
+        "Let users download task and cost data as CSV files from the costs and tasks pages. Each table view should have an export button that generates a CSV matching the current filters. This is valuable for teams that need to import data into spreadsheets for reporting. Affects the dashboard routes and views.",
+      ].join("\n"),
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 150, outputTokens: 40 },
     });
 
@@ -84,7 +93,7 @@ describe("FeatureScoutProducer", () => {
     expect(result.tasksCreated).toBe(3);
     expect(result.errors).toHaveLength(0);
 
-    // Verify tasks have type 'feature'
+    // Verify tasks have type 'feature' and detailed descriptions
     const created = await db
       .select()
       .from(tasks)
@@ -93,7 +102,11 @@ describe("FeatureScoutProducer", () => {
     expect(created).toHaveLength(3);
     for (const task of created) {
       expect(task.type).toBe("feature");
+      expect(task.body).not.toContain("Feature idea suggested by");
+      expect(task.body!.length).toBeGreaterThan(50);
     }
+    const darkMode = created.find((t) => t.title === "Add dark mode support");
+    expect(darkMode?.body).toContain("toggle between light and dark themes");
   });
 
   it("limits to 3 features even if Claude returns more", async () => {
@@ -101,7 +114,7 @@ describe("FeatureScoutProducer", () => {
     const producer = new FeatureScoutProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "Feature 1\nFeature 2\nFeature 3\nFeature 4\nFeature 5",
+      text: "## Feature 1\nDescription one.\n\n## Feature 2\nDescription two.\n\n## Feature 3\nDescription three.\n\n## Feature 4\nDescription four.\n\n## Feature 5\nDescription five.",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 150, outputTokens: 40 },
     });
 
@@ -115,7 +128,7 @@ describe("FeatureScoutProducer", () => {
     const producer = new FeatureScoutProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "Add dark mode\nReal-time notifications",
+      text: "## Add dark mode\nToggle between light and dark themes.\n\n## Real-time notifications\nPush updates when tasks change.",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 150, outputTokens: 30 },
     });
 

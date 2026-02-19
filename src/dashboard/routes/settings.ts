@@ -7,6 +7,7 @@ import {
   saveConfigOverrides,
   type ConfigOverrides,
   type GateMode,
+  type ClarificationConfig,
 } from "../../domain/autonomous-config.js";
 import * as repoQueries from "../../db/queries/repos.js";
 import type { SettingsTab } from "../views/settings.js";
@@ -23,6 +24,7 @@ const router = Router();
 
 const VALID_TABS = new Set<SettingsTab>(["global", "repos"]);
 const VALID_GATE_MODES = new Set(["ai", "human", "auto"]);
+const VALID_CLARIFICATION_MODES = new Set(["human", "ai", "auto"]);
 
 function isValidTab(value: unknown): value is SettingsTab {
   return typeof value === "string" && VALID_TABS.has(value as SettingsTab);
@@ -97,6 +99,13 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
       return;
     }
 
+    // Validate clarification mode
+    const clarificationMode = body.clarificationMode?.trim();
+    if (clarificationMode && !VALID_CLARIFICATION_MODES.has(clarificationMode)) {
+      res.status(400).send("Invalid clarification mode. Must be one of: human, ai, auto");
+      return;
+    }
+
     // Validate budget
     const dailyDefault = body.dailyDefault?.trim();
     if (dailyDefault !== undefined && dailyDefault !== "") {
@@ -138,6 +147,10 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
       if (perTaskMax !== undefined && perTaskMax !== "") {
         overrides.budget.perTaskMax = Number(perTaskMax);
       }
+    }
+
+    if (clarificationMode) {
+      overrides.clarification = { mode: clarificationMode as ClarificationConfig["mode"] };
     }
 
     // Handle enricher toggles — look for enricher_* checkbox fields
@@ -243,7 +256,7 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
     settings.producers = producers;
 
     // Enricher toggles
-    const ENRICHER_NAMES = ["codebase", "docs", "git-history", "dependencies"];
+    const ENRICHER_NAMES = ["codebase", "docs", "git-history", "dependencies", "architect", "scorer"];
     const enrichers: Record<string, { enabled: boolean }> = {};
     for (const name of ENRICHER_NAMES) {
       const enabledKey = `enricher_enabled_${name}_${repoId}`;

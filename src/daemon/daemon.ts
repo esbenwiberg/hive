@@ -109,11 +109,15 @@ export class Daemon {
 
     this.scheduler.start();
 
-    // Start a scheduler for each producer
-    for (const producer of ALL_PRODUCERS) {
+    // Start a scheduler for each producer, staggered evenly across the interval
+    const staggerMs = ALL_PRODUCERS.length > 1
+      ? Math.floor(this.producerIntervalMs / ALL_PRODUCERS.length)
+      : 0;
+    for (let i = 0; i < ALL_PRODUCERS.length; i++) {
+      const producer = ALL_PRODUCERS[i];
       const s = new Scheduler(this.producerIntervalMs, () =>
         this._runProducer(producer),
-        { label: `producer:${producer.name}` },
+        { label: `producer:${producer.name}`, initialDelayMs: i * staggerMs },
       );
       this.producerSchedulers.push(s);
       s.start();
@@ -295,7 +299,7 @@ export class Daemon {
         // Shallow-clone the repo if the producer needs filesystem access
         let repoDir: string | undefined;
         if (producer.needsRepo) {
-          cloneDir = `/tmp/hive-producer-clones/${repo.id}-${Date.now()}`;
+          cloneDir = `/tmp/hive-producer-clones/${repo.id}-${producer.name}-${Date.now()}`;
           await mkdir("/tmp/hive-producer-clones", { recursive: true });
           const creds = await resolveGitCredentials(createdBy, repo.provider);
           const gitProvider = getGitProvider(repo.provider);
