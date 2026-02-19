@@ -775,14 +775,14 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
     <!-- Body -->
     ${bodyHtml ? `<div><h4 class="text-sm font-medium text-slate-400 mb-2">Description</h4>${bodyHtml}</div>` : ""}
 
+    <!-- Scorer -->
+    ${scorerSection(task)}
+
     <!-- Blueprint -->
     ${blueprintSection(task)}
 
     <!-- Enrichment -->
     ${enrichmentSection(task)}
-
-    <!-- Scorer -->
-    ${scorerSection(task)}
 
     <!-- Gate Decision -->
     ${gateDecisionSection(task)}
