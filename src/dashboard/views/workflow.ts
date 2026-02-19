@@ -238,6 +238,283 @@ export function pipelinePartial(
 </div>`;
 }
 
+// ── Supporting Diagram Helpers ────────────────────────────────────────────────
+
+/** Chevron SVG icon for details/summary elements */
+function chevronIcon(): string {
+  return `<svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+  </svg>`;
+}
+
+/** Wraps diagram content in a collapsible <details> element */
+function detailsSection(title: string, content: string): string {
+  return `<details class="group rounded-xl border border-slate-700 bg-slate-800">
+  <summary class="flex cursor-pointer items-center justify-between p-4 text-sm font-semibold text-slate-50 hover:bg-slate-700/50 rounded-xl">
+    ${title}
+    ${chevronIcon()}
+  </summary>
+  <div class="border-t border-slate-700 p-6">
+    ${content}
+  </div>
+</details>`;
+}
+
+// ── State Machine Diagram ───────────────────────────────────────────────────
+
+function stateNode(
+  label: string,
+  color: "blue" | "amber" | "emerald" | "red" | "slate",
+): string {
+  const colors: Record<string, string> = {
+    blue: "border-blue-400/50 bg-blue-400/10 text-blue-400",
+    amber: "border-amber-400/50 bg-amber-400/10 text-amber-400",
+    emerald: "border-emerald-400/50 bg-emerald-400/10 text-emerald-400",
+    red: "border-red-400/50 bg-red-400/10 text-red-400",
+    slate: "border-slate-600 bg-slate-700/50 text-slate-400",
+  };
+  return `<span class="inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-medium ${colors[color]}">${label}</span>`;
+}
+
+function arrow(): string {
+  return `<span class="text-slate-500 text-xs flex-shrink-0">&rarr;</span>`;
+}
+
+function stateMachineDiagram(): string {
+  // Main happy-path flow
+  const mainFlow = `
+<div class="space-y-4">
+  <div>
+    <p class="text-xs font-medium text-slate-300 mb-2">Happy Path</p>
+    <div class="flex flex-wrap items-center gap-2">
+      ${stateNode("PENDING", "slate")}
+      ${arrow()}
+      ${stateNode("QUEUED", "blue")}
+      ${arrow()}
+      ${stateNode("ENRICHING", "blue")}
+      ${arrow()}
+      ${stateNode("READY", "amber")}
+      ${arrow()}
+      ${stateNode("APPROVED", "amber")}
+      ${arrow()}
+      ${stateNode("EXECUTING", "amber")}
+      ${arrow()}
+      ${stateNode("REVIEWING", "amber")}
+      ${arrow()}
+      ${stateNode("DONE", "emerald")}
+      ${arrow()}
+      ${stateNode("MERGED", "emerald")}
+    </div>
+  </div>
+
+  <div class="border-t border-slate-700 pt-4">
+    <p class="text-xs font-medium text-slate-300 mb-2">Error &amp; Rework Branches</p>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs text-slate-400 mb-2">From any active state:</p>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 italic">any</span>
+          ${arrow()}
+          ${stateNode("FAILED", "red")}
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs text-slate-400 mb-2">From READY (gate rejects):</p>
+        <div class="flex items-center gap-2">
+          ${stateNode("READY", "amber")}
+          ${arrow()}
+          ${stateNode("REJECTED", "red")}
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs text-slate-400 mb-2">From REVIEWING (needs fix):</p>
+        <div class="flex items-center gap-2">
+          ${stateNode("REVIEWING", "amber")}
+          ${arrow()}
+          ${stateNode("REWORK", "amber")}
+          ${arrow()}
+          ${stateNode("EXECUTING", "amber")}
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs text-slate-400 mb-2">User-initiated:</p>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 italic">any</span>
+          ${arrow()}
+          ${stateNode("CANCELLED", "slate")}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="border-t border-slate-700 pt-3">
+    <div class="flex flex-wrap gap-4 text-xs text-slate-500">
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-blue-400"></span> Active (queuing/enriching)</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-amber-400"></span> Active (gating/executing)</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Terminal success</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-red-400"></span> Terminal error</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-500"></span> Neutral</span>
+    </div>
+  </div>
+</div>`;
+
+  return mainFlow;
+}
+
+// ── CI/CD Pipeline Diagram ──────────────────────────────────────────────────
+
+function cicdDiagram(): string {
+  return `<div class="flex flex-col lg:flex-row items-stretch gap-3">
+  <!-- Step 1: Push -->
+  <div class="flex-1 rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-400/10 text-xs font-bold text-blue-400">1</span>
+      <p class="text-xs font-medium text-slate-300">Push to main</p>
+    </div>
+    <p class="text-xs text-slate-500">Merge PR or direct push triggers the workflow</p>
+  </div>
+
+  <div class="hidden lg:flex items-center"><span class="text-slate-500 text-lg">&rarr;</span></div>
+  <div class="flex lg:hidden justify-center"><span class="text-slate-500 text-lg">&darr;</span></div>
+
+  <!-- Step 2: Test -->
+  <div class="flex-1 rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/10 text-xs font-bold text-amber-400">2</span>
+      <p class="text-xs font-medium text-slate-300">Test Job</p>
+    </div>
+    <p class="text-xs text-slate-500">npm test, lint, build</p>
+  </div>
+
+  <div class="hidden lg:flex items-center"><span class="text-slate-500 text-lg">&rarr;</span></div>
+  <div class="flex lg:hidden justify-center"><span class="text-slate-500 text-lg">&darr;</span></div>
+
+  <!-- Step 3: Build & Deploy -->
+  <div class="flex-1 rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400/10 text-xs font-bold text-emerald-400">3</span>
+      <p class="text-xs font-medium text-slate-300">Build &amp; Deploy</p>
+    </div>
+    <ul class="space-y-1 text-xs text-slate-500">
+      <li class="flex items-start gap-1.5"><span class="text-slate-600 mt-0.5">&bull;</span> Azure Login (federated identity)</li>
+      <li class="flex items-start gap-1.5"><span class="text-slate-600 mt-0.5">&bull;</span> Docker build (2-stage: builder &rarr; runtime)</li>
+      <li class="flex items-start gap-1.5"><span class="text-slate-600 mt-0.5">&bull;</span> Push to ACR (:sha + :latest)</li>
+      <li class="flex items-start gap-1.5"><span class="text-slate-600 mt-0.5">&bull;</span> az containerapp update</li>
+      <li class="flex items-start gap-1.5"><span class="text-slate-600 mt-0.5">&bull;</span> Health check (5 retries)</li>
+    </ul>
+  </div>
+</div>`;
+}
+
+// ── Daemon Processes Diagram ────────────────────────────────────────────────
+
+function daemonDiagram(): string {
+  return `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  <!-- Box 1: Task Scheduler -->
+  <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-5 w-5 items-center justify-center rounded bg-amber-400/10">
+        <svg class="h-3 w-3 text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+      </span>
+      <p class="text-xs font-medium text-slate-300">Task Scheduler</p>
+    </div>
+    <ul class="space-y-1 text-xs text-slate-500">
+      <li>Poll interval: <span class="text-slate-400">5s</span></li>
+      <li>Max concurrent: <span class="text-slate-400">5</span></li>
+      <li>Max per user: <span class="text-slate-400">2</span></li>
+      <li class="pt-1 text-slate-400">For each QUEUED task &rarr; runPipeline()</li>
+    </ul>
+  </div>
+
+  <!-- Box 2: Producers -->
+  <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-5 w-5 items-center justify-center rounded bg-blue-400/10">
+        <svg class="h-3 w-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" /></svg>
+      </span>
+      <p class="text-xs font-medium text-slate-300">Producers <span class="text-slate-500 font-normal">(every 15 min)</span></p>
+    </div>
+    <div class="flex flex-wrap gap-1.5">
+      <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">logScanner</span>
+      <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">bugHunter</span>
+      <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">securityScanner</span>
+      <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">featureScout</span>
+      <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">selfMonitor</span>
+    </div>
+    <p class="mt-2 text-xs text-slate-500">&rarr; Auto-create tasks</p>
+  </div>
+
+  <!-- Box 3: Maintenance -->
+  <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-5 w-5 items-center justify-center rounded bg-emerald-400/10">
+        <svg class="h-3 w-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17l-5.384 3.171 1.028-5.993L2.13 7.603l6.02-.875L11.42 1.5l3.27 5.228 6.02.875-4.934 4.745 1.028 5.993-5.384-3.17Z" /></svg>
+      </span>
+      <p class="text-xs font-medium text-slate-300">Maintenance</p>
+    </div>
+    <ul class="space-y-1 text-xs text-slate-500">
+      <li>Retrospective: <span class="text-slate-400">every 24h</span></li>
+      <li>Learning decay: <span class="text-slate-400">every 24h</span></li>
+      <li>Preview cleanup: <span class="text-slate-400">every 60s</span></li>
+    </ul>
+  </div>
+
+  <!-- Box 4: Stale Recovery -->
+  <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-5 w-5 items-center justify-center rounded bg-red-400/10">
+        <svg class="h-3 w-3 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
+      </span>
+      <p class="text-xs font-medium text-slate-300">Stale Recovery</p>
+    </div>
+    <ul class="space-y-1 text-xs text-slate-500">
+      <li>On startup: <span class="text-slate-400">clean stale agents</span></li>
+      <li>Tasks stuck &gt;30min in transitional states &rarr; <span class="text-red-400">FAILED</span></li>
+    </ul>
+  </div>
+</div>`;
+}
+
+// ── Tech Stack Diagram ──────────────────────────────────────────────────────
+
+function techStackDiagram(): string {
+  const categories: { label: string; items: string[]; color: string }[] = [
+    { label: "Dashboard", items: ["Express.js", "HTMX", "TailwindCSS"], color: "amber" },
+    { label: "Backend", items: ["TypeScript", "Node 20", "Zod"], color: "blue" },
+    { label: "Database", items: ["PostgreSQL", "Drizzle ORM"], color: "emerald" },
+    { label: "AI Engine", items: ["Claude API", "Sonnet / Opus"], color: "amber" },
+    { label: "Infrastructure", items: ["Azure Container Apps", "ACR", "Key Vault", "Entra ID"], color: "blue" },
+    { label: "Git Providers", items: ["GitHub (REST + GQL)", "Azure DevOps (REST v7.1)"], color: "emerald" },
+    { label: "Preview Env", items: ["Docker TLS", "Port 4001+", "30min TTL"], color: "slate" },
+  ];
+
+  const boxes = categories
+    .map((cat) => {
+      const pillColors: Record<string, string> = {
+        amber: "bg-amber-400/10 text-amber-400",
+        blue: "bg-blue-400/10 text-blue-400",
+        emerald: "bg-emerald-400/10 text-emerald-400",
+        slate: "bg-slate-700 text-slate-300",
+      };
+      const pills = cat.items
+        .map(
+          (item) =>
+            `<span class="inline-block rounded-full px-2 py-0.5 text-xs ${pillColors[cat.color]}">${item}</span>`,
+        )
+        .join("");
+
+      return `<div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <p class="text-xs font-medium text-slate-300 mb-2">${cat.label}</p>
+    <div class="flex flex-wrap gap-1.5">${pills}</div>
+  </div>`;
+    })
+    .join("\n  ");
+
+  return `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+  ${boxes}
+</div>`;
+}
+
 // ── Workflow page ────────────────────────────────────────────────────────────
 
 /**
@@ -281,12 +558,12 @@ export function workflowPage(tasks: TaskRow[], user: SessionUser): string {
   <!-- Pipeline diagram — always visible -->
   ${pipelinePartial(null)}
 
-  <!-- Supporting diagrams placeholder -->
-  <div>
-    <div class="rounded-xl border border-slate-700 bg-slate-800 p-6">
-      <h3 class="text-lg font-semibold text-slate-50 mb-4">Diagrams</h3>
-      <p class="text-sm text-slate-400">Pipeline diagrams and enrichment details will appear here once a task is selected.</p>
-    </div>
+  <!-- Supporting diagrams -->
+  <div class="space-y-3">
+    ${detailsSection("State Machine", stateMachineDiagram())}
+    ${detailsSection("CI/CD Pipeline", cicdDiagram())}
+    ${detailsSection("Daemon Processes", daemonDiagram())}
+    ${detailsSection("Tech Stack", techStackDiagram())}
   </div>
 </div>`;
 
