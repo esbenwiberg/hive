@@ -2,9 +2,8 @@ import { callClaude } from "../agents/sdk.js";
 import { create } from "../db/queries/tasks.js";
 import { isDuplicate, isRefusalTitle, gatherRepoSummary } from "./base.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { loadPrompt } from "../prompt-cache.js";
 import type { Producer, ProducerContext, ProducerResult } from "./base.js";
-
-const SYSTEM_PROMPT = `You are a senior product engineer reviewing a codebase for feature opportunities. You will be given the repository's file tree and README. Based on that context, suggest useful new features. Return ONLY a newline-delimited list of concise feature titles (max 120 chars each). No numbering, no explanations, just one feature title per line. If you cannot suggest any features, return the single word NONE.`;
 
 /**
  * Uses AI to suggest potential features for the repository.
@@ -32,7 +31,7 @@ export class FeatureScoutProducer implements Producer {
 
       const response = await callClaude({
         prompt,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: loadPrompt("producers/feature-scout"),
         dryRun: ctx.dryRun,
       });
 

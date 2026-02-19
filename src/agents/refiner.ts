@@ -1,5 +1,6 @@
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
+import { loadPrompt } from "../prompt-cache.js";
 import { getById } from "../db/queries/tasks.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
@@ -9,21 +10,6 @@ import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import type { ReviewGateResult } from "../domain/types.js";
-
-const REFINER_SYSTEM_PROMPT = `You are a task refiner. Given a task that failed code review, produce refined instructions that address the specific feedback.
-
-## Input
-- Original task title and description
-- Review findings (issues found, security concerns)
-- Previous retry instructions (if any)
-
-## Output
-Produce clear, actionable retry instructions in plain text. Focus on:
-1. Addressing each review finding specifically
-2. Not repeating mistakes from previous attempts
-3. Being specific about what files to change and how
-
-Keep instructions concise and actionable.`;
 
 /**
  * Refines a task for rework based on review feedback.
@@ -73,7 +59,7 @@ export async function refineTask(
     const response = await callClaude({
       prompt: userPrompt,
       model,
-      systemPrompt: REFINER_SYSTEM_PROMPT,
+      systemPrompt: loadPrompt("refiner"),
     });
 
     const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);

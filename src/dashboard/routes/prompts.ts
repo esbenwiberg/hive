@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
-import { requireAuth, requireRole } from "../../auth/middleware.js";
+import { requireRole } from "../../auth/middleware.js";
 import { listPromptFiles, readPrompt, writePrompt, validatePromptPath } from "../../prompts.js";
 import { invalidatePrompt } from "../../prompt-cache.js";
 import { promptsPage, promptEditorPartial } from "../views/prompts.js";
@@ -9,7 +9,7 @@ const router = Router();
 
 // ── GET /prompts ─ Full prompts page ────────────────────────────────────────
 
-router.get("/prompts", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/prompts", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = req.session.user!;
     const files = await listPromptFiles();
@@ -21,7 +21,7 @@ router.get("/prompts", requireAuth, async (req: Request, res: Response, next: Ne
 
 // ── GET /api/prompts/:path(*) ─ Read a prompt file (HTMX partial) ──────────
 
-router.get("/api/prompts/:path(*)", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/api/prompts/:path(*)", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const relativePath = req.params.path as string;
 

@@ -2,9 +2,8 @@ import { callClaude } from "../agents/sdk.js";
 import { create } from "../db/queries/tasks.js";
 import { isDuplicate, isRefusalTitle, gatherRepoSummary } from "./base.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { loadPrompt } from "../prompt-cache.js";
 import type { Producer, ProducerContext, ProducerResult } from "./base.js";
-
-const SYSTEM_PROMPT = `You are a senior security engineer performing a vulnerability assessment on a codebase. You will be given the repository's file tree and README. Based on that context, identify potential security vulnerabilities. Return ONLY a newline-delimited list of concise security finding titles (max 120 chars each). No numbering, no explanations, just one finding per line. If you cannot identify any issues, return the single word NONE.`;
 
 /**
  * Uses AI to identify potential security issues in the repository.
@@ -32,7 +31,7 @@ export class SecurityScannerProducer implements Producer {
 
       const response = await callClaude({
         prompt,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: loadPrompt("producers/security-scanner"),
         dryRun: ctx.dryRun,
       });
 
