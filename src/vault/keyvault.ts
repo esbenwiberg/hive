@@ -9,7 +9,9 @@ export function userSecretName(
   provider: string,
   label: string,
 ): string {
-  return `hive-user-${userId}-${provider}-${label}`;
+  // Key Vault secret names only allow alphanumeric characters and hyphens
+  const safe = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, "-");
+  return `hive-user-${userId}-${safe(provider)}-${safe(label)}`;
 }
 
 // ── Client initialisation ────────────────────────────────────────────────────
