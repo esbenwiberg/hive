@@ -2,7 +2,7 @@
 
 ## What is this?
 
-Autonomous task orchestration for engineering teams. Routes tasks through enrichment → gating → execution → review → PR creation, powered by Claude.
+Autonomous task orchestration for engineering teams. 14-state pipeline: route → enrich (6 enrichers) → gate → execute (Claude + tools) → review → PR, powered by Claude.
 
 ## Tech stack
 

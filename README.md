@@ -23,43 +23,57 @@ It supports 10 concurrent users, each with their own git credentials, cost budge
 
 ```
                     ┌─────────┐
-                    │  Task   │  User creates via dashboard, or producer discovers automatically
+                    │ PENDING │  User creates via dashboard, or producer discovers
                     └────┬────┘
                          │
                     ┌────▼────┐
-                    │  Route  │  Claude classifies: type, size, model, workflow
+                    │ QUEUED  │  Router classifies: type, size, model, workflow
                     └────┬────┘
                          │
-                    ┌────▼────┐
-                    │ Enrich  │  4 enrichers gather context: codebase, docs, git history, dependencies
-                    └────┬────┘
+                    ┌────▼──────┐
+                    │ ENRICHING │  6 enrichers run sequentially:
+                    │           │  codebase → docs → git history → dependencies
+                    │           │  → architect (blueprint + clarification) → scorer
+                    └────┬──────┘
                          │
                     ┌────▼────┐
-                    │  Gate   │  Human approval, AI evaluation, or auto-approve (configurable)
+                    │  READY  │  Gate: human approval, AI evaluation, or auto-approve
                     └────┬────┘
                          │
-                    ┌────▼────┐
-                    │Execute  │  Claude implements changes in isolated git worktree
-                    └────┬────┘
+                    ┌────▼──────┐
+                    │ APPROVED  │
+                    └────┬──────┘
                          │
-                    ┌────▼────┐
-                    │ Review  │  Lint + build + test, code review, security review
-                    └────┬────┘
+                    ┌────▼───────┐
+                    │ EXECUTING  │  Claude + tools (read/write/list/run) in isolated worktree
+                    │            │  Multi-turn agentic loop, milestone support
+                    └────┬───────┘
+                         │
+                    ┌────▼───────┐
+                    │ REVIEWING  │  Code review gate (verdict: pass or rework)
+                    └────┬───────┘
                          │
                ┌─────────┼─────────┐
-               │         │         │
-          ┌────▼───┐ ┌───▼───┐ ┌──▼───┐
-          │  Pass  │ │Rework │ │ Fail │
-          │  → PR  │ │→ Retry│ │      │
-          └────────┘ └───────┘ └──────┘
+               │                   │
+          ┌────▼───┐          ┌────▼───┐
+          │  DONE  │          │ REWORK │  Max 2 cycles, then FAILED
+          │  → PR  │          │→ retry │
+          └────┬───┘          └────────┘
+               │
+          ┌────▼───┐
+          │ MERGED │
+          └────────┘
+
+  Also: FAILED (retry/re-review/re-approve), SUSPENDED, CANCELLED, REJECTED
 ```
 
 ## Features
 
-- **Full pipeline automation** — route, enrich, gate, execute, review, PR
-- **Multiple enrichers** — codebase analysis, documentation, git history, dependency scanning run sequentially, each building on prior results
+- **Full pipeline automation** — route, enrich, gate, execute, review, PR (14 task states)
+- **6 enrichers** — codebase, docs, git history, dependencies, architect (blueprint + clarification), scorer — run sequentially, each building on prior results
+- **Tool use execution** — Claude implements changes via read/write/list/run tools in a multi-turn agentic loop
 - **Three gate modes** — human approval, AI evaluation, or auto-approve for low-risk tasks
-- **Rework loop** — failed reviews trigger refinement and re-execution (max 2 cycles)
+- **Rework loop** — failed reviews trigger refinement and re-execution (max 2 cycles), with manual re-review and re-approve paths
 - **Epic workflows** — large tasks decomposed into sequential milestones, each executed independently
 - **Preview environments** — spin up the app under test (Docker Compose, TestContainers, or process) for validation before merging
 - **5 producers** — auto-discover tasks by scanning logs, hunting bugs, finding security issues, scouting features, and self-monitoring
@@ -202,10 +216,12 @@ budget:
   perTaskMax: 25.00
 
 enrichers:
-  codebase:  { enabled: true, model: sonnet, max_turns: 30, budget: 3.0 }
-  docs:      { enabled: true, model: haiku,  max_turns: 10, budget: 0.5 }
-  git_history: { enabled: true, model: haiku, max_turns: 10, budget: 0.5 }
-  dependencies: { enabled: true, model: haiku, max_turns: 10, budget: 0.5 }
+  - { name: codebase,     enabled: true }
+  - { name: docs,         enabled: true }
+  - { name: git-history,  enabled: true }
+  - { name: dependencies, enabled: true }
+  - { name: architect,    enabled: true }
+  - { name: scorer,       enabled: true }
 
 preview:
   enabled: true
@@ -305,8 +321,8 @@ src/
 ├── db/
 │   ├── queries/     # One file per table
 │   └── schema.ts    # Drizzle table definitions
-├── domain/          # Types, state machine, config
-├── enrichers/       # Codebase, docs, git-history, dependencies
+├── domain/          # Types, state machine (14 states), config
+├── enrichers/       # Codebase, docs, git-history, dependencies, architect, scorer
 ├── execution/       # Worker, worktree, git provider, review gate, preview
 ├── producers/       # Auto task discovery (5 producers)
 ├── integrations/    # Azure DevOps, Azure Monitor
@@ -318,7 +334,7 @@ src/
 PostgreSQL 16 with Drizzle ORM. Key tables:
 
 - `users` — Entra ID users with roles and budgets
-- `tasks` — 13-state pipeline with enrichment, gate, review, preview tracking
+- `tasks` — 14-state pipeline with enrichment, gate, review, preview tracking
 - `costs` — Per-agent, per-model cost records
 - `learnings` — Hivemind knowledge base with confidence scores
 - `enrichment_runs` — Per-enricher results

@@ -81,7 +81,9 @@ function enricherPills(): string {
 }
 
 function executionPaths(): string {
-  return `<div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+  return `<p class="mt-2 text-xs text-slate-400">Claude + tools (read_file, write_file, list_directory, run_command)</p>
+<p class="mt-1 text-xs text-slate-400">Multi-turn agentic loop, max 30 turns</p>
+<div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
   <div class="rounded border border-slate-600 bg-slate-900 p-2.5">
     <p class="text-xs font-medium text-slate-300">Path A: Milestones</p>
     <p class="mt-1 text-xs text-slate-500">For each: code &rarr; review-fix &rarr; commit</p>
@@ -122,7 +124,7 @@ function buildStages(): StageDefinition[] {
     {
       name: "Review Gate",
       content: `<p class="mt-2 text-xs text-slate-400">Code quality + security + test verification</p>
-<p class="mt-1 text-xs text-slate-400">Pass &rarr; PR + push &nbsp;|&nbsp; Rework (&le;2) &nbsp;|&nbsp; Fail</p>`,
+<p class="mt-1 text-xs text-slate-400">Pass &rarr; PR + push &nbsp;|&nbsp; Rework (&le;2 cycles, then FAILED)</p>`,
     },
     {
       name: "Done / Merged",
@@ -335,23 +337,7 @@ function stateMachineDiagram(): string {
     <p class="text-xs font-medium text-slate-300 mb-2">Error &amp; Rework Branches</p>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
-        <p class="text-xs text-slate-400 mb-2">From any active state:</p>
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-slate-500 italic">any</span>
-          ${arrow()}
-          ${stateNode("FAILED", "red")}
-        </div>
-      </div>
-      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
-        <p class="text-xs text-slate-400 mb-2">From READY (gate rejects):</p>
-        <div class="flex items-center gap-2">
-          ${stateNode("READY", "amber")}
-          ${arrow()}
-          ${stateNode("REJECTED", "red")}
-        </div>
-      </div>
-      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
-        <p class="text-xs text-slate-400 mb-2">From REVIEWING (needs fix):</p>
+        <p class="text-xs text-slate-400 mb-2">Rework loop (max 2 cycles):</p>
         <div class="flex items-center gap-2">
           ${stateNode("REVIEWING", "amber")}
           ${arrow()}
@@ -361,11 +347,51 @@ function stateMachineDiagram(): string {
         </div>
       </div>
       <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
-        <p class="text-xs text-slate-400 mb-2">User-initiated:</p>
+        <p class="text-xs text-slate-400 mb-2">Gate rejects:</p>
         <div class="flex items-center gap-2">
-          <span class="text-xs text-slate-500 italic">any</span>
+          ${stateNode("READY", "amber")}
           ${arrow()}
-          ${stateNode("CANCELLED", "slate")}
+          ${stateNode("REJECTED", "red")}
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs text-slate-400 mb-2">FAILED recovery paths:</p>
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center gap-2">
+            ${stateNode("FAILED", "red")}
+            ${arrow()}
+            ${stateNode("PENDING", "slate")}
+            <span class="text-xs text-slate-500 italic">retry</span>
+          </div>
+          <div class="flex items-center gap-2">
+            ${stateNode("FAILED", "red")}
+            ${arrow()}
+            ${stateNode("APPROVED", "amber")}
+            <span class="text-xs text-slate-500 italic">re-execute</span>
+          </div>
+          <div class="flex items-center gap-2">
+            ${stateNode("FAILED", "red")}
+            ${arrow()}
+            ${stateNode("REVIEWING", "amber")}
+            <span class="text-xs text-slate-500 italic">re-review</span>
+          </div>
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs text-slate-400 mb-2">Suspend &amp; cancel:</p>
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500 italic">active</span>
+            ${arrow()}
+            ${stateNode("SUSPENDED", "slate")}
+            ${arrow()}
+            ${stateNode("PENDING", "slate")}
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500 italic">any</span>
+            ${arrow()}
+            ${stateNode("CANCELLED", "slate")}
+          </div>
         </div>
       </div>
     </div>
@@ -446,7 +472,8 @@ function daemonDiagram(): string {
       <li>Poll interval: <span class="text-slate-400">5s</span></li>
       <li>Max concurrent: <span class="text-slate-400">5</span></li>
       <li>Max per user: <span class="text-slate-400">2</span></li>
-      <li class="pt-1 text-slate-400">For each QUEUED task &rarr; runPipeline()</li>
+      <li class="pt-1 text-slate-400">PENDING &rarr; runPipeline() (route &rarr; enrich &rarr; gate)</li>
+      <li class="text-slate-400">APPROVED / REWORK &rarr; executeTask()</li>
     </ul>
   </div>
 
