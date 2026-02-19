@@ -136,7 +136,7 @@ function enrichmentSection(task: TaskRow): string {
   }
 
   const sections = Object.entries(enrichment)
-    .filter(([key]) => key !== "scorer")
+    .filter(([key]) => key !== "scorer" && key !== "architect")
     .map(([key, value]) => {
       const content = formatEnrichmentValue(value);
       return `<details class="group">
@@ -188,6 +188,140 @@ function formatEnrichmentValue(value: unknown): string {
   }
 
   return escapeHtml(String(value));
+}
+
+// ── Blueprint display ────────────────────────────────────────────────────────
+
+interface BlueprintData {
+  approach?: string;
+  keyFiles?: string[];
+  checklist?: string[];
+  milestones?: {
+    title: string;
+    description: string;
+    filesToModify: string[];
+    acceptanceCriteria: string[];
+  }[];
+  clarificationQuestions?: string[];
+  awaitingInput?: boolean;
+  skipped?: boolean;
+}
+
+function fileChips(files: string[]): string {
+  if (files.length === 0) return "";
+  const chips = files
+    .map(
+      (f) =>
+        `<code class="inline-block rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">${escapeHtml(f)}</code>`,
+    )
+    .join(" ");
+  return `<div class="flex flex-wrap gap-1.5 mt-2">${chips}</div>`;
+}
+
+function checklistHtml(items: string[]): string {
+  if (items.length === 0) return "";
+  const lis = items
+    .map(
+      (item) =>
+        `<li class="flex items-start gap-2 py-0.5">
+          <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500"></span>
+          <span>${escapeHtml(item)}</span>
+        </li>`,
+    )
+    .join("");
+  return `<ul class="mt-2 space-y-0.5 text-sm text-slate-300">${lis}</ul>`;
+}
+
+function milestonesHtml(milestones: BlueprintData["milestones"]): string {
+  if (!milestones || milestones.length === 0) return "";
+  const items = milestones
+    .map((m, i) => {
+      const acItems = (m.acceptanceCriteria ?? [])
+        .map(
+          (ac) =>
+            `<li class="flex items-start gap-2 py-0.5">
+              <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"></span>
+              <span>${escapeHtml(ac)}</span>
+            </li>`,
+        )
+        .join("");
+      const acHtml = acItems
+        ? `<ul class="mt-2 space-y-0.5 text-sm text-slate-300">${acItems}</ul>`
+        : "";
+
+      return `<details class="group">
+        <summary class="flex cursor-pointer items-center gap-2 rounded-lg bg-slate-800/50 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800">
+          <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-600 text-xs text-slate-400">${i + 1}</span>
+          <span class="flex-1">${escapeHtml(m.title)}</span>
+          <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </summary>
+        <div class="mt-1 px-3 py-2 text-sm text-slate-300">
+          ${m.description ? `<p>${escapeHtml(m.description)}</p>` : ""}
+          ${fileChips(m.filesToModify ?? [])}
+          ${acHtml}
+        </div>
+      </details>`;
+    })
+    .join("");
+
+  return `<div class="mt-3 space-y-2">${items}</div>`;
+}
+
+function blueprintSection(task: TaskRow): string {
+  const enrichment = task.enrichment as Record<string, unknown> | null;
+  if (!enrichment?.architect) return "";
+
+  const bp = enrichment.architect as BlueprintData;
+  if (bp.skipped) return "";
+
+  // ── Awaiting input ─────────────────────────────────────────────────────
+  if (bp.awaitingInput && bp.clarificationQuestions?.length) {
+    const questions = bp.clarificationQuestions
+      .map(
+        (q, i) =>
+          `<li class="flex items-start gap-2 py-0.5">
+            <span class="shrink-0 text-amber-400 font-medium">${i + 1}.</span>
+            <span>${escapeHtml(q)}</span>
+          </li>`,
+      )
+      .join("");
+
+    return `<div>
+      <h4 class="text-sm font-medium text-slate-400 mb-2">Blueprint</h4>
+      <div class="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3">
+        <div class="flex items-center gap-2 mb-2">
+          ${badge("Awaiting Input", "amber")}
+        </div>
+        <ul class="space-y-0.5 text-sm text-slate-300">${questions}</ul>
+      </div>
+    </div>`;
+  }
+
+  // ── No approach text → nothing to render ───────────────────────────────
+  if (!bp.approach) return "";
+
+  // ── Small task (no milestones) ─────────────────────────────────────────
+  if (!bp.milestones || bp.milestones.length === 0) {
+    return `<div>
+      <h4 class="text-sm font-medium text-slate-400 mb-2">Blueprint</h4>
+      <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+        <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(bp.approach)}</p>
+        ${fileChips(bp.keyFiles ?? [])}
+        ${checklistHtml(bp.checklist ?? [])}
+      </div>
+    </div>`;
+  }
+
+  // ── Medium/large task (milestones) ─────────────────────────────────────
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Blueprint</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(bp.approach)}</p>
+      ${milestonesHtml(bp.milestones)}
+    </div>
+  </div>`;
 }
 
 // ── Scorer display ──────────────────────────────────────────────────────────
@@ -621,6 +755,9 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
 
     <!-- Body -->
     ${bodyHtml ? `<div><h4 class="text-sm font-medium text-slate-400 mb-2">Description</h4>${bodyHtml}</div>` : ""}
+
+    <!-- Blueprint -->
+    ${blueprintSection(task)}
 
     <!-- Enrichment -->
     ${enrichmentSection(task)}
