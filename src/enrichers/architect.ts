@@ -187,7 +187,7 @@ export const architectEnricher: Enricher = {
     const model = config.model ?? autonomousConfig.models.gate;
 
     // ── Build prompt ──────────────────────────────────────────────────────
-    const systemPrompt = loadPrompt("architect");
+    const systemPrompt = loadPrompt("enrichers/architect");
 
     // Check if there are existing clarification answers in the enrichment data
     const existingArchitect = priorResults.architect as

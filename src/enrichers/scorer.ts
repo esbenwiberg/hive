@@ -292,7 +292,7 @@ export const scorerEnricher: Enricher = {
     const model = config.model ?? autonomousConfig.models.gate;
 
     // ── Build prompt ──────────────────────────────────────────────────────
-    const systemPrompt = loadPrompt("scorer");
+    const systemPrompt = loadPrompt("enrichers/scorer");
     const userPrompt = buildUserPrompt(task, priorResults);
 
     // ── Call Claude ───────────────────────────────────────────────────────
