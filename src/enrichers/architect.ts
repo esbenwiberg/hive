@@ -53,7 +53,7 @@ function stripCodeFences(text: string): string {
  * as the `approach` field so downstream consumers still have something to work
  * with.
  */
-export function parseBlueprint(raw: string): ArchitectBlueprint {
+export function parseBlueprint(raw: string, hasAnswers = false): ArchitectBlueprint {
   const cleaned = stripCodeFences(raw);
 
   let parsed: Record<string, unknown>;
@@ -68,8 +68,8 @@ export function parseBlueprint(raw: string): ArchitectBlueprint {
     return { approach: cleaned };
   }
 
-  // ── Clarification mode ──────────────────────────────────────────────────
-  if (Array.isArray(parsed.clarificationQuestions)) {
+  // ── Clarification mode (skip if answers were already provided) ──────────
+  if (!hasAnswers && Array.isArray(parsed.clarificationQuestions)) {
     return {
       approach: typeof parsed.approach === "string" ? parsed.approach : "",
       clarificationQuestions: (parsed.clarificationQuestions as unknown[]).map(String),
@@ -118,6 +118,7 @@ function buildUserPrompt(
   task: TaskRow,
   priorResults: Record<string, unknown>,
   clarificationAnswers?: string[],
+  clarificationQuestions?: string[],
 ): string {
   const sections: string[] = [
     `Task ID: ${task.id}`,
@@ -147,12 +148,18 @@ function buildUserPrompt(
     );
   }
 
-  // Include clarification answers if present
+  // Include clarification Q&A if present
   if (clarificationAnswers && clarificationAnswers.length > 0) {
+    const qaPairs = clarificationAnswers.map((a, i) => {
+      const q = clarificationQuestions?.[i] ?? `Question ${i + 1}`;
+      return `Q${i + 1}: ${q}\nA${i + 1}: ${a}`;
+    });
     sections.push(
       "",
       "<clarification_answers>",
-      ...clarificationAnswers.map((a, i) => `${i + 1}. ${a}`),
+      "The user has already answered your clarification questions. Do NOT ask again. Produce a blueprint.",
+      "",
+      ...qaPairs,
       "</clarification_answers>",
     );
   }
@@ -196,8 +203,11 @@ export const architectEnricher: Enricher = {
     const clarificationAnswers = existingArchitect?.clarificationAnswers as
       | string[]
       | undefined;
+    const clarificationQuestions = existingArchitect?.clarificationQuestions as
+      | string[]
+      | undefined;
 
-    const userPrompt = buildUserPrompt(task, priorResults, clarificationAnswers);
+    const userPrompt = buildUserPrompt(task, priorResults, clarificationAnswers, clarificationQuestions);
 
     // ── Call Claude ───────────────────────────────────────────────────────
     const response = await callClaude({
@@ -206,8 +216,9 @@ export const architectEnricher: Enricher = {
       systemPrompt,
     });
 
-    // ── Parse response ───────────────────────────────────────────────────
-    const blueprint = parseBlueprint(response.text);
+    // ── Parse response (skip clarification if answers already provided) ──
+    const hasAnswers = !!clarificationAnswers && clarificationAnswers.length > 0;
+    const blueprint = parseBlueprint(response.text, hasAnswers);
 
     // ── Cost tracking ────────────────────────────────────────────────────
     const costUsd = estimateCostUsd(
