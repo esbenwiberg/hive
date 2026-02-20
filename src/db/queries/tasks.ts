@@ -24,6 +24,7 @@ export async function create(data: {
   repoId: number;
   createdBy: number;
   visibility?: string;
+  skipPreview?: boolean;
 }) {
   const id = generateTaskId();
 
@@ -40,6 +41,7 @@ export async function create(data: {
       repoId: data.repoId,
       createdBy: data.createdBy,
       visibility: data.visibility ?? "public",
+      skipPreview: data.skipPreview ?? false,
       status: "pending",
     })
     .returning();

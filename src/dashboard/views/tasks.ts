@@ -879,6 +879,7 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     ["Created By", escapeHtml(creatorLabel(task, userNames))],
     ["Total Cost", formatCost(task.totalCost)],
     ["Visibility", task.visibility === "private" ? badge("private", "amber") : badge("public", "slate")],
+    ["Preview", task.skipPreview ? badge("skip", "amber") : badge("enabled", "slate")],
     [
       "Created",
       task.createdAt
@@ -1020,6 +1021,14 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
     })),
   ];
 
+  const previewRepoIds = repos
+    .filter((r) => {
+      const settings = (r.settings ?? {}) as Record<string, unknown>;
+      const preview = (settings.preview ?? {}) as Record<string, unknown>;
+      return preview.enabled === true;
+    })
+    .map((r) => String(r.id));
+
   const typeOptions = [
     { value: "", label: "Select type" },
     { value: "bug", label: "Bug" },
@@ -1057,7 +1066,7 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         hx-on::after-request="if(event.detail.successful) document.getElementById('create-panel').classList.add('translate-x-full')">
     ${input("title", "Title", { required: true, placeholder: "Brief task title" })}
     ${textarea("body", "Description", { required: true, placeholder: "Describe the task in detail...", rows: 6 })}
-    ${select("repoId", "Repository", repoOptions)}
+    ${select("repoId", "Repository", repoOptions, undefined, `onchange="toggleSkipPreview(this.value)"`)}
     ${select("type", "Type", typeOptions)}
     ${select("size", "Size", sizeOptions)}
 
@@ -1067,6 +1076,23 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
       <span class="text-sm text-slate-300">Private</span>
       <span class="text-xs text-slate-500">(only visible to you and admins)</span>
     </label>
+
+    <div id="skip-preview-wrap" class="hidden">
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="skipPreview" value="true"
+          class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400 focus:ring-offset-slate-900" />
+        <span class="text-sm text-slate-300">Skip Preview</span>
+        <span class="text-xs text-slate-500">(don't spin up a preview environment)</span>
+      </label>
+    </div>
+    <script>
+      var _previewRepoIds = ${JSON.stringify(previewRepoIds)};
+      function toggleSkipPreview(repoId) {
+        var wrap = document.getElementById('skip-preview-wrap');
+        if (_previewRepoIds.includes(repoId)) { wrap.classList.remove('hidden'); }
+        else { wrap.classList.add('hidden'); wrap.querySelector('input').checked = false; }
+      }
+    </script>
 
     <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">
       ${button("Cancel", {

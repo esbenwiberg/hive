@@ -32,6 +32,8 @@ export interface ArchitectBlueprint {
   awaitingInput?: boolean;
   /** True when the enricher was skipped (trivial task). */
   skipped?: boolean;
+  /** True when the task has no user-facing output and preview can be skipped. */
+  skipPreview?: boolean;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -92,6 +94,11 @@ export function parseBlueprint(raw: string, hasAnswers = false): ArchitectBluepr
   // checklist — coerce to string[]
   if (Array.isArray(parsed.checklist)) {
     blueprint.checklist = (parsed.checklist as unknown[]).map(String);
+  }
+
+  // skipPreview — boolean
+  if (parsed.skipPreview === true) {
+    blueprint.skipPreview = true;
   }
 
   // milestones — validate and coerce each milestone

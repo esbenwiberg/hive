@@ -123,7 +123,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
 
 router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { title, body, repoId, type, size, visibility } = req.body;
+    const { title, body, repoId, type, size, visibility, skipPreview } = req.body;
     const user = req.session.user!;
 
     if (!title || typeof title !== "string" || title.trim().length === 0) {
@@ -187,6 +187,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       repoId: Number(repoId),
       createdBy: user.id,
       visibility: resolvedVisibility,
+      skipPreview: skipPreview === "true" || skipPreview === true,
     });
 
     // Return updated task list
