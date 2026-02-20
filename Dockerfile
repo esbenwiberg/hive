@@ -17,6 +17,7 @@ COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/src/dashboard/public ./src/dashboard/public
 COPY --from=builder /app/prompts ./prompts
 COPY --from=builder /app/autonomous.config.yaml ./autonomous.config.yaml
+COPY --from=builder /app/CHANGELOG.md ./CHANGELOG.md
 RUN mkdir -p /repos
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://localhost:3000/api/health || exit 1
