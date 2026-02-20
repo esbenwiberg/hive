@@ -272,6 +272,76 @@ export function repoSettingsCard(repo: RepoRow): string {
           : "",
         placeholder: "Use global default",
       })}
+      ${(() => {
+        const pv = (settings.preview ?? {}) as Record<string, unknown>;
+        const pvType = (pv.type as string) || "";
+        const pvPort = pv.port != null ? String(pv.port) : "";
+        const pvHealth = (pv.health_check as string) || "";
+        const pvStartup = pv.startup_timeout != null ? String(pv.startup_timeout) : "";
+        const pvComposeFile = (pv.compose_file as string) || "";
+        const pvAppService = (pv.app_service as string) || "";
+        const pvStartCommand = (pv.start_command as string) || "";
+        const pvEnv = pv.env && typeof pv.env === "object"
+          ? Object.entries(pv.env as Record<string, string>).map(([k, v]) => `${k}=${v}`).join("\n")
+          : "";
+
+        const showCompose = pvType === "compose" ? "block" : "none";
+        const showCommand = pvType === "testcontainers" || pvType === "process" ? "block" : "none";
+        const showConfig = pvType ? "block" : "none";
+
+        const onchange = `onchange="(function(s){` +
+          `var t=s.value;` +
+          `document.getElementById('preview-config-${repo.id}').style.display=t?'block':'none';` +
+          `document.getElementById('preview-compose-${repo.id}').style.display=t==='compose'?'block':'none';` +
+          `document.getElementById('preview-command-${repo.id}').style.display=(t==='testcontainers'||t==='process')?'block':'none';` +
+          `})(this)"`;
+
+        return `
+      ${select(`previewType_${repo.id}`, "Deploy Type", [
+        { value: "", label: "Not Configured" },
+        { value: "compose", label: "Docker Compose" },
+        { value: "testcontainers", label: "Testcontainers" },
+        { value: "process", label: "Process" },
+      ], pvType, onchange)}
+      <div id="preview-config-${repo.id}" style="display:${showConfig}" class="space-y-3 mt-3">
+        ${input(`previewPort_${repo.id}`, "Port", {
+          type: "number",
+          value: pvPort,
+          placeholder: "e.g. 3000",
+        })}
+        ${input(`previewHealthCheck_${repo.id}`, "Health Check Path", {
+          value: pvHealth,
+          placeholder: "/health (optional)",
+        })}
+        ${input(`previewStartupTimeout_${repo.id}`, "Startup Timeout (seconds)", {
+          type: "number",
+          value: pvStartup,
+          placeholder: "60 (optional)",
+        })}
+        <div id="preview-compose-${repo.id}" style="display:${showCompose}" class="space-y-3">
+          ${input(`previewComposeFile_${repo.id}`, "Compose File", {
+            value: pvComposeFile,
+            placeholder: "docker-compose.yml",
+          })}
+          ${input(`previewAppService_${repo.id}`, "App Service Name", {
+            value: pvAppService,
+            placeholder: "app",
+          })}
+        </div>
+        <div id="preview-command-${repo.id}" style="display:${showCommand}" class="space-y-3">
+          ${input(`previewStartCommand_${repo.id}`, "Start Command", {
+            value: pvStartCommand,
+            placeholder: "npm start",
+          })}
+        </div>
+        <div class="space-y-1.5">
+          <label for="previewEnv_${repo.id}" class="block text-sm font-medium text-slate-300">Environment Variables</label>
+          <textarea id="previewEnv_${repo.id}" name="previewEnv_${repo.id}" rows="3"
+            placeholder="KEY=VALUE (one per line)"
+            class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs text-slate-50 placeholder-slate-500 font-mono focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">${escapeHtml(pvEnv)}</textarea>
+        </div>
+      </div>`;
+      })()}
     </div>
     <div class="flex justify-end">
       ${button("Save", { variant: "primary", attrs: `type="submit"` })}

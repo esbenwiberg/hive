@@ -277,6 +277,93 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
       preview.cleanup_timeout_minutes = val;
     }
 
+    // Preview deploy config
+    const VALID_PREVIEW_TYPES = new Set(["compose", "testcontainers", "process"]);
+    const previewTypeVal = body[`previewType_${repoId}`]?.trim();
+
+    if (previewTypeVal && previewTypeVal !== "") {
+      if (!VALID_PREVIEW_TYPES.has(previewTypeVal)) {
+        res.status(400).send("Invalid preview type. Must be one of: compose, testcontainers, process");
+        return;
+      }
+      preview.type = previewTypeVal;
+
+      // Port — required when type is set
+      const portVal = body[`previewPort_${repoId}`]?.trim();
+      if (!portVal || portVal === "") {
+        res.status(400).send("Port is required when preview type is set");
+        return;
+      }
+      const portNum = Number(portVal);
+      if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+        res.status(400).send("Port must be an integer between 1 and 65535");
+        return;
+      }
+      preview.port = portNum;
+
+      // Health check path — optional
+      const healthVal = body[`previewHealthCheck_${repoId}`]?.trim();
+      if (healthVal && healthVal !== "") {
+        preview.health_check = healthVal;
+      }
+
+      // Startup timeout — optional, 1-600 seconds
+      const startupVal = body[`previewStartupTimeout_${repoId}`]?.trim();
+      if (startupVal && startupVal !== "") {
+        const startupNum = Number(startupVal);
+        if (!Number.isInteger(startupNum) || startupNum < 1 || startupNum > 600) {
+          res.status(400).send("Startup timeout must be between 1 and 600 seconds");
+          return;
+        }
+        preview.startup_timeout = startupNum;
+      }
+
+      // Compose-specific fields
+      if (previewTypeVal === "compose") {
+        const composeFile = body[`previewComposeFile_${repoId}`]?.trim();
+        const appService = body[`previewAppService_${repoId}`]?.trim();
+        if (!composeFile || composeFile === "") {
+          res.status(400).send("Compose file is required for Docker Compose preview type");
+          return;
+        }
+        if (!appService || appService === "") {
+          res.status(400).send("App service name is required for Docker Compose preview type");
+          return;
+        }
+        preview.compose_file = composeFile;
+        preview.app_service = appService;
+      }
+
+      // Command-specific fields (testcontainers / process)
+      if (previewTypeVal === "testcontainers" || previewTypeVal === "process") {
+        const startCommand = body[`previewStartCommand_${repoId}`]?.trim();
+        if (!startCommand || startCommand === "") {
+          res.status(400).send("Start command is required for this preview type");
+          return;
+        }
+        preview.start_command = startCommand;
+      }
+
+      // Environment variables — KEY=VALUE per line
+      const envRaw = body[`previewEnv_${repoId}`]?.trim();
+      if (envRaw && envRaw !== "") {
+        const env: Record<string, string> = {};
+        for (const line of envRaw.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed === "") continue;
+          const eqIdx = trimmed.indexOf("=");
+          if (eqIdx <= 0) {
+            res.status(400).send(`Invalid env var line: "${trimmed}". Expected KEY=VALUE format`);
+            return;
+          }
+          env[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
+        }
+        if (Object.keys(env).length > 0) {
+          preview.env = env;
+        }
+      }
+    }
+
     if (Object.keys(preview).length > 0) {
       settings.preview = preview;
     }

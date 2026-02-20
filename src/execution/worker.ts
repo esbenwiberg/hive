@@ -18,6 +18,7 @@ import { reviewChanges } from "./review-gate.js";
 import { reviewFix } from "./milestone-review.js";
 import { refineTask } from "../agents/refiner.js";
 import { parseHiveYaml } from "../hive-yaml.js";
+import type { PreviewConfig, BasePreviewConfig, ComposePreviewConfig, TestcontainersPreviewConfig, ProcessPreviewConfig } from "../hive-yaml.js";
 import { previewManager } from "./preview/manager.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
@@ -26,6 +27,47 @@ import type { ArchitectBlueprint } from "../enrichers/architect.js";
 import type { WorkerResult, WorktreeInfo } from "../domain/types.js";
 
 const MAX_REWORK_CYCLES = 2;
+
+/**
+ * Builds a PreviewConfig from repo.settings.preview when no `.hive.yaml` exists.
+ * Returns null if the settings don't contain enough info for a valid config.
+ */
+function buildPreviewConfigFromSettings(
+  preview: Record<string, unknown>,
+): PreviewConfig | null {
+  const type = preview.type as string | undefined;
+  if (!type || !["compose", "testcontainers", "process"].includes(type)) {
+    return null;
+  }
+
+  const port = preview.port as number | undefined;
+  if (typeof port !== "number") {
+    return null;
+  }
+
+  const base: BasePreviewConfig = {
+    type: type as BasePreviewConfig["type"],
+    port,
+    health_check: typeof preview.health_check === "string" ? preview.health_check : undefined,
+    startup_timeout: typeof preview.startup_timeout === "number" ? preview.startup_timeout : undefined,
+    env: preview.env && typeof preview.env === "object" ? (preview.env as Record<string, string>) : undefined,
+  };
+
+  if (type === "compose") {
+    const compose_file = preview.compose_file as string | undefined;
+    const app_service = preview.app_service as string | undefined;
+    if (!compose_file || !app_service) return null;
+    return { ...base, type: "compose", compose_file, app_service } as ComposePreviewConfig;
+  }
+
+  if (type === "testcontainers" || type === "process") {
+    const start_command = preview.start_command as string | undefined;
+    if (!start_command) return null;
+    return { ...base, type, start_command } as TestcontainersPreviewConfig | ProcessPreviewConfig;
+  }
+
+  return null;
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -366,10 +408,13 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       // Attempt to start preview environment if configured
       let previewUrl: string | undefined;
       try {
-        const previewConfig = parseHiveYaml(worktree.path);
         const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
-        const repoPreview = (repoSettings.preview ?? {}) as { enabled?: boolean; cleanup_timeout_minutes?: number };
-        const previewEnabled = repoPreview.enabled ?? config.preview.enabled;
+        const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
+        const previewEnabled = (repoPreview.enabled as boolean | undefined) ?? config.preview.enabled;
+
+        // .hive.yaml takes precedence; fall back to repo settings
+        const previewConfig = parseHiveYaml(worktree.path)
+          ?? buildPreviewConfigFromSettings(repoPreview);
 
         if (previewConfig && previewEnabled) {
           const previewInfo = await previewManager.startPreview(taskId, worktree.path, previewConfig);
@@ -378,7 +423,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
           // Post preview URL as PR comment
           try {
-            const timeoutMinutes = repoPreview.cleanup_timeout_minutes ?? config.preview.cleanup_timeout_minutes;
+            const timeoutMinutes = (repoPreview.cleanup_timeout_minutes as number | undefined) ?? config.preview.cleanup_timeout_minutes;
             const comment = [
               `## Preview Environment`,
               ``,

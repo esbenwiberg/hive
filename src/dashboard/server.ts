@@ -16,6 +16,8 @@ import promptsRouter from "./routes/prompts.js";
 import hivemindRouter from "./routes/hivemind.js";
 import logsRouter from "./routes/logs.js";
 import workflowRouter from "./routes/workflow.js";
+import healthRouter from "./routes/health.js";
+import changelogRouter from "./routes/changelog.js";
 import previewRouter from "../execution/preview/proxy.js";
 
 const app = express();
@@ -159,6 +161,8 @@ app.use("/", promptsRouter);
 app.use("/", hivemindRouter);
 app.use("/", logsRouter);
 app.use("/", workflowRouter);
+app.use("/", healthRouter);
+app.use("/", changelogRouter);
 app.use(previewRouter);
 
 // ── Error handler ────────────────────────────────────────────────────────────

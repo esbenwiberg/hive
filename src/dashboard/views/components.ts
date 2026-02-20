@@ -271,6 +271,7 @@ export function select(
   label: string,
   options: { value: string; label: string }[],
   selected?: string,
+  attrs?: string,
 ): string {
   const optionHtml = options
     .map(
@@ -279,9 +280,11 @@ export function select(
     )
     .join("");
 
+  const extra = attrs ? ` ${attrs}` : "";
+
   return `<div class="space-y-1.5">
   <label for="${name}" class="block text-sm font-medium text-slate-300">${label}</label>
-  <select id="${name}" name="${name}"
+  <select id="${name}" name="${name}"${extra}
     class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">
     ${optionHtml}
   </select>
