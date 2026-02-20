@@ -1,0 +1,10 @@
+preview:
+  type: compose
+  port: 3000
+  compose_file: docker-compose.yaml
+  app_service: app
+  health_check: /api/health
+  startup_timeout: 120
+  env:
+    NODE_ENV: development
+    SESSION_SECRET: preview-secret
