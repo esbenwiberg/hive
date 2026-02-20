@@ -20,6 +20,10 @@ import {
 } from "./components.js";
 import { layout } from "./layout.js";
 
+// ── Type extension for tasks with total cost ────────────────────────────────
+
+type TaskWithCost = TaskRow & { totalCost?: number };
+
 // ── Status filter tabs ──────────────────────────────────────────────────────
 
 const ATTENTION_STATUSES = ["ready", "reviewing", "done", "failed"];
@@ -83,9 +87,18 @@ function creatorLabel(
   return userNames.get(task.createdBy) ?? `User #${task.createdBy}`;
 }
 
+// ── Cost display helper ──────────────────────────────────────────────────────
+
+function formatCost(cost?: number): string {
+  if (cost === undefined || cost === 0) {
+    return `<span class="text-slate-600">-</span>`;
+  }
+  return `<span class="text-slate-300">$${cost.toFixed(3)}</span>`;
+}
+
 // ── Task table ──────────────────────────────────────────────────────────────
 
-function taskTable(tasks: TaskRow[], repoNames: Map<number, string>, userNames: Map<number, string> = new Map()): string {
+function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNames: Map<number, string> = new Map()): string {
   if (tasks.length === 0) {
     return emptyState(
       "No tasks found",
@@ -96,7 +109,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>, userNames: 
     );
   }
 
-  const headers = ["ID", "Title", "Status", "Score", "Repo", "Creator", "Updated", "Actions"];
+  const headers = ["ID", "Title", "Status", "Score", "Cost", "Repo", "Creator", "Updated", "Actions"];
 
   const rows = tasks.map((t) => {
     const id = `<span class="font-mono text-xs text-slate-400 cursor-pointer"
@@ -107,6 +120,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>, userNames: 
     const title = `<span class="text-slate-50 font-medium">${escapeHtml(t.title)}</span>`;
     const status = statusBadge(t.status);
     const score = scorerInlineBadges(t) || `<span class="text-slate-600">-</span>`;
+    const cost = formatCost(t.totalCost);
     const repoLabel = repoNames.get(t.repoId) ?? `#${t.repoId}`;
     const repo = `<span class="text-xs text-slate-400">${escapeHtml(repoLabel)}</span>`;
     const creator = `<span class="text-xs text-slate-400">${escapeHtml(creatorLabel(t, userNames))}</span>`;
@@ -119,7 +133,7 @@ function taskTable(tasks: TaskRow[], repoNames: Map<number, string>, userNames: 
       hx-target="#detail-panel"
       hx-swap="innerHTML">View</button>`;
 
-    return [id, title, status, score, repo, creator, updated, viewBtn];
+    return [id, title, status, score, cost, repo, creator, updated, viewBtn];
   });
 
   // Build table manually for row-level data attributes
@@ -431,7 +445,7 @@ function scorerInlineBadges(task: TaskRow): string {
   return parts.join(" ");
 }
 
-function scorerSection(task: TaskRow): string {
+function scorerSection(task: TaskWithCost): string {
   const enrichment = task.enrichment as Record<string, unknown> | null;
   if (!enrichment?.scorer) return "";
 
@@ -457,22 +471,35 @@ function scorerSection(task: TaskRow): string {
     ? `<div class="divide-y divide-slate-700">${scoreRows.join("")}</div>`
     : "";
 
-  // Cost estimate
+  // Cost estimate vs actual cost comparison
   let costHtml = "";
-  if (scorer.costEstimate?.totalUsd != null) {
+  if (scorer.costEstimate?.totalUsd != null || task.totalCost != null) {
+    const estimated = scorer.costEstimate?.totalUsd ?? 0;
+    const actual = task.totalCost ?? 0;
     const est = scorer.costEstimate;
+    
     const breakdownParts: string[] = [];
-    if (est.breakdown?.enrichment != null) breakdownParts.push(`Enrich $${est.breakdown.enrichment.toFixed(2)}`);
-    if (est.breakdown?.execution != null) breakdownParts.push(`Exec $${est.breakdown.execution.toFixed(2)}`);
-    if (est.breakdown?.review != null) breakdownParts.push(`Review $${est.breakdown.review.toFixed(2)}`);
+    if (est?.breakdown?.enrichment != null) breakdownParts.push(`Enrich $${est.breakdown.enrichment.toFixed(2)}`);
+    if (est?.breakdown?.execution != null) breakdownParts.push(`Exec $${est.breakdown.execution.toFixed(2)}`);
+    if (est?.breakdown?.review != null) breakdownParts.push(`Review $${est.breakdown.review.toFixed(2)}`);
+
+    const variance = actual > 0 && estimated > 0 ? ((actual - estimated) / estimated * 100) : 0;
+    const varianceColor = variance > 10 ? "text-red-400" : variance < -10 ? "text-emerald-400" : "text-slate-400";
+    const varianceText = variance !== 0 ? `<span class="${varianceColor}">(${variance > 0 ? '+' : ''}${variance.toFixed(0)}%)</span>` : "";
 
     costHtml = `<div class="mt-3 pt-3 border-t border-slate-700">
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-slate-400">Est. Cost</span>
-        <span class="text-sm font-medium text-slate-200">$${est.totalUsd!.toFixed(2)}</span>
+      <div class="space-y-1">
+        ${estimated > 0 ? `<div class="flex items-center justify-between">
+          <span class="text-xs text-slate-400">Est. Cost</span>
+          <span class="text-sm text-slate-200">$${estimated.toFixed(2)}</span>
+        </div>` : ""}
+        ${actual > 0 ? `<div class="flex items-center justify-between">
+          <span class="text-xs text-slate-400">Actual Cost</span>
+          <span class="text-sm font-medium text-slate-200">$${actual.toFixed(3)} ${varianceText}</span>
+        </div>` : ""}
       </div>
       ${breakdownParts.length > 0
-        ? `<div class="flex gap-3 mt-1">${breakdownParts.map((p) => `<span class="text-xs text-slate-500">${escapeHtml(p)}</span>`).join("")}</div>`
+        ? `<div class="flex gap-3 mt-2">${breakdownParts.map((p) => `<span class="text-xs text-slate-500">${escapeHtml(p)}</span>`).join("")}</div>`
         : ""}
     </div>`;
   }
@@ -769,7 +796,7 @@ function activitySection(task: TaskRow, events: TaskEventRow[]): string {
  * Task list partial — just the filter tabs + table (for HTMX responses).
  */
 export function taskListPartial(
-  tasks: TaskRow[],
+  tasks: TaskWithCost[],
   counts: Record<string, number>,
   activeStatus?: string,
   repoNames: Map<number, string> = new Map(),
@@ -783,7 +810,7 @@ export function taskListPartial(
  * Full task list page with layout.
  */
 export function taskListPage(
-  tasks: TaskRow[],
+  tasks: TaskWithCost[],
   filters: TaskFilters,
   counts: Record<string, number>,
   user: SessionUser,
@@ -822,7 +849,7 @@ ${taskCreateForm(repos, user, selfRepoFullName)}`;
 /**
  * Task detail slide-over panel.
  */
-export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map()): string {
+export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map()): string {
   const actions = getAvailableActions(task.status);
 
   const actionButtons = actions
@@ -850,6 +877,7 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
     ["Workflow", task.workflow ? escapeHtml(task.workflow) : `<span class="text-slate-500">-</span>`],
     ["Repo", escapeHtml(repoNames.get(task.repoId) ?? `#${task.repoId}`)],
     ["Created By", escapeHtml(creatorLabel(task, userNames))],
+    ["Total Cost", formatCost(task.totalCost)],
     ["Visibility", task.visibility === "private" ? badge("private", "amber") : badge("public", "slate")],
     [
       "Created",

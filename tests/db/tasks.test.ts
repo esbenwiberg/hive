@@ -14,8 +14,11 @@ const { findOrCreateByEntraOid } = await import(
 const { findOrCreate: findOrCreateRepo } = await import(
   "../../src/db/queries/repos.js"
 );
-const { create, getById, list, updateStatus, countByStatus } = await import(
+const { create, getById, getByIdWithCost, list, listWithCosts, updateStatus, countByStatus } = await import(
   "../../src/db/queries/tasks.js"
+);
+const { recordCost } = await import(
+  "../../src/db/queries/costs.js"
 );
 
 useTestDb();
@@ -103,6 +106,51 @@ describe("tasks queries", () => {
 
     it("returns undefined for a nonexistent id", async () => {
       const found = await getById("HIVE-00000000-0000");
+      expect(found).toBeUndefined();
+    });
+  });
+
+  // ── getByIdWithCost ─────────────────────────────────────────────────────
+
+  describe("getByIdWithCost", () => {
+    it("returns task with totalCost property", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({
+        title: "Test task with costs",
+        body: "body",
+        source: "manual",
+        repoId: repo.id,
+        createdBy: user.id,
+      });
+
+      await recordCost(task.id, user.id, "router", "model-a", 1.5);
+      await recordCost(task.id, user.id, "gate", "model-a", 2.25);
+
+      const found = await getByIdWithCost(task.id);
+
+      expect(found).toBeDefined();
+      expect(found!.id).toBe(task.id);
+      expect(found!.totalCost).toBeCloseTo(3.75, 2);
+    });
+
+    it("returns task with totalCost = 0 when no costs exist", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({
+        title: "Test task no costs",
+        body: "body",
+        source: "manual",
+        repoId: repo.id,
+        createdBy: user.id,
+      });
+
+      const found = await getByIdWithCost(task.id);
+
+      expect(found).toBeDefined();
+      expect(found!.totalCost).toBe(0);
+    });
+
+    it("returns undefined for nonexistent task", async () => {
+      const found = await getByIdWithCost("HIVE-00000000-0000");
       expect(found).toBeUndefined();
     });
   });
@@ -212,6 +260,61 @@ describe("tasks queries", () => {
       const result = await list({ status: "queued", search: "login" });
       expect(result.tasks).toHaveLength(1);
       expect(result.tasks[0].id).toBe(t1.id);
+    });
+  });
+
+  // ── listWithCosts ──────────────────────────────────────────────────────
+
+  describe("listWithCosts", () => {
+    it("returns tasks with totalCost property", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      const task1 = await create({ title: "Task 1", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      const task2 = await create({ title: "Task 2", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      await recordCost(task1.id, user.id, "router", "model-a", 1.0);
+      await recordCost(task1.id, user.id, "gate", "model-a", 2.0);
+      await recordCost(task2.id, user.id, "worker", "model-b", 3.0);
+
+      const result = await listWithCosts();
+
+      expect(result.tasks).toHaveLength(2);
+      expect(result.total).toBe(2);
+      
+      // Find tasks by title since order might vary
+      const t1 = result.tasks.find(t => t.title === "Task 1");
+      const t2 = result.tasks.find(t => t.title === "Task 2");
+      
+      expect(t1!.totalCost).toBeCloseTo(3.0, 2);
+      expect(t2!.totalCost).toBeCloseTo(3.0, 2);
+    });
+
+    it("returns tasks with totalCost = 0 when no costs exist", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      await create({ title: "Task no costs", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      const result = await listWithCosts();
+
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].totalCost).toBe(0);
+    });
+
+    it("respects filters like regular list function", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      const t1 = await create({ title: "Task 1", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      const t2 = await create({ title: "Task 2", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      await recordCost(t1.id, user.id, "router", "model-a", 5.0);
+      await recordCost(t2.id, user.id, "router", "model-a", 10.0);
+      await updateStatus(t1.id, "queued");
+
+      const result = await listWithCosts({ status: "queued" });
+
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].id).toBe(t1.id);
+      expect(result.tasks[0].totalCost).toBeCloseTo(5.0, 2);
     });
   });
 

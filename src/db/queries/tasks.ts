@@ -3,6 +3,7 @@ import { db } from "../connection.js";
 import { tasks } from "../schema.js";
 import { generateTaskId } from "../../domain/types.js";
 import { canTransition } from "../../domain/state-machine.js";
+import { getTotalCostForTask } from "./costs.js";
 import type { TaskFilters } from "../../domain/types.js";
 
 function escapeLike(str: string): string {
@@ -52,6 +53,17 @@ export async function create(data: {
 export async function getById(id: string) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
   return task;
+}
+
+/**
+ * Returns a single task by its id with total cost included, or undefined if not found.
+ */
+export async function getByIdWithCost(id: string) {
+  const task = await getById(id);
+  if (!task) return undefined;
+  
+  const totalCost = await getTotalCostForTask(id);
+  return { ...task, totalCost };
 }
 
 /**
@@ -116,6 +128,29 @@ export async function list(
   ]);
 
   return { tasks: items, total };
+}
+
+/**
+ * Lists tasks with total cost included for each task.
+ * Similar to list() but augments each task with its totalCost.
+ */
+export async function listWithCosts(
+  filters: TaskFilters = {},
+  limit?: number,
+  offset?: number,
+  userContext?: { userId: number; role: string; accessibleRepoIds?: number[] },
+) {
+  const { tasks: tasksData, total } = await list(filters, limit, offset, userContext);
+  
+  // Get total cost for each task in parallel
+  const tasksWithCosts = await Promise.all(
+    tasksData.map(async (task) => {
+      const totalCost = await getTotalCostForTask(task.id);
+      return { ...task, totalCost };
+    })
+  );
+
+  return { tasks: tasksWithCosts, total };
 }
 
 /**
