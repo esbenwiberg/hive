@@ -62,7 +62,7 @@ export async function list(
   filters: TaskFilters = {},
   limit?: number,
   offset?: number,
-  userContext?: { userId: number; role: string },
+  userContext?: { userId: number; role: string; accessibleRepoIds?: number[] },
 ) {
   const conditions = [];
 
@@ -79,6 +79,14 @@ export async function list(
   }
   if (filters.search) {
     conditions.push(ilike(tasks.title, `%${escapeLike(filters.search)}%`));
+  }
+
+  // Repo access filter: restrict to accessible repos for non-admins
+  if (userContext?.accessibleRepoIds !== undefined) {
+    if (userContext.accessibleRepoIds.length === 0) {
+      return { tasks: [], total: 0 };
+    }
+    conditions.push(inArray(tasks.repoId, userContext.accessibleRepoIds));
   }
 
   // Visibility filter: show public, or private if user is creator or admin
@@ -245,13 +253,22 @@ export async function deleteByTitlePattern(pattern: string): Promise<number> {
  * Returns task counts grouped by status.
  * Uses Drizzle's sql template for the GROUP BY query.
  */
-export async function countByStatus(): Promise<Record<string, number>> {
+export async function countByStatus(accessibleRepoIds?: number[]): Promise<Record<string, number>> {
+  if (accessibleRepoIds !== undefined && accessibleRepoIds.length === 0) {
+    return {};
+  }
+
+  const where = accessibleRepoIds
+    ? inArray(tasks.repoId, accessibleRepoIds)
+    : undefined;
+
   const rows = await db
     .select({
       status: tasks.status,
       count: sql<number>`count(*)::int`,
     })
     .from(tasks)
+    .where(where)
     .groupBy(tasks.status);
 
   const result: Record<string, number> = {};

@@ -295,6 +295,30 @@ export const learningEvents = pgTable("learning_events", {
   createdAt: timestamp("created_at", tz).defaultNow(),
 });
 
+// ── user_repo_access ──────────────────────────────────────────────────────
+
+export const userRepoAccess = pgTable(
+  "user_repo_access",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id),
+    grantedBy: integer("granted_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", tz).defaultNow(),
+  },
+  (t) => [
+    unique().on(t.userId, t.repoId),
+    index("user_repo_access_user_idx").on(t.userId),
+    index("user_repo_access_repo_idx").on(t.repoId),
+  ],
+);
+
 // ── sessions ───────────────────────────────────────────────────────────────
 
 export const sessions = pgTable("sessions", {
@@ -321,3 +345,4 @@ export type TaskEventRow = InferSelectModel<typeof taskEvents>;
 export type UserCredentialRow = InferSelectModel<typeof userCredentials>;
 export type LearningRow = InferSelectModel<typeof learnings>;
 export type LearningEventRow = InferSelectModel<typeof learningEvents>;
+export type UserRepoAccessRow = InferSelectModel<typeof userRepoAccess>;

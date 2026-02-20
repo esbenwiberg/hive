@@ -40,3 +40,12 @@ export async function listAll() {
     .select({ id: users.id, displayName: users.displayName })
     .from(users);
 }
+
+/**
+ * Returns all users with role info (for admin permissions page).
+ */
+export async function listAllWithRole() {
+  return db
+    .select({ id: users.id, displayName: users.displayName, role: users.role })
+    .from(users);
+}

@@ -19,11 +19,22 @@ import { getEvents } from "../../db/queries/task-events.js";
 import { getLatestByTask as getLatestReview } from "../../db/queries/code-reviews.js";
 import { previewManager } from "../../execution/preview/manager.js";
 import { cleanupWorktree } from "../../execution/worktree.js";
+import * as repoAccessQueries from "../../db/queries/user-repo-access.js";
+import type { SessionUser } from "../../domain/types.js";
 import logger from "../../logger.js";
 
 const router = Router();
 
 const HIVE_SELF_REPO = process.env.HIVE_SELF_REPO ?? "";
+
+/**
+ * Returns accessible repo IDs for a user.
+ * Admins get undefined (no filter), others get their granted list.
+ */
+async function getAccessibleRepoIds(user: SessionUser): Promise<number[] | undefined> {
+  if (user.role === "admin") return undefined;
+  return repoAccessQueries.listRepoIdsByUser(user.id);
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -58,21 +69,26 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     const filters = parseTaskFilters(req.query);
     const activeStatus = (req.query.status as string) || "";
     const user = req.session.user!;
-    const userContext = { userId: user.id, role: user.role };
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
 
     const [{ tasks }, counts, repos, userNames] = await Promise.all([
       taskQueries.list(filters, undefined, undefined, userContext),
-      taskQueries.countByStatus(),
+      taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
     ]);
 
+    // Filter repos in create form to only accessible ones
+    const filteredRepos = accessibleRepoIds
+      ? repos.filter((r) => accessibleRepoIds.includes(r.id))
+      : repos;
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
     if (req.headers["hx-request"]) {
       res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames));
     } else {
-      res.send(taskListPage(tasks, filters, counts, user, repos, userNames, HIVE_SELF_REPO));
+      res.send(taskListPage(tasks, filters, counts, user, filteredRepos, userNames, HIVE_SELF_REPO));
     }
   } catch (err) {
     next(err);
@@ -86,11 +102,12 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
     const filters = parseTaskFilters(req.query);
     const activeStatus = (req.query.status as string) || "";
     const user = req.session.user!;
-    const userContext = { userId: user.id, role: user.role };
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
 
     const [{ tasks }, counts, repos, userNames] = await Promise.all([
       taskQueries.list(filters, undefined, undefined, userContext),
-      taskQueries.countByStatus(),
+      taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
     ]);
@@ -143,6 +160,15 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       return;
     }
 
+    // Repo access check for non-admins
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, Number(repoId));
+      if (!canAccess) {
+        res.status(404).send("Repository not found");
+        return;
+      }
+    }
+
     // Admin-only self-repo check
     if (HIVE_SELF_REPO) {
       const repo = await repoQueries.getById(Number(repoId));
@@ -164,10 +190,11 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
     });
 
     // Return updated task list
-    const userContext = { userId: user.id, role: user.role };
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
     const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
       taskQueries.list({}, undefined, undefined, userContext),
-      taskQueries.countByStatus(),
+      taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
     ]);
@@ -188,6 +215,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
 router.get("/api/tasks/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
+    const user = req.session.user!;
     const [task, repos, events, latestReview, userNames] = await Promise.all([
       taskQueries.getById(id),
       repoQueries.listAll(),
@@ -198,6 +226,14 @@ router.get("/api/tasks/:id", requireAuth, async (req: Request, res: Response, ne
     if (!task) {
       res.status(404).send("Task not found");
       return;
+    }
+    // Repo access check
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
     }
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
     res.send(taskDetailPanel(task, repoNames, events, latestReview, userNames));
@@ -243,6 +279,14 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       res.status(404).send("Task not found");
       return;
     }
+    // Repo access check
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
+    }
     if (!canTransition(task.status, targetStatus)) {
       res.status(400).send(`Cannot transition from ${task.status} to ${targetStatus}`);
       return;
@@ -266,10 +310,11 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
     }
 
     // Return updated task list partial
-    const userContext = { userId: user.id, role: user.role };
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
     const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
       taskQueries.list({}, undefined, undefined, userContext),
-      taskQueries.countByStatus(),
+      taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
     ]);
@@ -309,6 +354,16 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
       return;
     }
 
+    // Repo access check
+    const user = req.session.user!;
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
+    }
+
     // Task must be in "ready" status (paused for human clarification)
     if (task.status !== "ready") {
       res.status(400).send(`Task must be in 'ready' status to submit clarification (current: ${task.status})`);
@@ -334,16 +389,16 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
     await taskQueries.updateEnrichment(id, updatedEnrichment);
 
     // Transition back to "pending" so the daemon picks it up and re-runs the pipeline
-    const user = req.session.user!;
     await taskQueries.updateStatus(id, "pending", user.id);
 
     logger.info({ taskId: id, answerCount: answers.length }, "Clarification answers submitted, task re-entering enrichment");
 
     // Return updated task list partial with toast
-    const userContext = { userId: user.id, role: user.role };
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
     const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
       taskQueries.list({}, undefined, undefined, userContext),
-      taskQueries.countByStatus(),
+      taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
     ]);
@@ -369,10 +424,18 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
 router.post("/api/tasks/:id/preview/stop", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
+    const user = req.session.user!;
     const task = await taskQueries.getById(id);
     if (!task) {
       res.status(404).send("Task not found");
       return;
+    }
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
     }
 
     const info = previewManager.getPreviewInfo(id);
@@ -407,10 +470,18 @@ router.post("/api/tasks/:id/preview/stop", requireAuth, async (req: Request, res
 router.post("/api/tasks/:id/preview/extend", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
+    const user = req.session.user!;
     const task = await taskQueries.getById(id);
     if (!task) {
       res.status(404).send("Task not found");
       return;
+    }
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
     }
 
     await previewManager.extendPreview(id);
