@@ -10,6 +10,7 @@ vi.mock("node:child_process", () => ({
 // Mock the SDK so we never call the real Anthropic API
 vi.mock("../../src/agents/sdk.js", () => ({
   callClaude: vi.fn(),
+  callClaudeWithTools: vi.fn(),
 }));
 
 // Mock cost-utils to return a deterministic cost
@@ -30,11 +31,12 @@ vi.mock("../../src/logger.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 import { execFile } from "node:child_process";
-import { callClaude } from "../../src/agents/sdk.js";
+import { callClaude, callClaudeWithTools } from "../../src/agents/sdk.js";
 import { quickVerify, reviewFix } from "../../src/execution/milestone-review.js";
 
 const mockExecFile = execFile as unknown as ReturnType<typeof vi.fn>;
 const mockCallClaude = callClaude as ReturnType<typeof vi.fn>;
+const mockCallClaudeWithTools = callClaudeWithTools as ReturnType<typeof vi.fn>;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -297,13 +299,13 @@ describe("reviewFix", () => {
       },
     );
 
-    // First callClaude: claudeFix (fixes the lint error)
-    mockCallClaude.mockResolvedValueOnce({
+    // claudeFix uses callClaudeWithTools
+    mockCallClaudeWithTools.mockResolvedValueOnce({
       text: "Fixed the lint error in src/foo.ts",
       cost: { model: "test-model", inputTokens: 200, outputTokens: 100 },
     });
 
-    // Second callClaude: claudeReview after final verify passes (on last iteration)
+    // claudeReview after final verify passes uses callClaude
     mockCallClaude.mockResolvedValueOnce({
       text: JSON.stringify({ issues: [] }),
       cost: { model: "test-model", inputTokens: 100, outputTokens: 50 },
@@ -317,8 +319,9 @@ describe("reviewFix", () => {
     );
 
     expect(result.passed).toBe(true);
-    // Claude should have been called twice: once for fix, once for final review
-    expect(mockCallClaude).toHaveBeenCalledTimes(2);
+    // callClaudeWithTools called once for fix, callClaude once for review
+    expect(mockCallClaudeWithTools).toHaveBeenCalledTimes(1);
+    expect(mockCallClaude).toHaveBeenCalledTimes(1);
     expect(result.costUsd).toBeGreaterThan(0);
   });
 
@@ -360,8 +363,8 @@ describe("reviewFix", () => {
       },
     );
 
-    // claudeFix calls (one per iteration)
-    mockCallClaude.mockResolvedValue({
+    // claudeFix calls use callClaudeWithTools (one per iteration)
+    mockCallClaudeWithTools.mockResolvedValue({
       text: "Attempted fix",
       cost: { model: "test-model", inputTokens: 200, outputTokens: 100 },
     });
@@ -379,9 +382,8 @@ describe("reviewFix", () => {
     expect(result.issues.length).toBeGreaterThan(0);
 
     // Each iteration: quickVerify fails -> claudeFix called
-    // Last iteration additionally: final quickVerify (also fails)
     // So claudeFix should be called maxIterations times
-    expect(mockCallClaude).toHaveBeenCalledTimes(maxIterations);
+    expect(mockCallClaudeWithTools).toHaveBeenCalledTimes(maxIterations);
   });
 
   it("includes Claude code review when shell passes", async () => {
@@ -412,19 +414,19 @@ describe("reviewFix", () => {
       },
     );
 
-    // Claude review finds an issue
+    // Claude review finds an issue (callClaude)
     mockCallClaude.mockResolvedValueOnce({
       text: JSON.stringify({ issues: ["Missing null check on user input"] }),
       cost: { model: "test-model", inputTokens: 150, outputTokens: 60 },
     });
 
-    // Claude fix
-    mockCallClaude.mockResolvedValueOnce({
+    // Claude fix (callClaudeWithTools)
+    mockCallClaudeWithTools.mockResolvedValueOnce({
       text: "Added null check",
       cost: { model: "test-model", inputTokens: 200, outputTokens: 100 },
     });
 
-    // Final Claude review (after final verify passes) - clean this time
+    // Final Claude review (callClaude) - clean this time
     mockCallClaude.mockResolvedValueOnce({
       text: JSON.stringify({ issues: [] }),
       cost: { model: "test-model", inputTokens: 100, outputTokens: 50 },
@@ -440,8 +442,9 @@ describe("reviewFix", () => {
     expect(result.passed).toBe(true);
     // The issue from the first Claude review should be in allIssues
     expect(result.issues).toContain("Missing null check on user input");
-    // callClaude called 3 times: review, fix, final review
-    expect(mockCallClaude).toHaveBeenCalledTimes(3);
+    // callClaude called 2 times (review + final review), callClaudeWithTools 1 time (fix)
+    expect(mockCallClaude).toHaveBeenCalledTimes(2);
+    expect(mockCallClaudeWithTools).toHaveBeenCalledTimes(1);
 
     // Verify the first callClaude was the review (system prompt contains "Review")
     const firstCall = mockCallClaude.mock.calls[0][0];

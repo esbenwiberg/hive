@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
-import { requireAuth } from "../../auth/middleware.js";
+import { requireAuth, requireRole } from "../../auth/middleware.js";
 import { getLearningById, listLearnings, getLearningStats } from "../../db/queries/learnings.js";
 import { getEventsForLearning } from "../../db/queries/learning-events.js";
 import { getConfig } from "../../domain/config.js";
@@ -37,7 +37,7 @@ function parseStringOrUndefined(value: unknown): string | undefined {
 
 // ── GET /hivemind ─ Full page ───────────────────────────────────────────────
 
-router.get("/hivemind", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/hivemind", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = req.session.user!;
 
@@ -67,7 +67,7 @@ router.get("/hivemind", requireAuth, async (req: Request, res: Response, next: N
 
 // ── GET /hivemind/learnings ─ HTMX partial for filtering/paging ─────────────
 
-router.get("/hivemind/learnings", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/hivemind/learnings", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const page = parseIntOrUndefined(req.query.page) ?? 1;
     const scope = parseStringOrUndefined(req.query.scope);
@@ -92,7 +92,7 @@ router.get("/hivemind/learnings", requireAuth, async (req: Request, res: Respons
 
 // ── GET /hivemind/learnings/:id ─ HTMX partial for learning detail ──────────
 
-router.get("/hivemind/learnings/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/hivemind/learnings/:id", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = parseInt(req.params.id as string, 10);
     if (Number.isNaN(id)) {

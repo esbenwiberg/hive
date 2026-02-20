@@ -9,6 +9,7 @@ import {
   card,
   table,
   emptyState,
+  noAccessBanner,
 } from "./components.js";
 import { layout } from "./layout.js";
 
@@ -115,13 +116,18 @@ export function dashboardPage(
   activeAgents: ActiveAgentRow[],
   user: SessionUser,
   todayCost: number = 0,
+  accessibleRepoIds?: number[],
 ): string {
+  const hasNoAccess = accessibleRepoIds !== undefined && accessibleRepoIds.length === 0;
+
   const content = `<div class="space-y-8">
   <!-- Welcome -->
   <div>
     <h2 class="text-xl font-semibold text-slate-50">Welcome back, ${escapeHtml(user.displayName)}</h2>
     <p class="mt-1 text-sm text-slate-400">Here's what's happening across your Hive tasks.</p>
   </div>
+
+  ${hasNoAccess ? noAccessBanner() : ""}
 
   <!-- Stat cards -->
   ${statsRow(stats, todayCost)}

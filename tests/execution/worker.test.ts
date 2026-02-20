@@ -367,19 +367,19 @@ describe("executeTask", () => {
 
   // ── Review fails (verdict = fail) ────────────────────────────────────────
 
-  it("fails when review verdict is fail", async () => {
+  it("sends for rework when review verdict is fail (normalized to rework)", async () => {
     const { task } = await seedApprovedTask();
     mockClaudeResponse();
-    mockReviewChanges.mockResolvedValueOnce(failReviewResult);
+    // "fail" verdict is normalized to "rework" by review-gate
+    mockReviewChanges.mockResolvedValueOnce({ ...failReviewResult, verdict: "rework" });
 
     const result = await executeTask(task.id);
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("Review gate failed");
+    expect(result.error).toBe("Sent for rework");
 
     const final = await getById(task.id);
-    expect(final!.status).toBe("failed");
-    expect(final!.failureReason).toContain("critical issues found");
+    expect(final!.status).toBe("rework");
   });
 
   // ── Worktree cleanup ─────────────────────────────────────────────────────

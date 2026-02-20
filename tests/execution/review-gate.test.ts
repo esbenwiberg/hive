@@ -264,19 +264,20 @@ describe("reviewChanges", () => {
     expect(reviews[0].verdict).toBe("rework");
   });
 
-  it("returns fail verdict with security findings", async () => {
+  it("normalizes fail verdict to rework with security findings preserved", async () => {
     const { task } = await seedReviewingTask();
     mockFailResponse();
 
     const result = await reviewChanges(task.id, sampleWorktree);
 
-    expect(result.verdict).toBe("fail");
+    // "fail" is normalized to "rework" — no terminal fail verdict
+    expect(result.verdict).toBe("rework");
     expect(result.securityFindings).toHaveLength(1);
     expect(result.securityFindings[0].type).toBe("injection");
 
     const reviews = await listCodeReviews(task.id);
     expect(reviews).toHaveLength(1);
-    expect(reviews[0].verdict).toBe("fail");
+    expect(reviews[0].verdict).toBe("rework");
   });
 
   it("registers and unregisters active agent", async () => {
@@ -406,7 +407,7 @@ describe("parseReviewResult", () => {
     expect(result.verification.notes).toContain("Review response was not valid JSON");
   });
 
-  it("defaults to rework on invalid verdict", () => {
+  it("normalizes invalid verdict to rework", () => {
     const input = JSON.stringify({
       verdict: "maybe",
       findings: [],
@@ -415,9 +416,9 @@ describe("parseReviewResult", () => {
 
     const result = parseReviewResult(input);
 
-    // Invalid verdict triggers the catch branch
+    // Any non-pass verdict is silently normalized to "rework"
     expect(result.verdict).toBe("rework");
-    expect(result.findings[0].message).toContain("Could not parse review response");
+    expect(result.findings).toHaveLength(0);
   });
 
   it("provides default verification when missing", () => {

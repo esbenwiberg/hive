@@ -2,7 +2,7 @@ import os from "node:os";
 import { execSync } from "node:child_process";
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
-import { requireAuth } from "../../auth/middleware.js";
+import { requireAuth, requireRole } from "../../auth/middleware.js";
 import type { SystemStats } from "../views/health.js";
 import { healthPage, statsPartial } from "../views/health.js";
 
@@ -56,7 +56,7 @@ function getStats(): SystemStats {
 
 // ── GET /health ─ Full page ─────────────────────────────────────────────────
 
-router.get("/health", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/health", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const stats = getStats();
     res.send(healthPage(stats, req.session.user!));
@@ -67,7 +67,7 @@ router.get("/health", requireAuth, async (req: Request, res: Response, next: Nex
 
 // ── GET /health/stats ─ HTMX partial for auto-refresh ──────────────────────
 
-router.get("/health/stats", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/health/stats", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const stats = getStats();
     res.send(statsPartial(stats));

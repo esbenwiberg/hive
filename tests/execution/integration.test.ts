@@ -6,6 +6,7 @@ import { cleanupTables, useTestDb } from "../setup.js";
 // Mock the SDK so we never call the real Anthropic API
 vi.mock("../../src/agents/sdk.js", () => ({
   callClaude: vi.fn(),
+  callClaudeWithTools: vi.fn(),
 }));
 
 // Mock db/connection.js so queries use our test database
@@ -91,9 +92,29 @@ vi.mock("../../src/agents/decomposer.js", () => ({
   decomposeEpic: vi.fn(),
 }));
 
+// Mock worker-tools so we don't need real filesystem/exec
+vi.mock("../../src/execution/worker-tools.js", () => ({
+  WORKER_TOOLS: [],
+  createWorktreeToolExecutor: vi.fn(() => vi.fn()),
+}));
+
+// Mock hive-yaml parser
+vi.mock("../../src/hive-yaml.js", () => ({
+  parseHiveYaml: vi.fn().mockReturnValue(null),
+}));
+
+// Mock preview manager
+vi.mock("../../src/execution/preview/manager.js", () => ({
+  previewManager: {
+    startPreview: vi.fn(),
+    getPreviewInfo: vi.fn().mockReturnValue(undefined),
+    stopPreview: vi.fn(),
+  },
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
-const { callClaude } = await import("../../src/agents/sdk.js");
+const { callClaude, callClaudeWithTools } = await import("../../src/agents/sdk.js");
 const { runPipeline } = await import("../../src/agents/pipeline.js");
 const { findOrCreateByEntraOid } = await import(
   "../../src/db/queries/users.js"
@@ -110,6 +131,7 @@ const { decomposeEpic } = await import("../../src/agents/decomposer.js");
 import type { ReviewGateResult, WorktreeInfo } from "../../src/domain/types.js";
 
 const mockCallClaude = callClaude as ReturnType<typeof vi.fn>;
+const mockCallClaudeWithTools = callClaudeWithTools as ReturnType<typeof vi.fn>;
 const mockDecomposeEpic = decomposeEpic as ReturnType<typeof vi.fn>;
 
 useTestDb();
@@ -188,13 +210,14 @@ function mockGateApproveResponse() {
 }
 
 function mockWorkerResponse() {
-  mockCallClaude.mockResolvedValueOnce({
+  mockCallClaudeWithTools.mockResolvedValueOnce({
     text: "Implementation complete. Files changed: src/auth.ts",
     cost: {
       model: "claude-sonnet-4-20250514",
       inputTokens: 2000,
       outputTokens: 500,
     },
+    turns: 3,
   });
 }
 
@@ -276,8 +299,9 @@ describe("Pipeline integration: pending to done", () => {
     expect(final!.status).toBe("done");
     expect(final!.prUrl).toBe("https://github.com/acme/widget/pull/42");
 
-    // 3 calls: router + gate + worker
-    expect(mockCallClaude).toHaveBeenCalledTimes(3);
+    // 2 callClaude calls (router + gate), 1 callClaudeWithTools (worker)
+    expect(mockCallClaude).toHaveBeenCalledTimes(2);
+    expect(mockCallClaudeWithTools).toHaveBeenCalledTimes(1);
 
     // Verify gate decision was recorded
     const { gateDecisions } = await import("../../src/db/schema.js");

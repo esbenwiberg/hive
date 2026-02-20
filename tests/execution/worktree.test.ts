@@ -45,6 +45,12 @@ vi.mock("node:fs/promises", () => ({
   rm: mockRm,
 }));
 
+// Mock node:child_process for git config calls in createWorktree
+const mockExecFile = vi.fn();
+vi.mock("node:child_process", () => ({
+  execFile: mockExecFile,
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 const { resolveGitCredentials, createWorktree, cleanupWorktree } = await import(
@@ -122,6 +128,14 @@ describe("createWorktree", () => {
     mockMkdir.mockResolvedValue(undefined);
     mockClone.mockResolvedValue(undefined);
     mockCreateBranch.mockResolvedValue(undefined);
+
+    // Mock execFile for git config calls (promisified pattern)
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], _opts: unknown, callback?: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+        const cb = callback ?? (_opts as (err: Error | null, result: { stdout: string; stderr: string }) => void);
+        cb(null, { stdout: "", stderr: "" });
+      },
+    );
   });
 
   it("calls clone and createBranch with correct args", async () => {

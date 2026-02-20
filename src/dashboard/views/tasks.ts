@@ -15,6 +15,7 @@ import {
   table,
   pipelineSteps,
   emptyState,
+  noAccessBanner,
 } from "./components.js";
 import { layout } from "./layout.js";
 
@@ -773,15 +774,17 @@ export function taskListPage(
   repos: RepoRow[] = [],
   userNames: Map<number, string> = new Map(),
   selfRepoFullName?: string,
+  accessibleRepoIds?: number[],
 ): string {
   const activeStatus = filters?.statuses?.length ? "attention" : (filters?.status ?? "");
+  const hasNoAccess = accessibleRepoIds !== undefined && accessibleRepoIds.length === 0;
 
   const header = `<div class="mb-6 flex items-center justify-between">
   <div>
     <h2 class="text-xl font-semibold text-slate-50">Tasks</h2>
     <p class="mt-1 text-sm text-slate-400">Manage and monitor all Hive tasks</p>
   </div>
-  ${button("New Task", {
+  ${hasNoAccess ? "" : button("New Task", {
     attrs:
       'onclick="document.getElementById(\'create-panel\').classList.remove(\'translate-x-full\')"',
   })}
@@ -789,7 +792,7 @@ export function taskListPage(
 
   const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
-  const content = `${header}
+  const content = `${hasNoAccess ? noAccessBanner() + "\n" : ""}${header}
 <div id="task-list">
   ${taskListPartial(tasks, counts, activeStatus, repoNames, userNames)}
 </div>

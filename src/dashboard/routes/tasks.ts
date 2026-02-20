@@ -88,7 +88,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     if (req.headers["hx-request"]) {
       res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames));
     } else {
-      res.send(taskListPage(tasks, filters, counts, user, filteredRepos, userNames, HIVE_SELF_REPO));
+      res.send(taskListPage(tasks, filters, counts, user, filteredRepos, userNames, HIVE_SELF_REPO, accessibleRepoIds));
     }
   } catch (err) {
     next(err);

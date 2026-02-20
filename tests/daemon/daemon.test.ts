@@ -149,6 +149,12 @@ vi.mock("../../src/daemon/preview-cleanup.js", () => ({
   cleanupExpiredPreviews: mockCleanupExpiredPreviews,
 }));
 
+// Mock PR close cleanup (also imports previewManager transitively)
+const mockCleanupClosedPRPreviews = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../src/daemon/pr-close-cleanup.js", () => ({
+  cleanupClosedPRPreviews: mockCleanupClosedPRPreviews,
+}));
+
 // Mock git cloning (used by producer clone-before-run)
 const mockResolveGitCredentials = vi.fn().mockResolvedValue({ provider: "github", token: "mock-token" });
 vi.mock("../../src/execution/worktree.js", () => ({

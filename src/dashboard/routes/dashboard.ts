@@ -31,7 +31,7 @@ router.get("/", requireAuth, async (req: Request, res: Response, next: NextFunct
       getTodayTotalGlobal(),
     ]);
 
-    res.send(dashboardPage(counts, recentTasks, agents, user, todayCost));
+    res.send(dashboardPage(counts, recentTasks, agents, user, todayCost, accessibleRepoIds));
   } catch (err) {
     next(err);
   }

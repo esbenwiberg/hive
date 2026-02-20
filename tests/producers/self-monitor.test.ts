@@ -9,6 +9,12 @@ vi.mock("../../src/db/connection.js", async () => {
   return { db: setup.db, pool: setup.pool };
 });
 
+// Mock the log buffer so we can inject entries
+const mockGetRecent = vi.fn().mockReturnValue([]);
+vi.mock("../../src/log-buffer.js", () => ({
+  logBuffer: { getRecent: mockGetRecent },
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 const { SelfMonitorProducer } = await import(
@@ -19,9 +25,6 @@ const { findOrCreateByEntraOid } = await import(
 );
 const { findOrCreate: findOrCreateRepo } = await import(
   "../../src/db/queries/repos.js"
-);
-const { create: createTask, updateStatus } = await import(
-  "../../src/db/queries/tasks.js"
 );
 
 useTestDb();
@@ -38,36 +41,36 @@ async function seedUserAndRepo() {
   return { user, repo };
 }
 
+function makeErrorEntry(msg: string, time?: number, extras?: Partial<{ err: string; taskId: string }>) {
+  return {
+    level: 50,
+    levelLabel: "error",
+    time: time ?? Date.now(),
+    msg,
+    component: "app",
+    ...extras,
+    raw: JSON.stringify({ level: 50, msg }),
+  };
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SelfMonitorProducer", () => {
   beforeEach(async () => {
     await cleanupTables();
+    vi.clearAllMocks();
   });
 
-  it("creates a task for a task stuck in executing status", async () => {
+  it("creates a task for recurring error patterns in log buffer", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new SelfMonitorProducer();
 
-    // Create a task and move it to 'executing' status
-    const task = await createTask({
-      title: "Stuck task",
-      body: "body",
-      source: "manual",
-      repoId: repo.id,
-      createdBy: user.id,
-    });
-    await updateStatus(task.id, "queued");
-    await updateStatus(task.id, "enriching");
-    await updateStatus(task.id, "ready");
-    await updateStatus(task.id, "approved");
-    await updateStatus(task.id, "executing");
-
-    // Set updatedAt to 60 minutes ago via raw SQL
-    const sixtyMinutesAgo = new Date(Date.now() - 60 * 60 * 1000);
-    await db.execute(
-      sql`UPDATE tasks SET updated_at = ${sixtyMinutesAgo.toISOString()} WHERE id = ${task.id}`,
-    );
+    const now = Date.now();
+    // Two occurrences of the same error message within the last hour
+    mockGetRecent.mockReturnValue([
+      makeErrorEntry("Connection timeout to database", now - 30_000),
+      makeErrorEntry("Connection timeout to database", now - 10_000),
+    ]);
 
     const result = await producer.run({
       repoId: repo.id,
@@ -86,31 +89,16 @@ describe("SelfMonitorProducer", () => {
 
     expect(created).toHaveLength(1);
     expect(created[0].source).toBe("producer:self-monitor");
-    expect(created[0].title).toBe(
-      `Self-monitor: task ${task.id} stuck in executing`,
-    );
+    expect(created[0].title).toContain("Recurring error:");
     expect(created[0].type).toBe("bug");
   });
 
-  it("does not flag tasks that were recently updated", async () => {
+  it("does not create tasks when no recent errors", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new SelfMonitorProducer();
 
-    // Create a task in 'executing' but with recent updatedAt
-    const task = await createTask({
-      title: "Active task",
-      body: "body",
-      source: "manual",
-      repoId: repo.id,
-      createdBy: user.id,
-    });
-    await updateStatus(task.id, "queued");
-    await updateStatus(task.id, "enriching");
-    await updateStatus(task.id, "ready");
-    await updateStatus(task.id, "approved");
-    await updateStatus(task.id, "executing");
-
-    // updatedAt is now (just set by updateStatus), so it should NOT be considered stuck
+    // No errors in the buffer
+    mockGetRecent.mockReturnValue([]);
 
     const result = await producer.run({
       repoId: repo.id,
@@ -121,25 +109,13 @@ describe("SelfMonitorProducer", () => {
     expect(result.tasksCreated).toBe(0);
   });
 
-  it("detects tasks stuck in enriching status", async () => {
+  it("ignores single occurrences (needs 2+ to trigger)", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new SelfMonitorProducer();
 
-    const task = await createTask({
-      title: "Enriching task",
-      body: "body",
-      source: "manual",
-      repoId: repo.id,
-      createdBy: user.id,
-    });
-    await updateStatus(task.id, "queued");
-    await updateStatus(task.id, "enriching");
-
-    // Set updatedAt to 60 minutes ago
-    const sixtyMinutesAgo = new Date(Date.now() - 60 * 60 * 1000);
-    await db.execute(
-      sql`UPDATE tasks SET updated_at = ${sixtyMinutesAgo.toISOString()} WHERE id = ${task.id}`,
-    );
+    mockGetRecent.mockReturnValue([
+      makeErrorEntry("Unique error", Date.now() - 5_000),
+    ]);
 
     const result = await producer.run({
       repoId: repo.id,
@@ -147,31 +123,19 @@ describe("SelfMonitorProducer", () => {
       createdBy: user.id,
     });
 
-    expect(result.tasksCreated).toBe(1);
-    expect(result.errors).toHaveLength(0);
+    expect(result.tasksCreated).toBe(0);
   });
 
   it("skips duplicate stuck-task alerts", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new SelfMonitorProducer();
 
-    const task = await createTask({
-      title: "Stuck task",
-      body: "body",
-      source: "manual",
-      repoId: repo.id,
-      createdBy: user.id,
-    });
-    await updateStatus(task.id, "queued");
-    await updateStatus(task.id, "enriching");
-    await updateStatus(task.id, "ready");
-    await updateStatus(task.id, "approved");
-    await updateStatus(task.id, "executing");
-
-    const sixtyMinutesAgo = new Date(Date.now() - 60 * 60 * 1000);
-    await db.execute(
-      sql`UPDATE tasks SET updated_at = ${sixtyMinutesAgo.toISOString()} WHERE id = ${task.id}`,
-    );
+    const now = Date.now();
+    const entries = [
+      makeErrorEntry("Recurring db error", now - 30_000),
+      makeErrorEntry("Recurring db error", now - 10_000),
+    ];
+    mockGetRecent.mockReturnValue(entries);
 
     const ctx = {
       repoId: repo.id,

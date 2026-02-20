@@ -9,6 +9,12 @@ vi.mock("../../src/db/connection.js", async () => {
   return { db: setup.db, pool: setup.pool };
 });
 
+// Mock azure-monitor so we don't make real HTTP requests
+const mockRunKqlQuery = vi.fn().mockResolvedValue([]);
+vi.mock("../../src/integrations/azure-monitor.js", () => ({
+  runKqlQuery: mockRunKqlQuery,
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 const { LogScannerProducer } = await import(
@@ -19,9 +25,6 @@ const { findOrCreateByEntraOid } = await import(
 );
 const { findOrCreate: findOrCreateRepo } = await import(
   "../../src/db/queries/repos.js"
-);
-const { create: createTask, updateStatus } = await import(
-  "../../src/db/queries/tasks.js"
 );
 
 useTestDb();
@@ -43,57 +46,32 @@ async function seedUserAndRepo() {
 describe("LogScannerProducer", () => {
   beforeEach(async () => {
     await cleanupTables();
+    vi.clearAllMocks();
   });
 
   it("creates a task for recurring failures with the same prefix", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new LogScannerProducer();
 
-    // Create two failed tasks with the same failureReason prefix
-    const failureReason = "Connection timeout to database server at 10.0.0.1";
-
-    const t1 = await createTask({
-      title: "Task A",
-      body: "body",
-      source: "manual",
-      repoId: repo.id,
-      createdBy: user.id,
-    });
-    // Move to failed: pending -> queued -> enriching -> ready -> approved -> executing -> failed
-    await updateStatus(t1.id, "queued");
-    await updateStatus(t1.id, "enriching");
-    await updateStatus(t1.id, "ready");
-    await updateStatus(t1.id, "approved");
-    await updateStatus(t1.id, "executing");
-    await updateStatus(t1.id, "failed");
-    // Set failureReason via raw SQL
-    await db
-      .update(tasks)
-      .set({ failureReason })
-      .where(sql`${tasks.id} = ${t1.id}`);
-
-    const t2 = await createTask({
-      title: "Task B",
-      body: "body",
-      source: "manual",
-      repoId: repo.id,
-      createdBy: user.id,
-    });
-    await updateStatus(t2.id, "queued");
-    await updateStatus(t2.id, "enriching");
-    await updateStatus(t2.id, "ready");
-    await updateStatus(t2.id, "approved");
-    await updateStatus(t2.id, "executing");
-    await updateStatus(t2.id, "failed");
-    await db
-      .update(tasks)
-      .set({ failureReason })
-      .where(sql`${tasks.id} = ${t2.id}`);
+    // Mock KQL returning a recurring error pattern
+    mockRunKqlQuery.mockResolvedValueOnce([
+      {
+        msg: "Connection timeout to database server at 10.0.0.1",
+        hitCount: 5,
+        firstSeen: "2026-02-20T05:00:00Z",
+        lastSeen: "2026-02-20T05:50:00Z",
+        sampleErr: "ECONNREFUSED",
+        sampleTaskId: null,
+      },
+    ]);
+    // Second KQL call (system issues) returns empty
+    mockRunKqlQuery.mockResolvedValueOnce([]);
 
     const result = await producer.run({
       repoId: repo.id,
       repoFullName: "acme/widget",
       createdBy: user.id,
+      config: { workspaceId: "test-workspace-id" },
     });
 
     expect(result.tasksCreated).toBe(1);
@@ -107,36 +85,21 @@ describe("LogScannerProducer", () => {
 
     expect(created).toHaveLength(1);
     expect(created[0].source).toBe("producer:log-scanner");
-    expect(created[0].title).toContain("Investigate recurring failure:");
+    expect(created[0].title).toContain("Recurring error:");
   });
 
   it("does not create tasks for single failures", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new LogScannerProducer();
 
-    // Only one failed task
-    const t1 = await createTask({
-      title: "Task A",
-      body: "body",
-      source: "manual",
-      repoId: repo.id,
-      createdBy: user.id,
-    });
-    await updateStatus(t1.id, "queued");
-    await updateStatus(t1.id, "enriching");
-    await updateStatus(t1.id, "ready");
-    await updateStatus(t1.id, "approved");
-    await updateStatus(t1.id, "executing");
-    await updateStatus(t1.id, "failed");
-    await db
-      .update(tasks)
-      .set({ failureReason: "Unique error" })
-      .where(sql`${tasks.id} = ${t1.id}`);
+    // KQL returns empty (no patterns with 2+ hits)
+    mockRunKqlQuery.mockResolvedValue([]);
 
     const result = await producer.run({
       repoId: repo.id,
       repoFullName: "acme/widget",
       createdBy: user.id,
+      config: { workspaceId: "test-workspace-id" },
     });
 
     expect(result.tasksCreated).toBe(0);
@@ -146,40 +109,31 @@ describe("LogScannerProducer", () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new LogScannerProducer();
 
-    const failureReason = "Null pointer exception in UserService.getUser()";
-
-    // Create two failed tasks
-    for (const title of ["Task X", "Task Y"]) {
-      const t = await createTask({
-        title,
-        body: "body",
-        source: "manual",
-        repoId: repo.id,
-        createdBy: user.id,
-      });
-      await updateStatus(t.id, "queued");
-      await updateStatus(t.id, "enriching");
-      await updateStatus(t.id, "ready");
-      await updateStatus(t.id, "approved");
-      await updateStatus(t.id, "executing");
-      await updateStatus(t.id, "failed");
-      await db
-        .update(tasks)
-        .set({ failureReason })
-        .where(sql`${tasks.id} = ${t.id}`);
-    }
+    const kqlRow = {
+      msg: "Null pointer exception in UserService.getUser()",
+      hitCount: 3,
+      firstSeen: "2026-02-20T05:00:00Z",
+      lastSeen: "2026-02-20T05:50:00Z",
+      sampleErr: null,
+      sampleTaskId: null,
+    };
 
     const ctx = {
       repoId: repo.id,
       repoFullName: "acme/widget",
       createdBy: user.id,
+      config: { workspaceId: "test-workspace-id" },
     };
 
-    // First run creates the task
+    // First run: KQL returns pattern, system issues empty
+    mockRunKqlQuery.mockResolvedValueOnce([kqlRow]);
+    mockRunKqlQuery.mockResolvedValueOnce([]);
     const first = await producer.run(ctx);
     expect(first.tasksCreated).toBe(1);
 
-    // Second run skips as duplicate
+    // Second run: same pattern returned
+    mockRunKqlQuery.mockResolvedValueOnce([kqlRow]);
+    mockRunKqlQuery.mockResolvedValueOnce([]);
     const second = await producer.run(ctx);
     expect(second.tasksCreated).toBe(0);
     expect(second.duplicatesSkipped).toBe(1);

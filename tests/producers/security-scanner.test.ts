@@ -75,7 +75,7 @@ describe("SecurityScannerProducer", () => {
     const producer = new SecurityScannerProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "XSS vulnerability in comment rendering\nInsecure direct object reference in /api/users/:id\nMissing CSRF token validation",
+      text: "## XSS vulnerability in comment rendering\nDetails about XSS\n## Insecure direct object reference in /api/users/:id\nDetails about IDOR\n## Missing CSRF token validation\nDetails about CSRF",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 200, outputTokens: 60 },
     });
 
@@ -101,7 +101,7 @@ describe("SecurityScannerProducer", () => {
     const producer = new SecurityScannerProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "Finding 1\nFinding 2\nFinding 3\nFinding 4\nFinding 5\nFinding 6",
+      text: "## Finding 1\nd\n## Finding 2\nd\n## Finding 3\nd\n## Finding 4\nd\n## Finding 5\nd\n## Finding 6\nd",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 200, outputTokens: 60 },
     });
 
@@ -115,7 +115,7 @@ describe("SecurityScannerProducer", () => {
     const producer = new SecurityScannerProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "XSS in comments\nCSRF missing",
+      text: "## XSS in comments\nDetails\n## CSRF missing\nDetails",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 200, outputTokens: 40 },
     });
 

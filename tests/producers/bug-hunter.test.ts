@@ -78,7 +78,7 @@ describe("BugHunterProducer", () => {
     const producer = new BugHunterProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "Race condition in auth middleware\nMemory leak in WebSocket handler\nSQL injection in search endpoint",
+      text: "## Race condition in auth middleware\nDetails about race condition\n## Memory leak in WebSocket handler\nDetails about memory leak\n## SQL injection in search endpoint\nDetails about SQL injection",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 50 },
     });
 
@@ -102,7 +102,7 @@ describe("BugHunterProducer", () => {
     const producer = new BugHunterProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "Bug 1\nBug 2\nBug 3\nBug 4\nBug 5\nBug 6\nBug 7",
+      text: "## Bug 1\nd\n## Bug 2\nd\n## Bug 3\nd\n## Bug 4\nd\n## Bug 5\nd\n## Bug 6\nd\n## Bug 7\nd",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 50 },
     });
 
@@ -116,7 +116,7 @@ describe("BugHunterProducer", () => {
     const producer = new BugHunterProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "Race condition in auth\nMemory leak in WS",
+      text: "## Race condition in auth\nDetails\n## Memory leak in WS\nDetails",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 50 },
     });
 
@@ -153,7 +153,7 @@ describe("BugHunterProducer", () => {
     const producer = new BugHunterProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: "Race condition in auth middleware\nI don't have the ability to directly analyze external repositories\nMemory leak in WS handler",
+      text: "## Race condition in auth middleware\nDetails\n## I don't have the ability to directly analyze external repositories\nRefusal text\n## Memory leak in WS handler\nDetails",
       cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 50 },
     });
 

@@ -344,3 +344,16 @@ export function emptyState(message: string, actionHtml?: string): string {
   ${action}
 </div>`;
 }
+
+/** Banner shown to non-admin users who have no repository access. */
+export function noAccessBanner(): string {
+  return `<div class="flex items-start gap-3 rounded-lg border border-amber-400/30 bg-amber-400/5 px-4 py-3">
+  <svg class="mt-0.5 h-5 w-5 shrink-0 text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+  </svg>
+  <div>
+    <p class="text-sm font-medium text-amber-400">No repository access</p>
+    <p class="mt-0.5 text-sm text-slate-400">You don't have access to any repositories yet. Ask a team admin to grant you permissions.</p>
+  </div>
+</div>`;
+}

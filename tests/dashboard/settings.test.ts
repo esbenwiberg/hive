@@ -34,6 +34,20 @@ const mockConfig: AutonomousConfig = {
     { name: "style-guide", enabled: true },
     { name: "codebase-context", enabled: false },
   ],
+  clarification: { mode: "human" },
+  preview: {
+    enabled: true,
+    max_concurrent: 3,
+    cleanup_timeout_minutes: 30,
+    docker_host: {
+      ip: "",
+      port: 2376,
+      tls_cert_vault_secret: "docker-tls-cert",
+      tls_key_vault_secret: "docker-tls-key",
+      tls_ca_vault_secret: "docker-tls-ca",
+    },
+    port_range: [4001, 4099],
+  },
 };
 
 const mockRepos: RepoRow[] = [
@@ -136,20 +150,10 @@ describe("globalSettingsPartial", () => {
     expect(html).toContain('value="25"');
   });
 
-  it("renders enrichers with checkbox toggles", () => {
+  it("renders clarification mode select", () => {
     const html = globalSettingsPartial(mockConfig);
-    expect(html).toContain("style-guide");
-    expect(html).toContain("codebase-context");
-    expect(html).toContain('name="enricher_style-guide"');
-    expect(html).toContain('name="enricher_codebase-context"');
-    // style-guide is enabled, so its checkbox should be checked
-    expect(html).toContain('name="enricher_style-guide" value="true" checked');
-  });
-
-  it("renders empty enrichers message when none configured", () => {
-    const configNoEnrichers = { ...mockConfig, enrichers: [] };
-    const html = globalSettingsPartial(configNoEnrichers);
-    expect(html).toContain("No enrichers configured");
+    expect(html).toContain("Clarification");
+    expect(html).toContain("clarificationMode");
   });
 });
 
@@ -188,9 +192,11 @@ describe("repoSettingsPartial", () => {
     expect(html).toContain("10");
   });
 
-  it("renders 'using global defaults' for repo without overrides", () => {
+  it("renders repo card for repo without overrides", () => {
     const html = repoSettingsPartial(mockRepos);
-    expect(html).toContain("No per-repo overrides");
+    // All repos get a full card with forms even without overrides
+    expect(html).toContain("acme/backend");
+    expect(html).toContain("develop");
   });
 });
 
@@ -220,7 +226,7 @@ describe("repoSettingsCard", () => {
 
   it("renders form fields for gate mode, per-task max, daily budget", () => {
     const html = repoSettingsCard(mockRepos[0]);
-    expect(html).toContain("Gate Mode Override");
+    expect(html).toContain("Gate Mode");
     expect(html).toContain("Per-Task Budget");
     expect(html).toContain("Daily Budget");
   });
@@ -230,14 +236,14 @@ describe("repoSettingsCard", () => {
     expect(html).toContain("Save");
   });
 
-  it("renders producer toggles section with all five producers", () => {
+  it("renders producer toggles section with four per-repo producers", () => {
     const html = repoSettingsCard(mockRepos[0]);
     expect(html).toContain("Producers");
     expect(html).toContain("log-scanner");
     expect(html).toContain("bug-hunter");
     expect(html).toContain("security-scanner");
     expect(html).toContain("feature-scout");
-    expect(html).toContain("self-monitor");
+    // self-monitor is a global producer, not per-repo
   });
 
   it("renders producer checkbox form fields with correct names", () => {

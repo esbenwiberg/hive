@@ -66,8 +66,8 @@ describe("canTransition", () => {
     expect(canTransition("rejected", "pending")).toBe(false);
   });
 
-  it("disallows cancelled -> anything", () => {
-    expect(canTransition("cancelled", "pending")).toBe(false);
+  it("allows cancelled -> pending (retry)", () => {
+    expect(canTransition("cancelled", "pending")).toBe(true);
   });
 
   it("allows failed -> pending (retry)", () => {
@@ -161,11 +161,12 @@ describe("getAvailableActions", () => {
     expect(actions[0].label).toBe("Merge");
   });
 
-  it("returns retry for failed", () => {
+  it("returns retry and archive for failed", () => {
     const actions = getAvailableActions("failed");
-    expect(actions).toHaveLength(1);
-    expect(actions[0].action).toBe("retry");
-    expect(actions[0].targetStatus).toBe("pending");
+    expect(actions).toHaveLength(2);
+    const actionNames = actions.map((a) => a.action);
+    expect(actionNames).toContain("retry");
+    expect(actionNames).toContain("archive");
   });
 
   it("returns empty array for merged (terminal state)", () => {
@@ -176,8 +177,11 @@ describe("getAvailableActions", () => {
     expect(getAvailableActions("rejected")).toEqual([]);
   });
 
-  it("returns empty array for cancelled (terminal state)", () => {
-    expect(getAvailableActions("cancelled")).toEqual([]);
+  it("returns retry for cancelled", () => {
+    const actions = getAvailableActions("cancelled");
+    expect(actions).toHaveLength(1);
+    expect(actions[0].action).toBe("retry");
+    expect(actions[0].targetStatus).toBe("pending");
   });
 
   it("returns resume, cancel for suspended", () => {

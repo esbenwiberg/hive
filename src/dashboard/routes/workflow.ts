@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
-import { requireAuth } from "../../auth/middleware.js";
+import { requireAuth, requireRole } from "../../auth/middleware.js";
 import { db } from "../../db/connection.js";
 import { tasks } from "../../db/schema.js";
 import { notInArray, eq, desc } from "drizzle-orm";
@@ -12,7 +12,7 @@ const TERMINAL_STATUSES = ["done", "merged", "failed", "rejected", "cancelled"];
 
 // ── GET /workflow ─ Full workflow page ────────────────────────────────────────
 
-router.get("/workflow", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/workflow", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = req.session.user!;
 
@@ -30,7 +30,7 @@ router.get("/workflow", requireAuth, async (req: Request, res: Response, next: N
 
 // ── GET /api/workflow/pipeline ─ HTMX partial for pipeline status ────────────
 
-router.get("/api/workflow/pipeline", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/api/workflow/pipeline", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const taskId = req.query.taskId as string | undefined;
 
