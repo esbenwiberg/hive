@@ -426,6 +426,32 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
   }
 });
 
+// ── DELETE /settings/repos/:id ─ Delete a repo and all dependent data ──────
+
+router.delete("/settings/repos/:id", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const repoId = Number(req.params.id);
+    if (Number.isNaN(repoId)) {
+      res.status(400).send("Invalid repo id");
+      return;
+    }
+
+    const deleted = await repoQueries.deleteById(repoId);
+    if (!deleted) {
+      res.status(404).send("Repo not found");
+      return;
+    }
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: "Repo deleted", type: "success" } }),
+    );
+    res.send("");
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── POST /settings/repos ─ Create a new repo ───────────────────────────────
 
 router.post("/settings/repos", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {

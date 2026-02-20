@@ -348,7 +348,8 @@ export function repoSettingsCard(repo: RepoRow): string {
       </div>`;
       })()}
     </div>
-    <div class="flex justify-end">
+    <div class="flex justify-end gap-2">
+      ${button("Delete", { variant: "danger", attrs: `type="button" hx-delete="/settings/repos/${safeId}" hx-target="#repo-card-${safeId}" hx-swap="outerHTML" hx-confirm="Delete this repo and all its tasks? This cannot be undone."` })}
       ${button("Save", { variant: "primary", attrs: `type="submit"` })}
     </div>
   </form>`;
