@@ -167,7 +167,7 @@ export async function applyMonthlyDecay(): Promise<number> {
 
 /**
  * Archives stale learnings by setting supersededBy = -1 (self-archived sentinel)
- * for learnings with low confidence and few reinforcements.
+ * for learnings with low confidence, few reinforcements, and unused for 30+ days.
  * Returns count of affected rows.
  */
 export async function archiveStale(): Promise<number> {
@@ -179,6 +179,7 @@ export async function archiveStale(): Promise<number> {
         sql`${learnings.confidence} < 0.2`,
         sql`${learnings.reinforcements} < 3`,
         isNull(learnings.supersededBy),
+        sql`(${learnings.lastUsedAt} is null or ${learnings.lastUsedAt} < now() - interval '30 days')`,
       ),
     )
     .returning({ id: learnings.id });
