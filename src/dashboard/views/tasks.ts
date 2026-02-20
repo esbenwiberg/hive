@@ -96,6 +96,13 @@ function formatCost(cost?: number): string {
   return `<span class="text-slate-300">$${cost.toFixed(3)}</span>`;
 }
 
+function estimatedCost(task: TaskRow): number | undefined {
+  const enrichment = task.enrichment as Record<string, unknown> | null;
+  if (!enrichment?.scorer) return undefined;
+  const scorer = enrichment.scorer as ScorerData;
+  return scorer.costEstimate?.totalUsd;
+}
+
 // ── Task table ──────────────────────────────────────────────────────────────
 
 function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNames: Map<number, string> = new Map()): string {
@@ -109,7 +116,7 @@ function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNa
     );
   }
 
-  const headers = ["ID", "Title", "Status", "Score", "Cost", "Repo", "Creator", "Updated", "Actions"];
+  const headers = ["ID", "Title", "Status", "Score", "Est. Cost", "Actual", "Repo", "Creator", "Updated", "Actions"];
 
   const rows = tasks.map((t) => {
     const id = `<span class="font-mono text-xs text-slate-400 cursor-pointer"
@@ -120,7 +127,8 @@ function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNa
     const title = `<span class="text-slate-50 font-medium">${escapeHtml(t.title)}</span>`;
     const status = statusBadge(t.status);
     const score = scorerInlineBadges(t) || `<span class="text-slate-600">-</span>`;
-    const cost = formatCost(t.totalCost);
+    const estCost = formatCost(estimatedCost(t));
+    const actualCost = formatCost(t.totalCost);
     const repoLabel = repoNames.get(t.repoId) ?? `#${t.repoId}`;
     const repo = `<span class="text-xs text-slate-400">${escapeHtml(repoLabel)}</span>`;
     const creator = `<span class="text-xs text-slate-400">${escapeHtml(creatorLabel(t, userNames))}</span>`;
@@ -133,7 +141,7 @@ function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNa
       hx-target="#detail-panel"
       hx-swap="innerHTML">View</button>`;
 
-    return [id, title, status, score, cost, repo, creator, updated, viewBtn];
+    return [id, title, status, score, estCost, actualCost, repo, creator, updated, viewBtn];
   });
 
   // Build table manually for row-level data attributes
@@ -919,7 +927,7 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     ? `<div class="mt-4 rounded-lg bg-slate-900 p-4 text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(task.body)}</div>`
     : "";
 
-  return `<div class="fixed inset-y-0 right-0 z-40 w-[480px] border-l border-slate-700 bg-slate-800 shadow-xl overflow-y-auto">
+  return `<div class="fixed inset-y-0 right-0 z-40 w-[600px] border-l border-slate-700 bg-slate-800 shadow-xl overflow-y-auto">
   <!-- Header -->
   <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-700 bg-slate-800 px-6 py-4">
     <div class="min-w-0 flex-1">
@@ -938,7 +946,7 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     <!-- Pipeline visualization -->
     <div>
       <h4 class="text-sm font-medium text-slate-400 mb-3">Pipeline</h4>
-      <div class="cursor-pointer group" onclick="document.getElementById('pipeline-dialog').classList.remove('hidden')" title="Click to view full pipeline">
+      <div class="cursor-pointer group" onclick="var d=document.getElementById('pipeline-dialog');document.body.appendChild(d);d.classList.remove('hidden')" title="Click to view full pipeline">
         ${pipelineSteps(task.status)}
         <p class="mt-1 text-center text-xs text-slate-600 group-hover:text-slate-400 transition-colors">Click to view full pipeline</p>
       </div>
