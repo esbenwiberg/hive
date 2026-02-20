@@ -21,6 +21,19 @@ vi.mock("../../src/logger.js", () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("../../src/db/connection.js", () => ({
+  db: {},
+  pool: {},
+}));
+
+vi.mock("../../src/db/queries/learnings.js", () => ({
+  retrieveRelevantLearnings: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../../src/db/queries/repos.js", () => ({
+  getById: vi.fn().mockResolvedValue(null),
+}));
+
 import { callClaude } from "../../src/agents/sdk.js";
 import { architectEnricher, parseBlueprint } from "../../src/enrichers/architect.js";
 import type { TaskRow } from "../../src/db/schema.js";

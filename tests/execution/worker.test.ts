@@ -82,6 +82,7 @@ const mockGitProvider = {
   commitAll: vi.fn(),
   push: vi.fn(),
   createPR: vi.fn(),
+  commentOnPR: vi.fn(),
 };
 
 vi.mock("../../src/execution/git-provider.js", () => ({
@@ -104,6 +105,11 @@ vi.mock("../../src/agents/refiner.js", () => ({
 const mockParseHiveYaml = vi.fn();
 vi.mock("../../src/hive-yaml.js", () => ({
   parseHiveYaml: mockParseHiveYaml,
+}));
+
+// Mock browser validator (dynamically imported by worker during preview)
+vi.mock("../../src/agents/browser-validator.js", () => ({
+  validateWithBrowser: vi.fn().mockResolvedValue({ verdict: "pass", findings: [], costUsd: 0 }),
 }));
 
 // Mock preview manager

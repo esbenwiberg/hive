@@ -37,6 +37,14 @@ const mockConfig = {
     outputCostPerM: 15,
   },
   enrichers: [] as Array<{ name: string; enabled: boolean }>,
+  clarification: { mode: "auto" as string },
+  preview: {
+    enabled: false,
+    max_concurrent: 3,
+    cleanup_timeout_minutes: 30,
+    docker_host: { ip: "", port: 2376, tls_cert_vault_secret: "", tls_key_vault_secret: "", tls_ca_vault_secret: "", ssh_key_vault_secret: "", ssh_user: "" },
+    port_range: [4001, 4099],
+  },
 };
 
 vi.mock("../../src/domain/autonomous-config.js", () => ({
@@ -70,6 +78,7 @@ const mockGitProvider = {
   commitAll: vi.fn(),
   push: vi.fn(),
   createPR: vi.fn(),
+  commentOnPR: vi.fn(),
 };
 
 vi.mock("../../src/execution/git-provider.js", () => ({
