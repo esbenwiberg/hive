@@ -63,6 +63,7 @@ export async function cleanupExpiredPreviews(): Promise<void> {
           repoFullName: "",
           provider: "",
           createdAt: new Date(),
+          baseSha: "",
         });
         await addPreviewLog(taskId, "cleanup", `Worktree cleaned up at ${worktreePath}`);
       } catch (err) {

@@ -54,13 +54,18 @@ export async function createWorktree(
 
   const gitProvider = getGitProvider(provider);
   await gitProvider.clone(repoFullName, worktreePath, defaultBranch, creds);
+
+  // Record the base SHA before creating the feature branch (used for diffing)
+  const { stdout: baseShaRaw } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+  const baseSha = baseShaRaw.trim();
+
   await gitProvider.createBranch(worktreePath, branch);
 
   // Set git identity so commits are attributed to The Hive
   await execFileAsync("git", ["config", "user.name", "The Hive"], { cwd: worktreePath });
   await execFileAsync("git", ["config", "user.email", "hive@thehive.ai"], { cwd: worktreePath });
 
-  logger.info({ repoFullName, branch, path: worktreePath }, "Worktree created");
+  logger.info({ repoFullName, branch, path: worktreePath, baseSha }, "Worktree created");
 
   return {
     path: worktreePath,
@@ -68,6 +73,7 @@ export async function createWorktree(
     repoFullName,
     provider,
     createdAt: new Date(),
+    baseSha,
   };
 }
 

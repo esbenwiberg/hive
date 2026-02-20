@@ -446,7 +446,7 @@ router.post("/api/tasks/:id/preview/stop", requireAuth, async (req: Request, res
     if (info?.worktreePath) {
       try {
         // cleanupWorktree only uses .path — other fields are not needed for rm -rf
-        await cleanupWorktree({ path: info.worktreePath, branch: "", repoFullName: "", provider: "", createdAt: new Date() });
+        await cleanupWorktree({ path: info.worktreePath, branch: "", repoFullName: "", provider: "", createdAt: new Date(), baseSha: "" });
       } catch (err) {
         logger.warn({ taskId: id, err }, "Failed to cleanup worktree after preview stop");
       }

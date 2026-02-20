@@ -55,6 +55,7 @@ export async function cleanupClosedPRPreviews(): Promise<void> {
             repoFullName: "",
             provider: "",
             createdAt: new Date(),
+            baseSha: "",
           });
           await addPreviewLog(taskId, "pr-close", `Worktree cleaned up at ${info.worktreePath}`);
         } catch (wtErr) {

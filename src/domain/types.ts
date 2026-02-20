@@ -122,6 +122,8 @@ export interface WorktreeInfo {
   repoFullName: string;
   provider: string;
   createdAt: Date;
+  /** SHA of the commit the feature branch was created from (used for diffing). */
+  baseSha: string;
 }
 
 export interface ReviewFinding {

@@ -20,51 +20,29 @@ function getReviewPrompt(): string {
 }
 
 /**
- * Gets the git diff between the feature branch and the default branch.
+ * Gets the git diff of all changes in the worktree (committed + uncommitted)
+ * relative to the base SHA the feature branch was created from.
  */
-async function getGitDiff(worktreePath: string): Promise<string> {
+async function getGitDiff(worktreePath: string, baseSha: string): Promise<string> {
   try {
-    // Find the merge-base with the default branch to capture all commits on the feature branch
-    const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "origin/HEAD", "HEAD"], { cwd: worktreePath, timeout: 120_000 });
-    const base = mergeBase.trim();
-    const { stdout } = await execFileAsync("git", ["diff", "--stat", `${base}..HEAD`], { cwd: worktreePath, timeout: 120_000 });
-    const { stdout: fullDiff } = await execFileAsync("git", ["diff", `${base}..HEAD`], { cwd: worktreePath, timeout: 120_000, maxBuffer: 1024 * 1024 });
+    // Diff from the base commit to the working tree — captures both committed and uncommitted changes
+    const { stdout } = await execFileAsync("git", ["diff", "--stat", baseSha], { cwd: worktreePath, timeout: 120_000 });
+    const { stdout: fullDiff } = await execFileAsync("git", ["diff", baseSha], { cwd: worktreePath, timeout: 120_000, maxBuffer: 1024 * 1024 });
     return `${stdout}\n\n${fullDiff}`;
   } catch {
-    // Fallback: try HEAD~1 for repos without origin/HEAD configured
-    try {
-      const { stdout } = await execFileAsync("git", ["diff", "--stat", "HEAD~1..HEAD"], { cwd: worktreePath, timeout: 120_000 });
-      const { stdout: fullDiff } = await execFileAsync("git", ["diff", "HEAD~1..HEAD"], { cwd: worktreePath, timeout: 120_000, maxBuffer: 1024 * 1024 });
-      return `${stdout}\n\n${fullDiff}`;
-    } catch {
-      // If no commits yet or single commit, diff against empty tree
-      try {
-        const { stdout } = await execFileAsync("git", ["diff", "--cached"], { cwd: worktreePath, timeout: 120_000 });
-        return stdout;
-      } catch {
-        return "(no diff available)";
-      }
-    }
+    return "(no diff available)";
   }
 }
 
 /**
- * Gets the list of changed files.
+ * Gets the list of changed files (committed + uncommitted) relative to the base SHA.
  */
-async function getChangedFiles(worktreePath: string): Promise<string[]> {
+async function getChangedFiles(worktreePath: string, baseSha: string): Promise<string[]> {
   try {
-    const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "origin/HEAD", "HEAD"], { cwd: worktreePath, timeout: 120_000 });
-    const base = mergeBase.trim();
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", `${base}..HEAD`], { cwd: worktreePath, timeout: 120_000 });
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", baseSha], { cwd: worktreePath, timeout: 120_000 });
     return stdout.trim().split("\n").filter(Boolean);
   } catch {
-    // Fallback: try HEAD~1 for repos without origin/HEAD configured
-    try {
-      const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD~1..HEAD"], { cwd: worktreePath, timeout: 120_000 });
-      return stdout.trim().split("\n").filter(Boolean);
-    } catch {
-      return [];
-    }
+    return [];
   }
 }
 
@@ -126,8 +104,8 @@ export async function reviewChanges(
     const task = await getById(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
 
-    const diff = await getGitDiff(worktreeInfo.path);
-    const changedFiles = await getChangedFiles(worktreeInfo.path);
+    const diff = await getGitDiff(worktreeInfo.path, worktreeInfo.baseSha);
+    const changedFiles = await getChangedFiles(worktreeInfo.path, worktreeInfo.baseSha);
 
     const userPrompt = [
       `## Task: ${task.title}`,
