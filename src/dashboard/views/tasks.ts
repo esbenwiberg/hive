@@ -400,14 +400,23 @@ interface ScorerData {
   skipped?: boolean;
 }
 
-function scoreColor(score: number): "emerald" | "amber" | "red" {
+function scoreColor(score: number, dimension?: string): "emerald" | "amber" | "red" {
+  // For risk and complexity, reverse the coloring: low scores = good (green), high scores = bad (red)
+  if (dimension === "risk" || dimension === "complexity") {
+    if (score <= 3) return "emerald";  // Low risk/complexity is good
+    if (score <= 6) return "amber";    // Medium risk/complexity is neutral
+    return "red";                      // High risk/complexity is bad
+  }
+  
+  // For value and feasibility, keep normal coloring: high scores = good (green), low scores = bad (red)
   if (score >= 7) return "emerald";
   if (score >= 4) return "amber";
   return "red";
 }
 
 function scoreBadge(label: string, dim: ScorerDimension): string {
-  const color = scoreColor(dim.score);
+  const dimensionKey = label.toLowerCase();
+  const color = scoreColor(dim.score, dimensionKey);
   return `<div class="flex items-center justify-between py-1.5" title="${escapeHtml(dim.reasoning)}">
     <span class="text-xs text-slate-400">${escapeHtml(label)}</span>
     ${badge(`${dim.score}/10`, color)}
@@ -440,6 +449,7 @@ function scorerInlineBadges(task: TaskRow): string {
     const avg = [dims.value, dims.complexity, dims.risk, dims.feasibility]
       .filter((d): d is ScorerDimension => d != null)
       .reduce((sum, d, _, arr) => sum + d.score / arr.length, 0);
+    // Use generic score color for average (no dimension-specific logic)
     parts.push(badge(`${avg.toFixed(1)}`, scoreColor(Math.round(avg))));
   }
   return parts.join(" ");
