@@ -154,6 +154,7 @@ function head(title: string): string {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${title} | The Hive</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23fbbf24'/><circle cx='16' cy='16' r='10' fill='none' stroke='%230f172a' stroke-width='2.5'/><rect x='11' y='11' width='10' height='10' rx='1.5' fill='none' stroke='%230f172a' stroke-width='2'/></svg>" />
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
