@@ -2,8 +2,10 @@
 
 ## 2026-02-20
 - refactor: replace SVG pipeline dialog with vertical timeline matching workflow page
-- feat: per-task skipPreview toggle
+- feat: per-task skipPreview toggle (user + architect + worker)
+- Merge pull request #2 from esbenwiberg/hive/HIVE-20260219-7e02
 - feat: browser validation, doc auditor, pipeline viz, deploy changelog
+- Task total cost
 - feat: add admin-only Instances page for preview environments
 - feat: filter costs page by user's own data and accessible repos for non-admins
 - feat: restrict sidebar nav to admin-only for workflow, hivemind, changelog, health
