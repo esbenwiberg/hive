@@ -420,14 +420,17 @@ interface ScorerData {
   skipped?: boolean;
 }
 
-function scoreColor(score: number): "emerald" | "amber" | "red" {
+function scoreColor(score: number, invert = false): "emerald" | "amber" | "red" {
+  if (invert) score = 11 - score;
   if (score >= 7) return "emerald";
   if (score >= 4) return "amber";
   return "red";
 }
 
+const invertedDimensions = new Set(["Complexity", "Risk"]);
+
 function scoreBadge(label: string, dim: ScorerDimension): string {
-  const color = scoreColor(dim.score);
+  const color = scoreColor(dim.score, invertedDimensions.has(label));
   return `<div class="flex items-center justify-between py-1.5" title="${escapeHtml(dim.reasoning)}">
     <span class="text-xs text-slate-400">${escapeHtml(label)}</span>
     ${badge(`${dim.score}/10`, color)}

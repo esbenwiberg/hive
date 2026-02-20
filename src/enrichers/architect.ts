@@ -36,10 +36,6 @@ export interface ArchitectBlueprint {
   skipPreview?: boolean;
 }
 
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const TRIVIAL_SIZE = "trivial";
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -194,15 +190,6 @@ export const architectEnricher: Enricher = {
     config: EnricherConfig,
   ): Promise<EnrichmentResult> {
     const startTime = Date.now();
-
-    // ── Skip trivial tasks ────────────────────────────────────────────────
-    if (task.size === TRIVIAL_SIZE) {
-      logger.info({ taskId: task.id }, "Architect skipping trivial task");
-      return {
-        data: { architect: { skipped: true, approach: "" } satisfies ArchitectBlueprint },
-        durationMs: Date.now() - startTime,
-      };
-    }
 
     // ── Resolve model ─────────────────────────────────────────────────────
     const autonomousConfig = getAutonomousConfig();
