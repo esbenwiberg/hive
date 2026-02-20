@@ -67,7 +67,7 @@ function tabButton(
   return `<button
     class="border-b-2 px-4 py-2 text-sm font-medium transition-colors ${isActive ? activeClasses : inactiveClasses}"
     hx-get="/settings/tab?tab=${tab}"
-    hx-target="#settings-content"
+    hx-target="#settings-panel"
     hx-swap="innerHTML">${escapeHtml(label)}</button>`;
 }
 
@@ -75,6 +75,15 @@ function settingsTabs(active: SettingsTab): string {
   return `<div class="flex gap-1 border-b border-slate-700">
   ${tabButton("Global Defaults", "global", active)}
   ${tabButton("Repos", "repos", active)}
+</div>`;
+}
+
+export function settingsPanel(active: SettingsTab, tabContent: string): string {
+  return `<div id="settings-panel">
+  ${settingsTabs(active)}
+  <div id="settings-content" class="mt-8">
+    ${tabContent}
+  </div>
 </div>`;
 }
 
@@ -434,13 +443,8 @@ export function settingsPage(
     <p class="mt-1 text-sm text-slate-400">Manage global autonomous pipeline defaults and per-repo overrides.</p>
   </div>
 
-  <!-- Tabs -->
-  ${settingsTabs(activeTab)}
-
-  <!-- Tab content -->
-  <div id="settings-content">
-    ${tabContent}
-  </div>
+  <!-- Tabs + content -->
+  ${settingsPanel(activeTab, tabContent)}
 </div>`;
 
   return layout("Settings", content, user);

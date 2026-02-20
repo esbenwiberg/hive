@@ -15,6 +15,7 @@ import { isDuplicate } from "../../producers/base.js";
 import type { SettingsTab } from "../views/settings.js";
 import {
   settingsPage,
+  settingsPanel,
   globalSettingsPartial,
   repoSettingsPartial,
   repoSettingsCard,
@@ -59,14 +60,16 @@ router.get("/settings/tab", requireAuth, async (req: Request, res: Response, nex
       return;
     }
 
+    let tabContent: string;
     if (tab === "global") {
       const config = getAutonomousConfig();
       const overrides = await getConfigOverrides();
-      res.send(globalSettingsPartial(config, overrides));
+      tabContent = globalSettingsPartial(config, overrides);
     } else {
       const repos = await repoQueries.listAll();
-      res.send(repoSettingsPartial(repos));
+      tabContent = repoSettingsPartial(repos);
     }
+    res.send(settingsPanel(tab, tabContent));
   } catch (err) {
     next(err);
   }
