@@ -198,7 +198,7 @@ describe("GitHubProvider", () => {
       ]);
 
       // Third: push
-      expect(mockExecFile.mock.calls[2][1]).toEqual(["push", "origin", "feature/my-branch"]);
+      expect(mockExecFile.mock.calls[2][1]).toEqual(["push", "--force-with-lease", "origin", "feature/my-branch"]);
     });
   });
 
