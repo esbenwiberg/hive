@@ -1,6 +1,21 @@
 # Changelog
 
 ## 2026-02-20
+- fix: prevent tests from running against remote databases
+- feat: add lazy-loaded debug panel to task detail slide-over
+- fix: update test mocks for preview, browser validation, and learnings
+- fix: use --force-with-lease on push to handle task retries
+- refactor: move upgrade button into health page
+- feat: add .hive.yaml preview config for self-hosting
+- fix: settings tab highlight not updating on click
+- feat: add bulk delete and task reset (admin-only)
+- feat: add estimated cost column, rename cost to actual, widen detail panel
+- fix: block destructive migrations unless explicitly allowed
+- feat: add manual upgrade button, remove auto-deploy on push
+- feat: add repo deletion with cascading cleanup
+- docs: sync changelog with recent commits
+- feat: remote Docker host support for preview deployments
+- feat: enable repo-scoped learnings in analysts and dynamic scope dropdown
 - feat: update workflow page with full pipeline details and consolidated daemon processes
 - fix: migration timestamp ordering — manual entries had future timestamps causing Drizzle to skip subsequent migrations
 - fix: run changelog.sh before docker build so deployed image has latest entries
