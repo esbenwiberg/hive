@@ -18,6 +18,7 @@ import logsRouter from "./routes/logs.js";
 import permissionsRouter from "./routes/permissions.js";
 import workflowRouter from "./routes/workflow.js";
 import healthRouter from "./routes/health.js";
+import instancesRouter from "./routes/instances.js";
 import changelogRouter from "./routes/changelog.js";
 import previewRouter from "../execution/preview/proxy.js";
 
@@ -164,6 +165,7 @@ app.use("/", logsRouter);
 app.use("/", permissionsRouter);
 app.use("/", workflowRouter);
 app.use("/", healthRouter);
+app.use("/", instancesRouter);
 app.use("/", changelogRouter);
 app.use(previewRouter);
 
