@@ -77,8 +77,9 @@ const DIMENSION_LABELS: Record<BreakdownDimension, string> = {
   model: "By Model",
 };
 
-function dimensionTabs(active: BreakdownDimension): string {
+function dimensionTabs(active: BreakdownDimension, isAdmin: boolean): string {
   const tabs = (Object.keys(DIMENSION_LABELS) as BreakdownDimension[])
+    .filter((dim) => isAdmin || dim !== "user")
     .map((dim) => {
       const isActive = dim === active;
       const activeClasses =
@@ -128,9 +129,10 @@ export function costsBreakdownPartial(
 function breakdownSection(
   rows: BreakdownRow[],
   dimension: BreakdownDimension,
+  isAdmin: boolean,
 ): string {
   const inner = `
-    ${dimensionTabs(dimension)}
+    ${dimensionTabs(dimension, isAdmin)}
     <div id="breakdown-table" class="mt-4">
       ${costsBreakdownPartial(rows, dimension)}
     </div>`;
@@ -219,18 +221,23 @@ function monthlySummarySection(rows: MonthlySummaryRow[]): string {
  * and monthly summary.
  */
 export function costsPage(data: CostsPageData, user: SessionUser): string {
+  const isAdmin = user.role === "admin";
+  const subtitle = isAdmin
+    ? "Track API spend across users, repos, agents, and models."
+    : "Your API spend across repos, agents, and models.";
+
   const content = `<div class="space-y-8">
   <!-- Header -->
   <div>
     <h2 class="text-xl font-semibold text-slate-50">Cost Reports</h2>
-    <p class="mt-1 text-sm text-slate-400">Track API spend across users, repos, agents, and models.</p>
+    <p class="mt-1 text-sm text-slate-400">${escapeHtml(subtitle)}</p>
   </div>
 
   <!-- Stat cards -->
   ${costStatsRow(data.todayTotal, data.monthTotal, data.allTimeTotal)}
 
   <!-- Breakdown -->
-  ${breakdownSection(data.breakdown, data.breakdownDimension)}
+  ${breakdownSection(data.breakdown, data.breakdownDimension, isAdmin)}
 
   <!-- Two-column layout: daily trend + monthly summary -->
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
