@@ -1,5 +1,5 @@
 import type { SessionUser } from "../../domain/types.js";
-import { statCard, card } from "./components.js";
+import { statCard, card, button, badge, escapeHtml } from "./components.js";
 import { layout } from "./layout.js";
 
 export interface SystemStats {
@@ -88,9 +88,37 @@ export function healthPage(stats: SystemStats, user: SessionUser): string {
         </dl>
       `, { title: "System Info" })}
     </div>
+
+    <!-- Upgrade -->
+    <div class="max-w-xl">
+      ${card(`
+        <div class="flex items-center justify-between mb-4">
+          <p class="text-sm text-slate-400">Running build</p>
+          <span class="font-mono text-sm font-semibold text-slate-50">${escapeHtml(process.env.BUILD_SHA ?? "dev")}</span>
+        </div>
+        <p class="text-sm text-slate-400 mb-4">
+          Deploy latest <span class="font-mono text-slate-300">main</span> via GitHub Actions.
+          Active tasks will suspend and resume after restart.
+        </p>
+        <div id="upgrade-result"></div>
+        ${button("Deploy latest main", {
+          variant: "primary",
+          attrs: 'hx-post="/upgrade/trigger" hx-target="#upgrade-result" hx-swap="innerHTML" hx-indicator="#upgrade-spinner"',
+        })}
+        <span id="upgrade-spinner" class="htmx-indicator ml-3 text-sm text-slate-400">Triggering...</span>
+      `, { title: "Upgrade" })}
+    </div>
   </div>`;
 
   return layout("Health", content, user);
+}
+
+export function upgradeSuccess(): string {
+  return `<p class="text-sm text-emerald-400 mt-3">${badge("Triggered", "emerald")} Workflow dispatched — check GitHub Actions for progress.</p>`;
+}
+
+export function upgradeError(message: string): string {
+  return `<p class="text-sm text-red-400 mt-3">${badge("Error", "red")} ${escapeHtml(message)}</p>`;
 }
 
 export function statsPartial(stats: SystemStats): string {
