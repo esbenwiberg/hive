@@ -16,7 +16,7 @@ echo "==> Logging in to ACR..."
 az acr login --name "$ACR_NAME"
 
 echo "==> Building image: ${FULL_IMAGE}"
-docker build -t "$FULL_IMAGE" .
+docker build --build-arg BUILD_SHA="$(git rev-parse --short HEAD)" -t "$FULL_IMAGE" .
 
 echo "==> Pushing image..."
 docker push "$FULL_IMAGE"

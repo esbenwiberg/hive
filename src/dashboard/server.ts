@@ -20,6 +20,7 @@ import workflowRouter from "./routes/workflow.js";
 import healthRouter from "./routes/health.js";
 import instancesRouter from "./routes/instances.js";
 import changelogRouter from "./routes/changelog.js";
+import upgradeRouter from "./routes/upgrade.js";
 import previewRouter from "../execution/preview/proxy.js";
 
 const app = express();
@@ -167,6 +168,7 @@ app.use("/", workflowRouter);
 app.use("/", healthRouter);
 app.use("/", instancesRouter);
 app.use("/", changelogRouter);
+app.use("/", upgradeRouter);
 app.use(previewRouter);
 
 // ── Error handler ────────────────────────────────────────────────────────────

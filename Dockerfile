@@ -1,5 +1,6 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
+ARG BUILD_SHA=dev
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci
@@ -22,6 +23,8 @@ RUN apt-get update \
     && apt-get purge -y curl gpg \
     && rm -rf /var/lib/apt/lists/*
 
+ARG BUILD_SHA=dev
+ENV BUILD_SHA=$BUILD_SHA
 WORKDIR /app
 COPY --from=builder /app/package.json /app/package-lock.json /app/.npmrc ./
 RUN npm ci --omit=dev
