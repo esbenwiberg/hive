@@ -1,6 +1,10 @@
 # Changelog
 
 ## 2026-02-20
+- feat: update workflow page with full pipeline details and consolidated daemon processes
+- fix: migration timestamp ordering — manual entries had future timestamps causing Drizzle to skip subsequent migrations
+- fix: run changelog.sh before docker build so deployed image has latest entries
+- fix: regenerate changelog from git history only
 - refactor: replace SVG pipeline dialog with vertical timeline matching workflow page
 - feat: per-task skipPreview toggle (user + architect + worker)
 - Merge pull request #2 from esbenwiberg/hive/HIVE-20260219-7e02
