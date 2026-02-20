@@ -146,7 +146,7 @@ export class GitHubProvider implements GitProvider {
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
 
     logger.info({ repoDir, branch }, "Pushing branch");
-    await execGit(["push", "origin", branch], repoDir);
+    await execGit(["push", "--force-with-lease", "origin", branch], repoDir);
   }
 
   async createPR(
@@ -310,7 +310,7 @@ export class AzureDevOpsProvider implements GitProvider {
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
 
     logger.info({ repoDir, branch }, "Pushing branch");
-    await execGit(["push", "origin", branch], repoDir);
+    await execGit(["push", "--force-with-lease", "origin", branch], repoDir);
   }
 
   async createPR(
