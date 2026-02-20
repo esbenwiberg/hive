@@ -1,1 +1,1 @@
-ALTER TABLE "tasks" ADD COLUMN "skip_preview" boolean DEFAULT false NOT NULL;
+ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "skip_preview" boolean DEFAULT false NOT NULL;

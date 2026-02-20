@@ -1,1 +1,1 @@
-ALTER TABLE "tasks" ADD COLUMN "preview_url" text;
+ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "preview_url" text;
