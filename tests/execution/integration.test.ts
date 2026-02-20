@@ -60,6 +60,23 @@ vi.mock("node:fs", () => ({
   mkdir: vi.fn(),
 }));
 
+// Mock node:fs/promises for access() in worktree reuse check
+vi.mock("node:fs/promises", () => ({
+  access: vi.fn().mockRejectedValue(new Error("ENOENT")),
+  rm: vi.fn(),
+  mkdir: vi.fn(),
+}));
+
+// Mock node:child_process for git diff in empty-diff detection
+const mockExecFile = vi.fn().mockResolvedValue({ stdout: "src/auth.ts\n", stderr: "" });
+vi.mock("node:child_process", () => ({
+  execFile: mockExecFile,
+}));
+
+vi.mock("node:util", () => ({
+  promisify: () => mockExecFile,
+}));
+
 // Mock worktree functions
 const mockCreateWorktree = vi.fn();
 const mockCleanupWorktree = vi.fn();
@@ -153,6 +170,7 @@ const sampleWorktree: WorktreeInfo = {
   repoFullName: "acme/widget",
   provider: "github",
   createdAt: new Date(),
+  baseSha: "abc1234",
 };
 
 const passReviewResult: ReviewGateResult = {

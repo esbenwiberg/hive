@@ -64,6 +64,24 @@ vi.mock("node:fs", () => ({
   mkdir: vi.fn(),
 }));
 
+// Mock node:fs/promises for access() in worktree reuse check
+vi.mock("node:fs/promises", () => ({
+  access: vi.fn().mockRejectedValue(new Error("ENOENT")),
+  rm: vi.fn(),
+  mkdir: vi.fn(),
+}));
+
+// Mock node:child_process for git diff in empty-diff detection
+const mockExecFile = vi.fn();
+vi.mock("node:child_process", () => ({
+  execFile: mockExecFile,
+}));
+
+// Mock node:util to make promisify(execFile) return our mock
+vi.mock("node:util", () => ({
+  promisify: () => mockExecFile,
+}));
+
 // Mock worktree functions
 const mockCreateWorktree = vi.fn();
 const mockCleanupWorktree = vi.fn();
@@ -160,6 +178,7 @@ const sampleWorktree: WorktreeInfo = {
   repoFullName: "acme/widget",
   provider: "github",
   createdAt: new Date(),
+  baseSha: "abc1234",
 };
 
 const passReviewResult: ReviewGateResult = {
@@ -278,7 +297,8 @@ describe("executeTask", () => {
     await cleanupTables();
     vi.clearAllMocks();
 
-    // Default mock setups
+    // Default mock setups — git diff returns changed files (non-empty changeset)
+    mockExecFile.mockResolvedValue({ stdout: "src/auth.ts\n", stderr: "" });
     mockCreateWorktree.mockResolvedValue(sampleWorktree);
     mockCleanupWorktree.mockResolvedValue(undefined);
     mockResolveGitCredentials.mockResolvedValue({ provider: "github", token: "test-token" });

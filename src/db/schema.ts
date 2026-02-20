@@ -105,6 +105,8 @@ export const tasks = pgTable(
     suspendedFrom: text("suspended_from"),
     previewStartedAt: timestamp("preview_started_at", tz),
     skipPreview: boolean("skip_preview").notNull().default(false),
+    worktreePath: text("worktree_path"),
+    worktreeBaseSha: text("worktree_base_sha"),
     visibility: text("visibility").notNull().default("public"),
     createdAt: timestamp("created_at", tz).defaultNow(),
     updatedAt: timestamp("updated_at", tz).defaultNow(),

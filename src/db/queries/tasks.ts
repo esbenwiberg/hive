@@ -349,6 +349,8 @@ export async function resetTask(id: string) {
       previewUrl: null,
       previewStartedAt: null,
       suspendedFrom: null,
+      worktreePath: null,
+      worktreeBaseSha: null,
       updatedAt: new Date(),
     })
     .where(eq(tasks.id, id))

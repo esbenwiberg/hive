@@ -1,6 +1,11 @@
 # Changelog
 
 ## 2026-02-20
+- fix: invert score badge colors for risk/complexity and always run architect
+- fix: handle context window overflow in Claude SDK calls
+- fix: cast ids to text[] for ANY() in deleteByIds query
+- fix: update git-provider test for --force-with-lease push
+- docs: sync changelog with recent commits
 - fix: prevent tests from running against remote databases
 - feat: add lazy-loaded debug panel to task detail slide-over
 - fix: update test mocks for preview, browser validation, and learnings

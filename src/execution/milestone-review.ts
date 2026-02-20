@@ -233,15 +233,18 @@ export async function reviewFix(
     // Step 1: Run shell verification
     const verify = await quickVerify(worktreePath);
     const shellIssues = verify.failures;
+    logger.info({ iteration, passed: verify.passed, failureCount: shellIssues.length, worktreePath }, "review-fix quickVerify done");
 
     let reviewIssues: string[] = [];
 
     if (verify.passed) {
       // Step 2: Shell passed — ask Claude to review the diff for logical issues
       const diff = await getDiff(worktreePath);
+      logger.info({ iteration, diffChars: diff.length, worktreePath }, "review-fix calling claudeReview");
       const review = await claudeReview(diff, model);
       totalCostUsd += review.costUsd;
       reviewIssues = review.issues;
+      logger.info({ iteration, issueCount: reviewIssues.length, costUsd: review.costUsd, worktreePath }, "review-fix claudeReview done");
     }
 
     // Combine all issues from this iteration
@@ -263,8 +266,10 @@ export async function reviewFix(
 
     // Step 3: Ask Claude to fix
     const changedFiles = await getChangedFiles(worktreePath);
+    logger.info({ iteration, issueCount: iterationIssues.length, changedFileCount: changedFiles.length, worktreePath }, "review-fix calling claudeFix");
     const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, model);
     totalCostUsd += fix.costUsd;
+    logger.info({ iteration, costUsd: fix.costUsd, worktreePath }, "review-fix claudeFix done");
 
     // After the last iteration, do a final verify to see if fixes worked
     if (iteration === maxIterations) {

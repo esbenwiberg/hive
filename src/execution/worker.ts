@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { access } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { callClaudeWithTools } from "../agents/sdk.js";
@@ -285,8 +286,10 @@ async function executeMilestones(
     await heartbeat(task.id);
 
     // ── 3. Review-fix loop ────────────────────────────────────────────────
+    await addEvent(task.id, "review_fix_started", "worker", `Review-fix loop for milestone ${i + 1}/${milestones.length}`);
     const review = await reviewFix(worktreePath, ms.title, model);
     totalCostUsd += review.costUsd;
+    await addEvent(task.id, "review_fix_complete", "worker", `Review-fix ${review.passed ? "passed" : "failed"} (${review.iterations} iterations, $${review.costUsd.toFixed(2)})`);
 
     // ── 4. Commit the milestone ───────────────────────────────────────────
     await commitMilestone(worktreePath, ms.title, task.id);
@@ -345,15 +348,47 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
   await updateStatus(taskId, "executing");
 
   try {
-    // Create worktree
-    worktree = await createWorktree(
-      repo.fullName,
-      repo.provider,
-      branchName,
-      repo.defaultBranch ?? "main",
-      task.createdBy,
-    );
-    await addEvent(taskId, "worktree_created", "worker", "Git worktree created");
+    // Reuse existing worktree on rework, or create a new one
+    let reusedWorktree = false;
+    if (task.worktreePath && task.worktreeBaseSha) {
+      try {
+        await access(task.worktreePath);
+        // Verify it's still a valid git repo
+        await execFileAsync("git", ["rev-parse", "--git-dir"], { cwd: task.worktreePath });
+        worktree = {
+          path: task.worktreePath,
+          branch: branchName,
+          repoFullName: repo.fullName,
+          provider: repo.provider,
+          createdAt: new Date(),
+          baseSha: task.worktreeBaseSha,
+        };
+        reusedWorktree = true;
+        await addEvent(taskId, "worktree_reused", "worker", "Reusing existing worktree from previous attempt");
+        logger.info({ taskId, path: task.worktreePath }, "Reusing existing worktree");
+      } catch {
+        logger.warn({ taskId, path: task.worktreePath }, "Saved worktree missing or invalid — creating new");
+      }
+    }
+
+    if (!worktree) {
+      worktree = await createWorktree(
+        repo.fullName,
+        repo.provider,
+        branchName,
+        repo.defaultBranch ?? "main",
+        task.createdBy,
+      );
+      await addEvent(taskId, "worktree_created", "worker", "Git worktree created");
+    }
+
+    // Persist worktree path and base SHA for potential rework reuse
+    if (!reusedWorktree) {
+      await db
+        .update(tasks)
+        .set({ worktreePath: worktree.path, worktreeBaseSha: worktree.baseSha, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+    }
 
     // Retrieve relevant learnings for this task (non-blocking — failures degrade gracefully)
     let learningIds: number[] = [];
@@ -382,10 +417,32 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       learningsStr = `\n## Relevant Learnings\n\nThese learnings come from past tasks. Apply them where relevant:\n\n${items}`;
     }
 
-    // Build prompt for Claude
-    const enrichmentStr = task.enrichment
+    // Build prompt for Claude — trim enrichment if it would blow the context window.
+    // Rough estimate: 1 token ≈ 4 chars; reserve 30k tokens for output + tool defs.
+    const INPUT_CHAR_BUDGET = 170_000 * 4;
+    let enrichmentStr = task.enrichment
       ? `\n## Enrichment Context\n${JSON.stringify(task.enrichment, null, 2)}`
       : "";
+
+    if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
+      // Step 1: drop pretty-printing
+      enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(task.enrichment)}`;
+      logger.info({ taskId, chars: enrichmentStr.length }, "Compacted enrichment JSON (removed pretty-print)");
+    }
+    if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
+      // Step 2: keep only architect + scorer (drop large codebase/docs blobs)
+      const slim: Record<string, unknown> = {};
+      const enrichObj = task.enrichment as Record<string, unknown>;
+      for (const key of ["architect", "scorer"]) {
+        if (enrichObj[key]) slim[key] = enrichObj[key];
+      }
+      enrichmentStr = `\n## Enrichment Context (trimmed)\n${JSON.stringify(slim)}`;
+      logger.info({ taskId, chars: enrichmentStr.length }, "Trimmed enrichment to architect+scorer only");
+    }
+    if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
+      enrichmentStr = "";
+      logger.warn({ taskId }, "Dropped enrichment entirely — too large for context window");
+    }
 
     const retryStr = task.retryInstructions
       ? `\n## Retry Instructions (address this feedback)\n${task.retryInstructions}`
@@ -447,6 +504,40 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         updatedAt: new Date(),
       })
       .where(eq(tasks.id, taskId));
+
+    // Empty-diff detection: catch cases where Claude produced no code changes
+    const { stdout: diffOutput } = await execFileAsync(
+      "git", ["diff", "--name-only", worktree.baseSha],
+      { cwd: worktree.path },
+    );
+    if (!diffOutput.trim()) {
+      const reworkCount = task.reworkCount ?? 0;
+      if (reworkCount === 0) {
+        // First attempt with empty diff — send for automatic rework
+        logger.warn({ taskId }, "Empty changeset — sending for rework with write_file reminder");
+        await addEvent(taskId, "empty_changeset", "worker", "No files changed — reworking with write_file reminder");
+        await db
+          .update(tasks)
+          .set({
+            retryInstructions: "Your previous attempt produced no code changes. You MUST call write_file to implement the solution. Do not just analyze — write the code.",
+            reworkCount: 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(tasks.id, taskId));
+        await updateStatus(taskId, "rework");
+        return { success: false, branch: branchName, error: "Empty changeset — sent for rework" };
+      }
+      // Already reworked but still empty — fail the task
+      const reason = "No code changes produced after rework attempt";
+      logger.error({ taskId }, reason);
+      await addEvent(taskId, "error", "worker", `Failed: ${reason}`);
+      await db
+        .update(tasks)
+        .set({ failureReason: reason, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+      await updateStatus(taskId, "failed");
+      return { success: false, branch: branchName, error: reason };
+    }
 
     // Transition to reviewing
     await updateStatus(taskId, "reviewing");
@@ -642,12 +733,27 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     return { success: false, error: reason };
   } finally {
     if (worktree) {
-      // Worktree cleanup deferred — preview manager owns cleanup when preview stops.
-      const activePreview = previewManager.getPreviewInfo(taskId);
-      if (!activePreview) {
-        await cleanupWorktree(worktree);
+      // Check if task ended in rework — preserve worktree for next cycle
+      const currentTask = await getTask(taskId);
+      const isRework = currentTask?.status === "rework";
+
+      if (isRework) {
+        logger.info({ taskId, path: worktree.path }, "Worktree preserved for rework cycle");
       } else {
-        logger.info({ taskId }, "Worktree cleanup deferred — preview is active");
+        // Worktree cleanup deferred — preview manager owns cleanup when preview stops.
+        const activePreview = previewManager.getPreviewInfo(taskId);
+        if (!activePreview) {
+          await cleanupWorktree(worktree);
+          // Clear worktree columns on cleanup
+          try {
+            await db
+              .update(tasks)
+              .set({ worktreePath: null, worktreeBaseSha: null, updatedAt: new Date() })
+              .where(eq(tasks.id, taskId));
+          } catch { /* swallow — task may already be in terminal state */ }
+        } else {
+          logger.info({ taskId }, "Worktree cleanup deferred — preview is active");
+        }
       }
     }
     await unregister(taskId);

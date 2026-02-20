@@ -57,19 +57,60 @@ const MIN_OUTPUT_TOKENS = 4096;
 /**
  * Parses the Anthropic context-limit 400 error.
  * Returns input token count and context limit, or null if unrelated error.
+ *
+ * Handles two known formats:
+ *  - "input length ... exceed context limit: 12345 + 6789 > 200000"
+ *  - "prompt is too long: 215128 tokens > 200000 maximum"
  */
 function parseContextLimitError(
   err: unknown,
 ): { inputLength: number; contextLimit: number } | null {
   if (!(err instanceof Anthropic.BadRequestError)) return null;
-  const match = /input length.*exceed context limit: (\d+) \+ \d+ > (\d+)/.exec(
-    err.message,
-  );
-  if (!match) return null;
-  return {
-    inputLength: parseInt(match[1]),
-    contextLimit: parseInt(match[2]),
-  };
+
+  const match1 = /input length.*exceed context limit: (\d+) \+ \d+ > (\d+)/.exec(err.message);
+  if (match1) {
+    return { inputLength: parseInt(match1[1]), contextLimit: parseInt(match1[2]) };
+  }
+
+  const match2 = /prompt is too long: (\d+) tokens > (\d+) maximum/.exec(err.message);
+  if (match2) {
+    return { inputLength: parseInt(match2[1]), contextLimit: parseInt(match2[2]) };
+  }
+
+  return null;
+}
+
+/**
+ * Truncates large tool_result blocks in older conversation messages to reclaim context.
+ * Preserves the last user message for coherence.
+ * Returns true if any compaction was performed.
+ */
+function compactMessages(messages: MessageParam[]): boolean {
+  const MAX_CHARS = 500;
+  const SUFFIX = "\n...[truncated to fit context window]";
+  let compacted = false;
+
+  // Skip the last message to preserve the most recent tool results
+  for (let i = 0; i < messages.length - 1; i++) {
+    const msg = messages[i];
+    if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      const tb = block as ToolResultBlockParam;
+      if (tb.type !== "tool_result") continue;
+      if (typeof tb.content === "string" && tb.content.length > MAX_CHARS) {
+        tb.content = tb.content.slice(0, MAX_CHARS) + SUFFIX;
+        compacted = true;
+      } else if (Array.isArray(tb.content)) {
+        for (const sub of tb.content) {
+          if (sub.type === "text" && sub.text.length > MAX_CHARS) {
+            sub.text = sub.text.slice(0, MAX_CHARS) + SUFFIX;
+            compacted = true;
+          }
+        }
+      }
+    }
+  }
+  return compacted;
 }
 
 // ── Client (lazy singleton) ──────────────────────────────────────────────────
@@ -166,24 +207,32 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
     } catch (err) {
       const parsed = parseContextLimitError(err);
       if (!parsed) throw err;
+
+      const msgCount = messages.length;
+      const toolResultCount = messages
+        .filter((m) => m.role === "user" && Array.isArray(m.content))
+        .reduce((sum, m) => sum + (m.content as unknown[]).length, 0);
+      logger.error(
+        { turn: turns, inputLength: parsed.inputLength, contextLimit: parsed.contextLimit, maxTokens: effectiveMaxTokens, msgCount, toolResultCount },
+        "Context limit exceeded",
+      );
+
       const reduced = parsed.contextLimit - parsed.inputLength - 100;
-      if (reduced < MIN_OUTPUT_TOKENS) throw err;
-      logger.warn({ turn: turns, requested: effectiveMaxTokens, reduced, inputLength: parsed.inputLength }, "Reducing max_tokens to fit context window");
-      effectiveMaxTokens = reduced;
-      message = await getClient().messages.create({ ...createParams, max_tokens: effectiveMaxTokens });
+      if (reduced >= MIN_OUTPUT_TOKENS) {
+        logger.warn({ turn: turns, requested: effectiveMaxTokens, reduced }, "Reducing max_tokens to fit context window");
+        effectiveMaxTokens = reduced;
+        message = await getClient().messages.create({ ...createParams, max_tokens: effectiveMaxTokens });
+      } else if (turns > 1 && compactMessages(messages)) {
+        logger.warn({ turn: turns, inputLength: parsed.inputLength, contextLimit: parsed.contextLimit }, "Compacting conversation to fit context window");
+        effectiveMaxTokens = MIN_OUTPUT_TOKENS;
+        message = await getClient().messages.create({ ...createParams, max_tokens: effectiveMaxTokens });
+      } else {
+        throw err;
+      }
     }
 
     totalInputTokens += message.usage.input_tokens;
     totalOutputTokens += message.usage.output_tokens;
-
-    // Proactively shrink max_tokens for next turn as context fills up.
-    // Next turn's input ≈ this turn's input + this turn's output + tool results.
-    // Use a conservative estimate (output tokens only, ignoring tool results).
-    const estimatedNextInput = message.usage.input_tokens + message.usage.output_tokens;
-    const contextLimit = 200_000;
-    if (estimatedNextInput + effectiveMaxTokens > contextLimit) {
-      effectiveMaxTokens = Math.max(MIN_OUTPUT_TOKENS, contextLimit - estimatedNextInput - 1000);
-    }
 
     // Collect any text blocks from this turn
     for (const block of message.content) {
@@ -208,25 +257,50 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
     );
 
     const toolResults: ToolResultBlockParam[] = [];
+    let toolResultChars = 0;
     for (const toolUse of toolUseBlocks) {
+      const input = toolUse.input as Record<string, unknown>;
+      const inputSummary = input.path ?? input.command ?? input.file_path ?? toolUse.name;
       try {
-        const result = await req.executeTool(toolUse.name, toolUse.input as Record<string, unknown>);
+        const result = await req.executeTool(toolUse.name, input);
+        const resultLen = typeof result === "string" ? result.length : JSON.stringify(result).length;
+        toolResultChars += resultLen;
+        logger.debug({ turn: turns, tool: toolUse.name, input: inputSummary, resultLen }, "Tool call succeeded");
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
           content: result,
         });
       } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.debug({ turn: turns, tool: toolUse.name, input: inputSummary, error: errorMsg }, "Tool call failed");
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: err instanceof Error ? err.message : String(err),
+          content: errorMsg,
           is_error: true,
         });
       }
     }
 
     messages.push({ role: "user", content: toolResults });
+
+    // Proactively shrink max_tokens for next turn as context fills up.
+    // Estimate: this turn's input + output + tool result chars (÷4 for tokens).
+    const toolResultTokens = Math.ceil(toolResultChars / 4);
+    const estimatedNextInput = message.usage.input_tokens + message.usage.output_tokens + toolResultTokens;
+    const contextLimit = 200_000;
+    if (estimatedNextInput + effectiveMaxTokens > contextLimit) {
+      effectiveMaxTokens = Math.max(MIN_OUTPUT_TOKENS, contextLimit - estimatedNextInput - 1000);
+    }
+
+    // If even MIN_OUTPUT_TOKENS won't fit, compact old tool results before the next call
+    if (estimatedNextInput + MIN_OUTPUT_TOKENS > contextLimit) {
+      if (compactMessages(messages)) {
+        logger.warn({ turn: turns, estimatedNextInput, contextLimit }, "Proactively compacting conversation");
+        effectiveMaxTokens = MIN_OUTPUT_TOKENS;
+      }
+    }
   }
 
   return {
