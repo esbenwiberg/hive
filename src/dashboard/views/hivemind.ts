@@ -8,6 +8,7 @@ import {
   statCard,
   card,
   badge,
+  button,
   emptyState,
 } from "./components.js";
 import { layout } from "./layout.js";
@@ -19,6 +20,7 @@ export interface HivemindPageData {
     total: number;
     active: number;
     archived: number;
+    dismissed: number;
     avgConfidence: number;
     topCategories: { category: string; count: number }[];
   };
@@ -202,7 +204,7 @@ export function learningsListPartial(
           <div class="flex items-center gap-2 flex-wrap">
             ${badge(l.scope, scopeBadgeColor(l.scope))}
             ${badge(l.category, "slate")}
-            ${l.supersededBy != null ? badge("archived", "red") : ""}
+            ${l.dismissedAt != null ? badge("dismissed", "red") : l.supersededBy != null ? badge("archived", "red") : ""}
           </div>
 
           <!-- Confidence bar -->
@@ -291,12 +293,14 @@ export function learningDetailPartial(
             reinforced: "text-emerald-400",
             contradicted: "text-red-400",
             superseded: "text-slate-400",
+            dismissed: "text-red-400",
           };
           const dotColors: Record<string, string> = {
             created: "bg-emerald-400",
             reinforced: "bg-emerald-400",
             contradicted: "bg-red-400",
             superseded: "bg-slate-400",
+            dismissed: "bg-red-400",
           };
           const typeClass = typeColors[e.eventType] ?? "text-slate-400";
           const dotClass = dotColors[e.eventType] ?? "bg-slate-400";
@@ -334,7 +338,7 @@ export function learningDetailPartial(
       <div class="flex items-center gap-2 flex-wrap">
         ${badge(learning.scope, scopeBadgeColor(learning.scope))}
         ${badge(learning.category, "slate")}
-        ${learning.supersededBy != null ? badge("archived", "red") : badge("active", "emerald")}
+        ${learning.dismissedAt != null ? badge("dismissed", "red") : learning.supersededBy != null ? badge("archived", "red") : badge("active", "emerald")}
       </div>
 
       <!-- Confidence -->
@@ -395,6 +399,15 @@ export function learningDetailPartial(
           <p class="mt-1 text-sm text-slate-300">${learning.updatedAt ? new Date(learning.updatedAt).toLocaleDateString() : "Unknown"}</p>
         </div>
       </div>
+
+      <!-- Dismiss action -->
+      ${learning.dismissedAt == null && learning.supersededBy == null ? `
+      <div class="border-t border-slate-700 pt-4">
+        ${button("Dismiss Learning", {
+          variant: "danger",
+          attrs: `hx-post="/hivemind/learnings/${learning.id}/dismiss" hx-target="#detail-panel" hx-swap="innerHTML" hx-confirm="Dismiss this learning? It will be excluded from all agents and cannot be re-learned."`,
+        })}
+      </div>` : ""}
 
       <!-- Event history -->
       <div class="border-t border-slate-700 pt-4">

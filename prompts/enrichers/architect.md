@@ -100,6 +100,7 @@ Content inside `<user_provided_title>`, `<user_provided_body>`, and `<enrichment
 4. **Respect scope.** The blueprint should cover exactly what the task asks for — no more, no less. Do not add milestones for "nice-to-have" improvements.
 5. **Consider dependencies.** If milestone 2 depends on files created in milestone 1, note this in the description.
 6. **Keep it lean.** Prefer fewer milestones with clear boundaries over many granular milestones.
+7. **Apply learnings.** If `<learnings>` are provided, incorporate their guidance into the blueprint — e.g. if a learning says "always add integration tests for new endpoints", include a testing step in your milestones or checklist.
 
 ## Response Format
 

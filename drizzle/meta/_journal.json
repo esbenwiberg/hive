@@ -36,6 +36,20 @@
       "when": 1771704000000,
       "tag": "0004_user_repo_access",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771580476571,
+      "tag": "0005_rich_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1771582484566,
+      "tag": "0006_dark_william_stryker",
+      "breakpoints": true
     }
   ]
 }

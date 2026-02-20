@@ -566,6 +566,275 @@ function techStackDiagram(): string {
 </div>`;
 }
 
+// ── Preview Environments Diagram ─────────────────────────────────────────────
+
+function previewDiagram(): string {
+  return `<div class="space-y-4">
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <!-- Lifecycle -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Lifecycle</p>
+      <div class="flex flex-wrap items-center gap-2">
+        ${stateNode("Code Pushed", "blue")}
+        ${arrow()}
+        ${stateNode("Preview Starts", "amber")}
+        ${arrow()}
+        ${stateNode("Health Check", "amber")}
+        ${arrow()}
+        ${stateNode("Browser Validation", "amber")}
+        ${arrow()}
+        ${stateNode("Pass / Rework", "emerald")}
+      </div>
+    </div>
+
+    <!-- Browser Validator -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Browser Validator</p>
+      <p class="text-xs text-slate-400">Claude agent with headless Chromium — navigates preview URL, interactively verifies task requirements.</p>
+      <ul class="mt-1.5 space-y-1 text-xs text-slate-500">
+        <li>Max turns: <span class="text-slate-400">15</span></li>
+        <li>Vision-capable model</li>
+        <li>Fail &rarr; rework (up to max cycles)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+    <!-- Preview Types -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Preview Types</p>
+      <div class="flex flex-wrap gap-1.5">
+        <span class="rounded-full bg-blue-400/10 px-2 py-0.5 text-xs text-blue-400">compose</span>
+        <span class="rounded-full bg-amber-400/10 px-2 py-0.5 text-xs text-amber-400">process</span>
+        <span class="rounded-full bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-400">static</span>
+      </div>
+      <p class="mt-1.5 text-xs text-slate-500">Configured via <span class="text-slate-400">.hive.yaml</span> or repo settings</p>
+    </div>
+
+    <!-- Infrastructure -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Infrastructure</p>
+      <ul class="space-y-1 text-xs text-slate-500">
+        <li>Port range: <span class="text-slate-400">4001+</span></li>
+        <li>TTL: <span class="text-slate-400">30 min</span></li>
+        <li>Max concurrent: <span class="text-slate-400">3</span></li>
+        <li>Docker TLS, health polls every <span class="text-slate-400">2s</span></li>
+      </ul>
+    </div>
+
+    <!-- Cleanup -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Cleanup</p>
+      <p class="text-xs text-slate-500">Auto every <span class="text-slate-400">60s</span> — expired previews stopped, worktree removed.</p>
+      <p class="mt-1.5 text-xs text-slate-400"><a href="/instances" class="underline hover:text-slate-300">View instances &rarr;</a></p>
+    </div>
+  </div>
+</div>`;
+}
+
+// ── PR Review Gate Diagram ──────────────────────────────────────────────────
+
+function prReviewDiagram(): string {
+  return `<div class="space-y-4">
+  <!-- Top flow -->
+  <div class="flex flex-wrap items-center gap-2">
+    ${stateNode("Diff Collected", "blue")}
+    ${arrow()}
+    ${stateNode("Claude Reviews", "amber")}
+    ${arrow()}
+    ${stateNode("Pass → PR + Push", "emerald")}
+    <span class="text-slate-500 text-xs">/</span>
+    ${stateNode("Rework (max 2)", "red")}
+    ${arrow()}
+    ${stateNode("FAILED", "red")}
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <!-- Quality Analysis -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Quality Analysis</p>
+      <p class="text-xs text-slate-500 mb-1.5">Severity:</p>
+      <div class="flex flex-wrap gap-1.5 mb-2">
+        <span class="rounded-full bg-red-400/10 px-2 py-0.5 text-xs text-red-400">major</span>
+        <span class="rounded-full bg-amber-400/10 px-2 py-0.5 text-xs text-amber-400">minor</span>
+      </div>
+      <p class="text-xs text-slate-500 mb-1.5">Categories:</p>
+      <div class="flex flex-wrap gap-1.5">
+        <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">correctness</span>
+        <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">security</span>
+        <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">performance</span>
+        <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">maintainability</span>
+      </div>
+    </div>
+
+    <!-- Verification -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Verification Checklist</p>
+      <ul class="space-y-1.5 text-xs text-slate-400">
+        <li class="flex items-center gap-2"><span class="text-emerald-400">&check;</span> Tests run</li>
+        <li class="flex items-center gap-2"><span class="text-emerald-400">&check;</span> Tests passed</li>
+        <li class="flex items-center gap-2"><span class="text-emerald-400">&check;</span> Lint clean</li>
+        <li class="flex items-center gap-2"><span class="text-emerald-400">&check;</span> Build succeeded</li>
+      </ul>
+    </div>
+
+    <!-- Feedback Loop -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Feedback Loop</p>
+      <ul class="space-y-1 text-xs text-slate-500">
+        <li>Reinforces or contradicts existing learnings</li>
+        <li>Creates new learnings from findings</li>
+      </ul>
+    </div>
+
+    <!-- Pattern Detection -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Pattern Detection</p>
+      <p class="text-xs text-slate-500">Code-quality-analyst scans last <span class="text-slate-400">30 reviews</span>, auto-creates learnings for recurring patterns.</p>
+    </div>
+  </div>
+</div>`;
+}
+
+// ── Docs Agent Diagram ──────────────────────────────────────────────────────
+
+function docsAgentDiagram(): string {
+  return `<div class="space-y-4">
+  <!-- Docs Enricher -->
+  <div>
+    <p class="text-xs font-medium text-slate-300 mb-2">Docs Enricher</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs font-medium text-slate-400 mb-1.5">Root Files</p>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">README</span>
+          <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">CONTRIBUTING</span>
+          <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">CHANGELOG</span>
+          <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">CLAUDE.md</span>
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs font-medium text-slate-400 mb-1.5">Structured Dirs</p>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">docs/internal</span>
+          <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">docs/external</span>
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+        <p class="text-xs font-medium text-slate-400 mb-1.5">Legacy Dirs</p>
+        <p class="text-xs text-slate-500">Fallback scan for unstructured doc directories</p>
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-slate-500">Output &rarr; <span class="font-mono text-slate-400">task.enrichment.docs</span></p>
+  </div>
+
+  <div class="border-t border-slate-700 pt-4">
+    <p class="text-xs font-medium text-slate-300 mb-2">Doc Auditor Producer</p>
+    <p class="text-xs text-slate-500">Auto-discovers documentation issues — broken references, coverage gaps, freshness. Creates documentation tasks.</p>
+  </div>
+</div>`;
+}
+
+// ── Hivemind & Learnings Diagram ────────────────────────────────────────────
+
+function hivemindDiagram(): string {
+  return `<div class="space-y-4">
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <!-- Learning Structure -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Learning Structure</p>
+      <div class="flex flex-wrap gap-1.5 mb-2">
+        <span class="rounded-full bg-blue-400/10 px-2 py-0.5 text-xs text-blue-400">universal</span>
+        <span class="rounded-full bg-amber-400/10 px-2 py-0.5 text-xs text-amber-400">repo</span>
+        <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">task</span>
+      </div>
+      <ul class="space-y-1 text-xs text-slate-500">
+        <li>Confidence: <span class="text-slate-400">0 &ndash; 1</span></li>
+        <li>Tracked reinforcements &amp; contradictions</li>
+        <li>Categorized by domain</li>
+      </ul>
+    </div>
+
+    <!-- Retrieval & Usage -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Retrieval &amp; Usage</p>
+      <ul class="space-y-1 text-xs text-slate-500">
+        <li>Scope matching + tag overlap</li>
+        <li>Sorted by confidence, limit <span class="text-slate-400">10&ndash;15</span></li>
+      </ul>
+      <p class="mt-1.5 text-xs text-slate-500">Injected into:</p>
+      <div class="flex flex-wrap gap-1.5 mt-1">
+        <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">architect enricher</span>
+        <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">execution agent</span>
+        <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">gate prompts</span>
+      </div>
+    </div>
+
+    <!-- Confidence Lifecycle -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Confidence Lifecycle</p>
+      <ul class="space-y-1 text-xs text-slate-500">
+        <li>Reinforce: <span class="text-emerald-400">+0.05</span></li>
+        <li>Contradict: <span class="text-red-400">&minus;0.05 / &minus;0.10</span></li>
+        <li>Monthly decay: <span class="text-slate-400">&times;0.95</span></li>
+        <li>Archive at: <span class="text-red-400">&lt;0.2</span></li>
+      </ul>
+    </div>
+
+    <!-- Feedback Loop -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Feedback Loop</p>
+      <ul class="space-y-1 text-xs text-slate-500">
+        <li>Pass &rarr; <span class="text-emerald-400">reinforce</span></li>
+        <li>Rework &rarr; <span class="text-red-400">contradict</span></li>
+        <li>Always create new learnings from findings</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="text-xs text-slate-500">Weekly retrospective analyzes completed tasks and updates learnings. <a href="/hivemind" class="text-slate-400 underline hover:text-slate-300">View hivemind &rarr;</a></p>
+</div>`;
+}
+
+// ── Keeper Daemon Diagram ───────────────────────────────────────────────────
+
+function keeperDiagram(): string {
+  return `<div class="space-y-4">
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+    <!-- Duplicate Detection -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Duplicate Detection</p>
+      <p class="text-xs text-slate-500">Claude identifies semantically similar learnings — keeps higher confidence, supersedes others.</p>
+    </div>
+
+    <!-- Stale Archival -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Stale Archival</p>
+      <ul class="space-y-1 text-xs text-slate-500">
+        <li class="font-medium text-slate-400">Claude-driven</li>
+        <li>Evaluates relevance &amp; freshness</li>
+        <li class="font-medium text-slate-400 pt-1">Automated</li>
+        <li>Confidence <span class="text-red-400">&lt;0.2</span></li>
+        <li>Reinforcements <span class="text-slate-400">&lt;3</span></li>
+        <li>Unused <span class="text-slate-400">30 days</span></li>
+      </ul>
+    </div>
+
+    <!-- Scope Promotion -->
+    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <p class="text-xs font-medium text-slate-300 mb-2">Scope Promotion</p>
+      <p class="text-xs text-slate-500">Repo &rarr; universal when:</p>
+      <ul class="mt-1 space-y-1 text-xs text-slate-500">
+        <li>&ge;5 reinforcements</li>
+        <li>Confidence &ge;<span class="text-emerald-400">0.8</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="text-xs text-slate-500">Runs after retrospective + own <span class="text-slate-400">24h</span> schedule.</p>
+</div>`;
+}
+
 // ── Workflow page ────────────────────────────────────────────────────────────
 
 /**
@@ -615,6 +884,11 @@ export function workflowPage(tasks: TaskRow[], user: SessionUser): string {
     ${detailsSection("CI/CD Pipeline", cicdDiagram())}
     ${detailsSection("Daemon Processes", daemonDiagram())}
     ${detailsSection("Tech Stack", techStackDiagram())}
+    ${detailsSection("Preview Environments", previewDiagram())}
+    ${detailsSection("PR Review Gate", prReviewDiagram())}
+    ${detailsSection("Docs Agent", docsAgentDiagram())}
+    ${detailsSection("Hivemind & Learnings", hivemindDiagram())}
+    ${detailsSection("Keeper Daemon", keeperDiagram())}
   </div>
 </div>
 

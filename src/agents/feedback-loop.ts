@@ -5,7 +5,7 @@ import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
-import { reinforceLearning, contradictLearning, createLearning } from "../db/queries/learnings.js";
+import { reinforceLearning, contradictLearning, createLearning, buildDismissedContext } from "../db/queries/learnings.js";
 import { recordEvent } from "../db/queries/learning-events.js";
 import { loadPrompt } from "../prompt-cache.js";
 
@@ -62,6 +62,8 @@ export async function analyzeFeedback(
     const task = await getById(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
 
+    const dismissedContext = await buildDismissedContext();
+
     const userPrompt = [
       `## Task: ${task.title}`,
       ``,
@@ -74,6 +76,7 @@ export async function analyzeFeedback(
       ``,
       `## Review Findings`,
       reviewFindings || "(none)",
+      dismissedContext,
     ].join("\n");
 
     const response = await callClaude({

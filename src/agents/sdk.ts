@@ -1,5 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Tool, ToolResultBlockParam, ToolUseBlock, MessageParam } from "@anthropic-ai/sdk/resources/messages/messages.js";
+import type { Tool, ToolResultBlockParam, ToolUseBlock, MessageParam, TextBlockParam, ImageBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.js";
+
+/** Rich tool result content — text blocks and/or image blocks (e.g. screenshots). */
+export type ToolResultContent = Array<TextBlockParam | ImageBlockParam>;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,8 +32,8 @@ export interface AgenticRequest {
   maxTokens?: number;
   systemPrompt?: string;
   tools: Tool[];
-  /** Execute a tool call; return the string result (or throw to signal error). */
-  executeTool: (name: string, input: Record<string, unknown>) => Promise<string>;
+  /** Execute a tool call; return the string result or rich content (or throw to signal error). */
+  executeTool: (name: string, input: Record<string, unknown>) => Promise<string | ToolResultContent>;
   maxTurns?: number;
   /** Called after each API round-trip (useful for heartbeats). */
   onTurnComplete?: (turn: number) => void;

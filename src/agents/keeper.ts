@@ -2,7 +2,7 @@ import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
-import { listLearnings, supersedeLearning, archiveStale } from "../db/queries/learnings.js";
+import { listLearnings, supersedeLearning, archiveStale, buildDismissedContext } from "../db/queries/learnings.js";
 import { recordEvent } from "../db/queries/learning-events.js";
 import { db } from "../db/connection.js";
 import { learnings } from "../db/schema.js";
@@ -25,7 +25,8 @@ Respond with JSON:
 \`\`\`
 
 Be conservative. Only flag clear duplicates, clearly stale entries, and well-reinforced candidates for promotion.
-If nothing needs to change, return empty arrays for all fields.`;
+If nothing needs to change, return empty arrays for all fields.
+Never propose un-archiving or promoting learnings that appear in the dismissed learnings list.`;
 
 interface KeeperResult {
   duplicates: { keepId: number; removeIds: number[] }[];
@@ -71,10 +72,13 @@ export async function curateLearnings(): Promise<void> {
       )
       .join("\n\n");
 
+    const dismissedContext = await buildDismissedContext();
+
     const userPrompt = [
       `## Active Learnings (${activeLearnings.length} total)`,
       ``,
       learningsSummary,
+      dismissedContext,
     ].join("\n");
 
     const response = await callClaude({

@@ -8,6 +8,7 @@ import {
   reinforceLearning,
   contradictLearning,
   createLearning,
+  buildDismissedContext,
 } from "../db/queries/learnings.js";
 import { recordEvent, getRecentEvents } from "../db/queries/learning-events.js";
 import { db } from "../db/connection.js";
@@ -171,6 +172,8 @@ export async function runRetrospective(): Promise<RetrospectiveReport> {
       .map((t) => `  ${t.id}: ${t.failureReason}`)
       .join("\n");
 
+    const dismissedContext = await buildDismissedContext();
+
     const userPrompt = [
       `## Period`,
       `From: ${sinceDate.toISOString()}`,
@@ -198,6 +201,7 @@ export async function runRetrospective(): Promise<RetrospectiveReport> {
       ``,
       `## Recent Learning Events (last 100)`,
       eventsSummary || "(no recent events)",
+      dismissedContext,
     ].join("\n");
 
     const response = await callClaude({

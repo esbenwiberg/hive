@@ -264,6 +264,174 @@ export function pipelineSteps(currentStatus: string): string {
   return `<div class="flex items-start">${stepHtml}</div>`;
 }
 
+// ── Pipeline Dialog ────────────────────────────────────────────────────────
+
+export function pipelineDialog(currentStatus: string): string {
+  const dialogId = "pipeline-dialog";
+
+  const happyPath = [
+    "pending",
+    "queued",
+    "enriching",
+    "ready",
+    "approved",
+    "executing",
+    "reviewing",
+    "done",
+    "merged",
+  ];
+  const currentIdx = happyPath.indexOf(currentStatus);
+
+  const nodes = [
+    // Row 1 — happy path (y=55)
+    { key: "pending", label: "Pending", x: 50, y: 55 },
+    { key: "queued", label: "Queued", x: 150, y: 55 },
+    { key: "enriching", label: "Enriching", x: 250, y: 55 },
+    { key: "ready", label: "Ready", x: 350, y: 55 },
+    { key: "approved", label: "Approved", x: 450, y: 55 },
+    { key: "executing", label: "Executing", x: 550, y: 55 },
+    { key: "reviewing", label: "Reviewing", x: 650, y: 55 },
+    { key: "done", label: "Done", x: 750, y: 55 },
+    { key: "merged", label: "Merged", x: 850, y: 55 },
+    // Row 2 — error/recovery (y=175)
+    { key: "failed", label: "Failed", x: 200, y: 175 },
+    { key: "suspended", label: "Suspended", x: 450, y: 175 },
+    { key: "rework", label: "Rework", x: 700, y: 175 },
+    // Row 3 — terminal (y=275)
+    { key: "rejected", label: "Rejected", x: 150, y: 275 },
+    { key: "cancelled", label: "Cancelled", x: 450, y: 275 },
+  ];
+
+  function getCategory(
+    key: string,
+  ): "current" | "completed" | "future" | "error" {
+    if (key === currentStatus) return "current";
+    const idx = happyPath.indexOf(key);
+    if (idx === -1) return "error";
+    if (currentIdx === -1) return "future";
+    return idx < currentIdx ? "completed" : "future";
+  }
+
+  const defs = `<defs>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="4" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <marker id="arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#475569"/>
+      </marker>
+      <marker id="arrow-g" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+      </marker>
+      <style>
+        @keyframes pg{0%,100%{opacity:1}50%{opacity:.6}}
+        .pulse-node{animation:pg 2s ease-in-out infinite}
+      </style>
+    </defs>`;
+
+  // Happy path edges (solid horizontal arrows)
+  const happyEdges = happyPath
+    .slice(0, -1)
+    .map((from, i) => {
+      const f = nodes.find((n) => n.key === from)!;
+      const t = nodes.find((n) => n.key === happyPath[i + 1])!;
+      const done = currentIdx > -1 && i < currentIdx;
+      return `<line x1="${f.x + 18}" y1="${f.y}" x2="${t.x - 18}" y2="${t.y}" stroke="${done ? "#34d399" : "#475569"}" stroke-width="1.5" marker-end="url(#arrow${done ? "-g" : ""})"/>`;
+    })
+    .join("\n    ");
+
+  // Error/recovery edges (dashed diagonals)
+  const errEdges = [
+    { from: "executing", to: "failed" },
+    { from: "reviewing", to: "rework" },
+    { from: "failed", to: "pending" },
+    { from: "rework", to: "executing" },
+    { from: "suspended", to: "pending" },
+  ]
+    .map(({ from, to }) => {
+      const f = nodes.find((n) => n.key === from)!;
+      const t = nodes.find((n) => n.key === to)!;
+      const up = f.y > t.y;
+      const y1 = up ? f.y - 16 : f.y + 16;
+      const y2 = up ? t.y + 16 : t.y - 16;
+      return `<line x1="${f.x}" y1="${y1}" x2="${t.x}" y2="${y2}" stroke="#475569" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>`;
+    })
+    .join("\n    ");
+
+  // Nodes
+  const nodesSvg = nodes
+    .map((n) => {
+      const cat = getCategory(n.key);
+      let circle: string,
+        textFill: string,
+        cls = "";
+      switch (cat) {
+        case "current":
+          circle = `fill="#fbbf24" stroke="#fbbf24" stroke-width="2" filter="url(#glow)"`;
+          textFill = "#fbbf24";
+          cls = ' class="pulse-node"';
+          break;
+        case "completed":
+          circle = `fill="#34d399" fill-opacity="0.2" stroke="#34d399" stroke-width="1.5"`;
+          textFill = "#34d399";
+          break;
+        case "future":
+          circle = `fill="#334155" stroke="#475569" stroke-width="1.5"`;
+          textFill = "#94a3b8";
+          break;
+        default:
+          circle = `fill="#1e293b" stroke="#475569" stroke-width="1"`;
+          textFill = "#64748b";
+          break;
+      }
+
+      let icon = "";
+      if (cat === "completed") {
+        icon = `<path d="M${n.x - 5} ${n.y} l3 4 l7 -8" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+      } else if (cat === "current") {
+        icon = `<circle cx="${n.x}" cy="${n.y}" r="4" fill="#92400e"/>`;
+      }
+
+      return `<g>
+      <circle cx="${n.x}" cy="${n.y}" r="16" ${circle}${cls}/>
+      ${icon}
+      <text x="${n.x}" y="${n.y + 30}" text-anchor="middle" fill="${textFill}" font-size="11" font-family="system-ui,sans-serif">${n.label}</text>
+    </g>`;
+    })
+    .join("\n    ");
+
+  const legend = `<div class="flex items-center gap-4 text-xs text-slate-400">
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400/20 ring-1 ring-emerald-400"></span> Completed</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full bg-amber-400"></span> Current</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full bg-slate-700 ring-1 ring-slate-600"></span> Pending</span>
+    </div>`;
+
+  const svg = `<svg viewBox="0 0 900 310" class="w-full" xmlns="http://www.w3.org/2000/svg">
+    ${defs}
+    ${happyEdges}
+    ${errEdges}
+    ${nodesSvg}
+  </svg>`;
+
+  return `<div id="${dialogId}" class="fixed inset-0 z-50 hidden">
+  <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" onclick="document.getElementById('${dialogId}').classList.add('hidden')"></div>
+  <div class="fixed inset-0 flex items-center justify-center p-4">
+    <div class="relative w-full max-w-4xl rounded-xl border border-slate-700 bg-slate-800 shadow-xl">
+      <div class="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+        <h3 class="text-lg font-semibold text-slate-50">Pipeline Workflow</h3>
+        <button onclick="document.getElementById('${dialogId}').classList.add('hidden')"
+                class="rounded-lg p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-50">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div class="px-6 py-4">${legend}<div class="mt-3">${svg}</div></div>
+    </div>
+  </div>
+</div>`;
+}
+
 // ── Select ──────────────────────────────────────────────────────────────────
 
 export function select(

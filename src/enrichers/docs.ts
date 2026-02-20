@@ -23,8 +23,11 @@ const ROOT_DOC_FILES = [
   "api.json",
 ];
 
-/** Directories that commonly contain documentation. */
-const DOC_DIRS = ["docs", "doc", "documentation"];
+/** Structured doc directories (checked first, take priority). */
+const STRUCTURED_DOC_DIRS = ["docs/internal", "docs/external"] as const;
+
+/** Legacy/generic doc directories. */
+const LEGACY_DOC_DIRS = ["docs", "doc", "documentation"];
 
 /** Max chars to read from each doc for the summary. */
 const SUMMARY_LENGTH = 500;
@@ -68,15 +71,29 @@ async function readSummary(path: string): Promise<string> {
 }
 
 /**
- * Scans a directory (non-recursively) for documentation files.
+ * Scans a directory for documentation files, optionally recursing one level
+ * into subdirectories.
  */
-async function scanDocDir(dir: string): Promise<string[]> {
+async function scanDocDir(dir: string, recurse = false): Promise<string[]> {
   const files: string[] = [];
   try {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
+      const full = join(dir, entry.name);
       if (entry.isFile()) {
-        files.push(join(dir, entry.name));
+        files.push(full);
+      } else if (recurse && entry.isDirectory()) {
+        // One level of recursion
+        try {
+          const subEntries = await readdir(full, { withFileTypes: true });
+          for (const sub of subEntries) {
+            if (sub.isFile()) {
+              files.push(join(full, sub.name));
+            }
+          }
+        } catch {
+          // Subdirectory not readable, skip
+        }
       }
     }
   } catch {
@@ -98,43 +115,65 @@ export const docsEnricher: Enricher = {
   ): Promise<EnrichmentResult> {
     const startTime = Date.now();
 
-    const docsFound: Array<{ path: string; summary: string }> = [];
+    type DocEntry = { path: string; summary: string };
+    const internal: DocEntry[] = [];
+    const external: DocEntry[] = [];
+    const other: DocEntry[] = [];
 
-    // Check well-known root doc files
-    for (const fileName of ROOT_DOC_FILES) {
-      const fullPath = join(repoDir, fileName);
-      if (await isFile(fullPath)) {
-        const summary = await readSummary(fullPath);
-        docsFound.push({
-          path: fileName,
-          summary,
-        });
-      }
-    }
+    // Track paths already collected to avoid duplicates when legacy dirs
+    // overlap with structured dirs (e.g. docs/ contains docs/internal/)
+    const seen = new Set<string>();
 
-    // Scan doc directories
-    for (const dirName of DOC_DIRS) {
+    const collectEntry = async (filePath: string, bucket: DocEntry[]) => {
+      const relative = filePath.slice(repoDir.length + 1);
+      if (seen.has(relative)) return;
+      seen.add(relative);
+      const summary = await readSummary(filePath);
+      bucket.push({ path: relative, summary });
+    };
+
+    // 1. Check structured doc directories (recurse one level)
+    for (const dirName of STRUCTURED_DOC_DIRS) {
       const dirPath = join(repoDir, dirName);
       if (await isDirectory(dirPath)) {
-        const files = await scanDocDir(dirPath);
+        const bucket = dirName === "docs/internal" ? internal : external;
+        const files = await scanDocDir(dirPath, true);
         for (const filePath of files) {
-          const relative = filePath.slice(repoDir.length + 1);
-          const summary = await readSummary(filePath);
-          docsFound.push({
-            path: relative,
-            summary,
-          });
+          await collectEntry(filePath, bucket);
         }
       }
     }
 
+    // 2. Check well-known root doc files → other
+    for (const fileName of ROOT_DOC_FILES) {
+      const fullPath = join(repoDir, fileName);
+      if (await isFile(fullPath)) {
+        await collectEntry(fullPath, other);
+      }
+    }
+
+    // 3. Scan legacy doc directories → other (skip files already seen)
+    for (const dirName of LEGACY_DOC_DIRS) {
+      const dirPath = join(repoDir, dirName);
+      if (await isDirectory(dirPath)) {
+        const files = await scanDocDir(dirPath);
+        for (const filePath of files) {
+          await collectEntry(filePath, other);
+        }
+      }
+    }
+
+    const allFiles = [...internal, ...external, ...other];
     const durationMs = Date.now() - startTime;
 
     return {
       data: {
         docs: {
-          count: docsFound.length,
-          files: docsFound,
+          count: allFiles.length,
+          internal,
+          external,
+          other,
+          files: allFiles, // backward compat
         },
       },
       durationMs,

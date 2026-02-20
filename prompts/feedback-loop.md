@@ -68,3 +68,4 @@ Respond with a JSON object:
 4. Keep new learnings to at most 3 per analysis — quality over quantity
 5. If no learnings were injected (empty learning IDs), skip reinforcement and contradiction — focus only on proposing new learnings
 6. Always return valid JSON with all required fields, even if arrays are empty
+7. Never propose new learnings that are semantically equivalent to any dismissed learning listed in the input

@@ -22,7 +22,7 @@ Respond with a JSON object:
       "file": "path/to/file.ts",
       "line": 42,
       "message": "Description of the issue",
-      "category": "correctness | style | performance | maintainability"
+      "category": "correctness | style | performance | maintainability | documentation"
     }
   ],
   "securityFindings": [
@@ -56,3 +56,6 @@ Respond with a JSON object:
 4. Security issues are always at least "major" severity
 5. Missing tests for new functionality is grounds for "rework"
 6. **Never return "fail"** — always use "rework" so the system can retry with refined instructions
+7. When changes affect APIs, architecture, configuration, or user-facing behavior,
+   missing or outdated documentation updates in `docs/internal/` or `docs/external/`
+   are grounds for "rework" (severity: minor or major depending on scope)

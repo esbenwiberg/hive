@@ -3,6 +3,8 @@ import { callClaude } from "../agents/sdk.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { loadPrompt } from "../prompt-cache.js";
+import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
+import { getById as getRepoById } from "../db/queries/repos.js";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
 
@@ -119,6 +121,7 @@ function buildUserPrompt(
   priorResults: Record<string, unknown>,
   clarificationAnswers?: string[],
   clarificationQuestions?: string[],
+  learningsStr?: string,
 ): string {
   const sections: string[] = [
     `Task ID: ${task.id}`,
@@ -164,6 +167,11 @@ function buildUserPrompt(
     );
   }
 
+  // Include relevant learnings from the hivemind
+  if (learningsStr) {
+    sections.push("", learningsStr);
+  }
+
   return sections.join("\n");
 }
 
@@ -207,7 +215,38 @@ export const architectEnricher: Enricher = {
       | string[]
       | undefined;
 
-    const userPrompt = buildUserPrompt(task, priorResults, clarificationAnswers, clarificationQuestions);
+    // Retrieve relevant learnings to inform the blueprint
+    let learningsStr = "";
+    try {
+      const tags: string[] = [];
+      if (task.type) tags.push(task.type);
+      if (task.severity) tags.push(task.severity);
+
+      const scopes = ["universal"];
+      const repo = await getRepoById(task.repoId);
+      if (repo) scopes.push(`repo:${repo.fullName}`);
+
+      const relevant = await retrieveRelevantLearnings({
+        scopes,
+        tags: tags.length > 0 ? tags : ["general"],
+        limit: 10,
+      });
+
+      if (relevant.length > 0) {
+        learningsStr = [
+          `<learnings>`,
+          `These learnings come from past tasks. Apply them when designing the blueprint:`,
+          ...relevant.map(
+            (l) => `- [confidence: ${l.confidence}] (${l.scope}) ${l.content}`,
+          ),
+          `</learnings>`,
+        ].join("\n");
+      }
+    } catch (err) {
+      logger.warn({ taskId: task.id, err }, "Architect: failed to retrieve learnings (non-blocking)");
+    }
+
+    const userPrompt = buildUserPrompt(task, priorResults, clarificationAnswers, clarificationQuestions, learningsStr);
 
     // ── Call Claude ───────────────────────────────────────────────────────
     const response = await callClaude({

@@ -2,7 +2,7 @@ import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
-import { createLearning } from "../db/queries/learnings.js";
+import { createLearning, buildDismissedContext } from "../db/queries/learnings.js";
 import { recordEvent } from "../db/queries/learning-events.js";
 import { db } from "../db/connection.js";
 import { gateDecisions } from "../db/schema.js";
@@ -35,7 +35,8 @@ Respond with JSON:
 \`\`\`
 
 If no clear patterns are found, return an empty patterns array.
-Only propose learnings for patterns with 3+ occurrences.`;
+Only propose learnings for patterns with 3+ occurrences.
+Never propose learnings that are semantically equivalent to any dismissed learning listed in the input.`;
 
 interface GateAnalystResult {
   patterns: {
@@ -100,6 +101,8 @@ export async function analyzeGatePatterns(
       )
       .join("\n");
 
+    const dismissedContext = await buildDismissedContext();
+
     const userPrompt = [
       `## Current Decision`,
       `Task: ${taskId}`,
@@ -109,6 +112,7 @@ export async function analyzeGatePatterns(
       `## Recent Gate Decisions (${recentDecisions.length} total, ${rejections.length} rejections)`,
       ``,
       decisionsSummary,
+      dismissedContext,
     ].join("\n");
 
     const response = await callClaude({

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth, requireRole } from "../../auth/middleware.js";
-import { getLearningById, listLearnings, getLearningStats } from "../../db/queries/learnings.js";
+import { getLearningById, listLearnings, getLearningStats, dismissLearning } from "../../db/queries/learnings.js";
 import { getEventsForLearning } from "../../db/queries/learning-events.js";
 import { getConfig } from "../../domain/config.js";
 import type { RetrospectiveReport } from "../../agents/retrospective.js";
@@ -110,6 +110,36 @@ router.get("/hivemind/learnings/:id", requireAuth, requireRole("admin"), async (
       return;
     }
 
+    res.send(learningDetailPartial(learning, events));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /hivemind/learnings/:id/dismiss ─ Dismiss a learning ────────────────
+
+router.post("/hivemind/learnings/:id/dismiss", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).send("Invalid learning ID");
+      return;
+    }
+
+    const user = req.session.user!;
+    await dismissLearning(id, String(user.id));
+
+    const [learning, events] = await Promise.all([
+      getLearningById(id),
+      getEventsForLearning(id),
+    ]);
+
+    if (!learning) {
+      res.status(404).send("Learning not found");
+      return;
+    }
+
+    res.set("HX-Trigger", JSON.stringify({ showToast: "Learning dismissed" }));
     res.send(learningDetailPartial(learning, events));
   } catch (err) {
     next(err);

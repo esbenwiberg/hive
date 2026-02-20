@@ -23,8 +23,8 @@ import { previewManager } from "./preview/manager.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { loadPrompt } from "../prompt-cache.js";
-import type { ArchitectBlueprint } from "../enrichers/architect.js";
-import type { WorkerResult, WorktreeInfo } from "../domain/types.js";
+import type { ArchitectBlueprint, ArchitectMilestone } from "../enrichers/architect.js";
+import type { ReviewGateResult, WorkerResult, WorktreeInfo } from "../domain/types.js";
 
 const MAX_REWORK_CYCLES = 2;
 
@@ -73,6 +73,87 @@ const execFileAsync = promisify(execFile);
 
 function getFlowPrompt(): string {
   return loadPrompt("flow");
+}
+
+// ── PR helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Formats the architect blueprint as a markdown PR body.
+ * Falls back to task description if no blueprint is available.
+ */
+function formatPRBody(taskId: string, taskBody: string, bp: ArchitectBlueprint | undefined): string {
+  if (!bp || bp.skipped || !bp.approach) {
+    return `## Task Description\n\n${taskBody}\n\n---\n_Automated by Hive - Task ${taskId}_`;
+  }
+
+  const sections: string[] = [`## Blueprint\n\n**Approach:** ${bp.approach}`];
+
+  if (bp.keyFiles?.length) {
+    sections.push(`\n**Key files:** ${bp.keyFiles.map(f => `\`${f}\``).join(", ")}`);
+  }
+
+  if (bp.checklist?.length) {
+    sections.push(`\n### Checklist\n${bp.checklist.map(c => `- [ ] ${c}`).join("\n")}`);
+  }
+
+  if (bp.milestones?.length) {
+    sections.push(`\n### Milestones\n${bp.milestones.map((m: ArchitectMilestone, i: number) =>
+      `${i + 1}. **${m.title}** — ${m.description}${m.acceptanceCriteria?.length ? `\n${m.acceptanceCriteria.map(a => `   - ${a}`).join("\n")}` : ""}`
+    ).join("\n")}`);
+  }
+
+  sections.push(`\n---\n_Automated by Hive - Task ${taskId}_`);
+  return sections.join("\n");
+}
+
+/**
+ * Formats the review gate result as a human-friendly PR comment.
+ */
+function formatReviewComment(taskId: string, result: ReviewGateResult): string {
+  const sections: string[] = [`## Hive Review Summary\n`];
+
+  // Verification status
+  const v = result.verification;
+  const checks = [
+    `- Build: ${v.buildSucceeded ? "passed" : "not verified"}`,
+    `- Tests: ${v.testsRun ? (v.testsPassed ? "passed" : "**failed**") : "not run"}`,
+    `- Lint: ${v.lintClean ? "clean" : "not verified"}`,
+  ];
+  sections.push(`### Verification\n${checks.join("\n")}`);
+
+  if (v.notes?.length) {
+    sections.push(`\n${v.notes.map(n => `> ${n}`).join("\n")}`);
+  }
+
+  // Findings
+  const nonInfoFindings = result.findings.filter(f => f.severity !== "info");
+  const infoFindings = result.findings.filter(f => f.severity === "info");
+
+  if (nonInfoFindings.length > 0) {
+    sections.push(`\n### Findings\n${nonInfoFindings.map(f =>
+      `- **${f.severity}** ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ""}\`` : ""} — ${f.message}`
+    ).join("\n")}`);
+  }
+
+  if (infoFindings.length > 0) {
+    sections.push(`\n### Notes\n${infoFindings.map(f =>
+      `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ""}\`` : ""} ${f.message}`
+    ).join("\n")}`);
+  }
+
+  if (result.findings.length === 0) {
+    sections.push("\nNo issues found.");
+  }
+
+  // Security
+  if (result.securityFindings.length > 0) {
+    sections.push(`\n### Security\n${result.securityFindings.map(f =>
+      `- **${f.severity}** [${f.type}] ${f.file ? `\`${f.file}\`` : ""} — ${f.description}`
+    ).join("\n")}`);
+  }
+
+  sections.push(`\n---\n_Automated review by Hive - Task ${taskId}_`);
+  return sections.join("\n");
 }
 
 // ── Milestone helpers ─────────────────────────────────────────────────────────
@@ -378,74 +459,138 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     await heartbeat(taskId);
 
     if (reviewResult.verdict === "pass") {
-      // Push and create PR
+      // Commit and push
       const creds = await resolveGitCredentials(task.createdBy, repo.provider);
       const gitProvider = getGitProvider(repo.provider);
 
       await gitProvider.commitAll(worktree.path, `${task.title}\n\nTask: ${taskId}`);
       await gitProvider.push(worktree.path, branchName, creds);
 
+      // ── Preview + browser validation (before PR) ──────────────────────────
+      let previewUrl: string | undefined;
+      const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+      const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
+      const previewEnabled = (repoPreview.enabled as boolean | undefined) ?? config.preview.enabled;
+
+      // .hive.yaml takes precedence; fall back to repo settings
+      const previewConfig = parseHiveYaml(worktree.path)
+        ?? buildPreviewConfigFromSettings(repoPreview);
+
+      if (previewConfig && previewEnabled) {
+        try {
+          const previewInfo = await previewManager.startPreview(taskId, worktree.path, previewConfig);
+          previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
+          logger.info({ taskId, previewUrl }, "Preview environment started");
+
+          // Persist previewUrl on the task
+          await db
+            .update(tasks)
+            .set({ previewUrl, updatedAt: new Date() })
+            .where(eq(tasks.id, taskId));
+
+          // Run browser validation
+          try {
+            const { validateWithBrowser } = await import("../agents/browser-validator.js");
+            const validation = await validateWithBrowser(taskId, previewUrl);
+
+            if (validation.verdict === "fail") {
+              // Stop preview to free resources
+              try { await previewManager.stopPreview(taskId); } catch { /* swallow */ }
+
+              if ((task.reworkCount ?? 0) < MAX_REWORK_CYCLES) {
+                // Send for rework with browser findings
+                await updateStatus(taskId, "rework");
+                const browserReviewResult: ReviewGateResult = {
+                  verdict: "rework",
+                  findings: validation.findings.map((f) => ({
+                    severity: "major" as const,
+                    file: "",
+                    message: f,
+                    category: "browser-validation",
+                  })),
+                  securityFindings: [],
+                  verification: { testsRun: false, testsPassed: false, lintClean: false, buildSucceeded: false, notes: [] },
+                  costUsd: validation.costUsd,
+                };
+                await refineTask(taskId, browserReviewResult);
+
+                logger.info({ taskId, reworkCount: (task.reworkCount ?? 0) + 1 }, "Browser validation failed — sent for rework");
+                return { success: false, branch: branchName, reviewResult: browserReviewResult, error: "Browser validation failed — rework" };
+              }
+
+              // Max rework cycles exhausted
+              const reason = `Browser validation failed after max rework cycles (${MAX_REWORK_CYCLES})`;
+              await addEvent(taskId, "error", "worker", `Failed: ${reason}`);
+              await db
+                .update(tasks)
+                .set({ failureReason: reason, updatedAt: new Date() })
+                .where(eq(tasks.id, taskId));
+              await updateStatus(taskId, "failed");
+
+              return { success: false, branch: branchName, reviewResult, error: reason };
+            }
+          } catch (validationErr) {
+            logger.warn({ taskId, err: validationErr }, "Browser validation error — continuing to PR");
+          }
+        } catch (previewErr) {
+          logger.warn({ taskId, err: previewErr }, "Failed to start preview — continuing without");
+        }
+      }
+
+      // ── Create PR ─────────────────────────────────────────────────────────
+      const prBody = formatPRBody(taskId, task.body, architectData);
       const prUrl = await gitProvider.createPR(
         repo.fullName,
         branchName,
         repo.defaultBranch ?? "main",
         task.title,
-        `## Task Description\n\n${task.body}\n\n---\n_Automated by Hive - Task ${taskId}_`,
+        prBody,
         creds,
       );
 
-      // Update task with PR URL and transition to done
+      // Post review summary as a PR comment
+      try {
+        const reviewComment = formatReviewComment(taskId, reviewResult);
+        await gitProvider.commentOnPR(repo.fullName, prUrl, reviewComment, creds);
+        logger.info({ taskId, prUrl }, "Review summary posted as PR comment");
+      } catch (commentErr) {
+        logger.warn({ taskId, err: commentErr }, "Failed to post review comment on PR — continuing");
+      }
+
+      // Post preview URL as PR comment if preview is running
+      if (previewUrl) {
+        try {
+          const timeoutMinutes = (repoPreview.cleanup_timeout_minutes as number | undefined) ?? config.preview.cleanup_timeout_minutes;
+          const comment = [
+            `## Preview Environment`,
+            ``,
+            `A preview environment is available for this PR:`,
+            ``,
+            `**URL:** ${previewUrl}`,
+            ``,
+            `_Preview will auto-cleanup when this PR is closed/merged or after ${timeoutMinutes} minutes of inactivity._`,
+            ``,
+            `---`,
+            `_Automated by Hive - Task ${taskId}_`,
+          ].join("\n");
+
+          await gitProvider.commentOnPR(repo.fullName, prUrl, comment, creds);
+          logger.info({ taskId, prUrl }, "Preview URL posted as PR comment");
+        } catch (commentErr) {
+          logger.warn({ taskId, err: commentErr }, "Failed to post preview comment on PR — continuing");
+        }
+      }
+
+      // Update task with PR URL + preview URL and transition to done
       await db
         .update(tasks)
-        .set({ prUrl, updatedAt: new Date() })
+        .set({ prUrl, ...(previewUrl ? { previewUrl } : {}), updatedAt: new Date() })
         .where(eq(tasks.id, taskId));
 
       await addEvent(taskId, "pr_created", "worker", "PR created", { prUrl });
       await updateStatus(taskId, "done");
 
-      logger.info({ taskId, prUrl }, "Task execution complete — PR created");
-
-      // Attempt to start preview environment if configured
-      let previewUrl: string | undefined;
-      try {
-        const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
-        const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
-        const previewEnabled = (repoPreview.enabled as boolean | undefined) ?? config.preview.enabled;
-
-        // .hive.yaml takes precedence; fall back to repo settings
-        const previewConfig = parseHiveYaml(worktree.path)
-          ?? buildPreviewConfigFromSettings(repoPreview);
-
-        if (previewConfig && previewEnabled) {
-          const previewInfo = await previewManager.startPreview(taskId, worktree.path, previewConfig);
-          previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
-          logger.info({ taskId, previewUrl }, "Preview environment started");
-
-          // Post preview URL as PR comment
-          try {
-            const timeoutMinutes = (repoPreview.cleanup_timeout_minutes as number | undefined) ?? config.preview.cleanup_timeout_minutes;
-            const comment = [
-              `## Preview Environment`,
-              ``,
-              `A preview environment is available for this PR:`,
-              ``,
-              `**URL:** ${previewUrl}`,
-              ``,
-              `_Preview will auto-cleanup when this PR is closed/merged or after ${timeoutMinutes} minutes of inactivity._`,
-              ``,
-              `---`,
-              `_Automated by Hive - Task ${taskId}_`,
-            ].join("\n");
-
-            await gitProvider.commentOnPR(repo.fullName, prUrl, comment, creds);
-            logger.info({ taskId, prUrl }, "Preview URL posted as PR comment");
-          } catch (commentErr) {
-            logger.warn({ taskId, err: commentErr }, "Failed to post preview comment on PR — continuing");
-          }
-        }
-      } catch (previewErr) {
-        logger.warn({ taskId, err: previewErr }, "Failed to start preview — continuing without");
-      }
+      logger.info({ taskId, prUrl, previewUrl }, "Task execution complete — PR created");
 
       return { success: true, prUrl, previewUrl, branch: branchName, reviewResult };
     }

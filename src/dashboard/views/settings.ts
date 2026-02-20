@@ -257,6 +257,11 @@ export function repoSettingsCard(repo: RepoRow): string {
       </div>
     </div>
     <div class="border-t border-slate-700 pt-3 mt-3">
+      <h4 class="text-sm font-medium text-slate-300 mb-2">Documentation</h4>
+      <p class="text-xs text-slate-500 mb-2">When enabled, agents update docs alongside code and the doc auditor scans for staleness.</p>
+      ${checkbox(`docs_enabled_${repo.id}`, "Enable documentation", ((settings.docs as Record<string, unknown> | undefined)?.enabled === true))}
+    </div>
+    <div class="border-t border-slate-700 pt-3 mt-3">
       <h4 class="text-sm font-medium text-slate-300 mb-2">Preview</h4>
       ${select(`previewEnabled_${repo.id}`, "Preview Enabled", [
         { value: "", label: "-- Use Global Default --" },

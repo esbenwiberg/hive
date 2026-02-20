@@ -1,7 +1,8 @@
-import { eq, sql, and, desc, isNull } from "drizzle-orm";
+import { eq, sql, and, desc, isNull, isNotNull } from "drizzle-orm";
 import { db } from "../connection.js";
 import { learnings } from "../schema.js";
 import type { LearningRow } from "../schema.js";
+import { recordEvent } from "./learning-events.js";
 
 /**
  * Inserts a new learning record.
@@ -188,6 +189,69 @@ export async function archiveStale(): Promise<number> {
 }
 
 /**
+ * Dismisses a learning: sets dismissedAt/dismissedBy, marks supersededBy = -1
+ * so it's excluded from retrieveRelevantLearnings, and records a dismissed event.
+ */
+export async function dismissLearning(
+  id: number,
+  userId: string,
+): Promise<void> {
+  await db
+    .update(learnings)
+    .set({
+      dismissedAt: new Date(),
+      dismissedBy: userId,
+      supersededBy: -1,
+      updatedAt: new Date(),
+    })
+    .where(eq(learnings.id, id));
+
+  await recordEvent({
+    learningId: id,
+    eventType: "dismissed",
+    evidence: `Dismissed by admin ${userId}`,
+  });
+}
+
+/**
+ * Returns learnings that have been dismissed by an admin.
+ */
+export async function getDismissedLearnings(
+  limit?: number,
+): Promise<LearningRow[]> {
+  return db
+    .select()
+    .from(learnings)
+    .where(isNotNull(learnings.dismissedAt))
+    .orderBy(desc(learnings.dismissedAt))
+    .limit(limit ?? 50);
+}
+
+/**
+ * Builds a text block of dismissed learnings for injection into agent prompts.
+ * Returns empty string if no dismissed learnings exist.
+ */
+export async function buildDismissedContext(): Promise<string> {
+  const dismissed = await getDismissedLearnings(50);
+  if (dismissed.length === 0) return "";
+
+  const entries = dismissed
+    .map(
+      (l) =>
+        `[id:${l.id}] scope=${l.scope} category=${l.category}\n  ${l.content}`,
+    )
+    .join("\n");
+
+  return [
+    ``,
+    `## Dismissed Learnings (admin-rejected — DO NOT recreate)`,
+    entries,
+    ``,
+    `Never propose new learnings that are semantically equivalent to any dismissed learning listed above.`,
+  ].join("\n");
+}
+
+/**
  * Paginated list of learnings for the dashboard.
  */
 export async function listLearnings(opts?: {
@@ -239,6 +303,7 @@ export async function getLearningStats(): Promise<{
   total: number;
   active: number;
   archived: number;
+  dismissed: number;
   avgConfidence: number;
   topCategories: { category: string; count: number }[];
 }> {
@@ -246,7 +311,8 @@ export async function getLearningStats(): Promise<{
     .select({
       total: sql<number>`count(*)::int`,
       active: sql<number>`count(*) filter (where ${learnings.supersededBy} is null)::int`,
-      archived: sql<number>`count(*) filter (where ${learnings.supersededBy} is not null)::int`,
+      archived: sql<number>`count(*) filter (where ${learnings.supersededBy} is not null and ${learnings.dismissedAt} is null)::int`,
+      dismissed: sql<number>`count(*) filter (where ${learnings.dismissedAt} is not null)::int`,
       avgConfidence: sql<string>`coalesce(avg(${learnings.confidence}) filter (where ${learnings.supersededBy} is null), 0)`,
     })
     .from(learnings);
@@ -266,6 +332,7 @@ export async function getLearningStats(): Promise<{
     total: statsRow.total,
     active: statsRow.active,
     archived: statsRow.archived,
+    dismissed: statsRow.dismissed,
     avgConfidence: parseFloat(statsRow.avgConfidence),
     topCategories,
   };

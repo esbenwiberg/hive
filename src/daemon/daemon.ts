@@ -15,6 +15,7 @@ import { bugHunter } from "../producers/bug-hunter.js";
 import { securityScanner } from "../producers/security-scanner.js";
 import { featureScout } from "../producers/feature-scout.js";
 import { selfMonitor } from "../producers/self-monitor.js";
+import { docAuditor } from "../producers/doc-auditor.js";
 import { recordRun } from "../db/queries/producer-runs.js";
 import { notifyTasksCreated } from "../notifications.js";
 import { listAll } from "../db/queries/repos.js";
@@ -50,6 +51,7 @@ const ALL_PRODUCERS: Producer[] = [
   securityScanner,
   featureScout,
   selfMonitor,
+  docAuditor,
 ];
 
 export class Daemon {
@@ -326,8 +328,23 @@ export class Daemon {
     }
 
     for (const repo of allRepos) {
-      // Per-repo producer toggle: skip unless explicitly enabled
       const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+
+      // doc-auditor is gated on settings.docs.enabled, not the producers map
+      if (producer.name === "doc-auditor") {
+        const docs = repoSettings.docs as { enabled?: boolean } | undefined;
+        if (!docs?.enabled) {
+          logger.debug(
+            { producer: producer.name, repo: repo.fullName },
+            "Daemon: docs not enabled for repo, skipping doc-auditor",
+          );
+          continue;
+        }
+        await this._runProducerForRepo(producer, repo, createdBy);
+        continue;
+      }
+
+      // Per-repo producer toggle: skip unless explicitly enabled
       const producersMap = (repoSettings.producers ?? {}) as Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
       const producerEntry = producersMap[producer.name];
       if (!producerEntry || producerEntry.enabled !== true) {

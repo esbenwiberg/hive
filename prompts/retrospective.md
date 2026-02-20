@@ -114,3 +114,4 @@ Respond with a JSON object:
 4. Only propose creating learnings for patterns seen in 2+ tasks
 5. Only propose deprecating learnings that are clearly ineffective (low confidence, high contradictions, no recent use)
 6. Always return valid JSON with all required fields, even if arrays are empty
+7. Never propose new learnings that are semantically equivalent to any dismissed learning listed in the input

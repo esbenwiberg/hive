@@ -10,6 +10,8 @@ import {
   type ClarificationConfig,
 } from "../../domain/autonomous-config.js";
 import * as repoQueries from "../../db/queries/repos.js";
+import { create } from "../../db/queries/tasks.js";
+import { isDuplicate } from "../../producers/base.js";
 import type { SettingsTab } from "../views/settings.js";
 import {
   settingsPage,
@@ -255,6 +257,11 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
     }
     settings.enrichers = enrichers;
 
+    // Documentation toggle
+    const docsEnabledKey = `docs_enabled_${repoId}`;
+    const docsEnabled = body[docsEnabledKey] === "true";
+    settings.docs = { enabled: docsEnabled };
+
     // Preview settings
     const preview: Record<string, unknown> = {};
     const previewEnabledKey = `previewEnabled_${repoId}`;
@@ -366,6 +373,41 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
 
     if (Object.keys(preview).length > 0) {
       settings.preview = preview;
+    }
+
+    // If docs just got enabled, create a bootstrap task
+    if (docsEnabled) {
+      const currentRepo = await repoQueries.getById(repoId);
+      const currentSettings = (currentRepo?.settings ?? {}) as Record<string, unknown>;
+      const wasEnabled = (currentSettings.docs as Record<string, unknown> | undefined)?.enabled === true;
+
+      if (!wasEnabled) {
+        const bootstrapTitle = `Bootstrap documentation for ${currentRepo!.fullName}`;
+        const bootstrapSource = "docs-bootstrap";
+
+        if (!(await isDuplicate(bootstrapSource, bootstrapTitle))) {
+          await create({
+            title: bootstrapTitle,
+            body: [
+              "Scan the codebase and generate initial documentation:",
+              "",
+              "1. Create `docs/internal/` with:",
+              "   - `architecture.md` — high-level system overview, key components, data flow",
+              "   - `modules.md` — per-module guide for major source directories",
+              "   - `conventions.md` — coding patterns, naming, error handling, testing approach",
+              "",
+              "2. If the repo has API routes (Express, REST, etc.), create `docs/external/` with:",
+              "   - `api.md` — endpoint reference with methods, paths, request/response shapes",
+              "",
+              "Base everything on the actual source code. Keep docs concise and maintainable.",
+            ].join("\n"),
+            source: bootstrapSource,
+            type: "documentation",
+            repoId,
+            createdBy: req.session.user!.id,
+          });
+        }
+      }
     }
 
     const updated = await repoQueries.updateSettings(repoId, settings);

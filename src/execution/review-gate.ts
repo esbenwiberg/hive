@@ -51,7 +51,13 @@ async function getChangedFiles(worktreePath: string, baseSha: string): Promise<s
  * Handles markdown code fences around JSON.
  */
 export function parseReviewResult(text: string): ReviewGateResult {
-  const cleaned = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+  // Try multiple strategies to extract JSON from Claude's response:
+  // 1. Extract from markdown code fence (handles preamble/postamble text)
+  // 2. Find first { ... last } in the text
+  // 3. Strip simple fences and parse directly
+  const fenceMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n\s*```/);
+  const bracketMatch = !fenceMatch ? text.match(/(\{[\s\S]*\})/) : null;
+  const cleaned = (fenceMatch?.[1] ?? bracketMatch?.[1] ?? text).trim();
 
   try {
     const parsed = JSON.parse(cleaned);

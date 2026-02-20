@@ -14,6 +14,7 @@ import {
   select,
   table,
   pipelineSteps,
+  pipelineDialog,
   emptyState,
   noAccessBanner,
 } from "./components.js";
@@ -640,19 +641,34 @@ function previewStatusBadge(status: string): string {
 }
 
 export function previewSection(task: TaskRow): string {
-  if (!task.previewStatus) {
+  if (!task.previewStatus && !task.previewUrl) {
     return "";
   }
 
-  const badgeHtml = previewStatusBadge(task.previewStatus);
+  // Show persisted URL even without active preview status
+  if (!task.previewStatus && task.previewUrl) {
+    return `<h4 class="text-sm font-medium text-slate-400 mb-2">Preview</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      <div class="flex items-center gap-2">
+        <a href="${escapeHtml(task.previewUrl)}" target="_blank" rel="noopener"
+           class="text-amber-400 hover:text-amber-300 underline text-sm">${escapeHtml(task.previewUrl)}</a>
+      </div>
+    </div>`;
+  }
+
+  const badgeHtml = previewStatusBadge(task.previewStatus!);
 
   let content = "";
 
-  if (task.previewStatus === "running" && task.previewPort) {
+  if (task.previewStatus === "running" && (task.previewPort || task.previewUrl)) {
+    const previewLink = task.previewUrl
+      ? `<a href="${escapeHtml(task.previewUrl)}" target="_blank" rel="noopener"
+           class="text-amber-400 hover:text-amber-300 underline text-sm">${escapeHtml(task.previewUrl)}</a>`
+      : `<a href="/preview/${escapeHtml(task.id)}/" target="_blank" rel="noopener"
+           class="text-amber-400 hover:text-amber-300 underline text-sm">Open Preview</a>`;
     content = `<div class="flex items-center gap-2 mb-3">
         ${badgeHtml}
-        <a href="/preview/${escapeHtml(task.id)}/" target="_blank" rel="noopener"
-           class="text-amber-400 hover:text-amber-300 underline text-sm">Open Preview</a>
+        ${previewLink}
       </div>
       <div class="flex flex-wrap gap-2">
         ${button("Stop Preview", {
@@ -893,7 +909,11 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
     <!-- Pipeline visualization -->
     <div>
       <h4 class="text-sm font-medium text-slate-400 mb-3">Pipeline</h4>
-      ${pipelineSteps(task.status)}
+      <div class="cursor-pointer group" onclick="document.getElementById('pipeline-dialog').classList.remove('hidden')" title="Click to view full pipeline">
+        ${pipelineSteps(task.status)}
+        <p class="mt-1 text-center text-xs text-slate-600 group-hover:text-slate-400 transition-colors">Click to view full pipeline</p>
+      </div>
+      ${pipelineDialog(task.status)}
     </div>
 
     <!-- Metadata -->
@@ -924,7 +944,7 @@ export function taskDetailPanel(task: TaskRow, repoNames: Map<number, string> = 
     ${reviewFindingsSection(task)}
 
     <!-- Preview -->
-    ${task.previewStatus ? `<div id="preview-section">${previewSection(task)}</div>` : ""}
+    ${task.previewStatus || task.previewUrl ? `<div id="preview-section">${previewSection(task)}</div>` : ""}
 
     <!-- Activity -->
     ${activitySection(task, events)}

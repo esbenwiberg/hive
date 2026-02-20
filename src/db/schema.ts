@@ -100,6 +100,7 @@ export const tasks = pgTable(
     blueprint: text("blueprint"),
     previewPort: integer("preview_port"),
     previewStatus: text("preview_status"),
+    previewUrl: text("preview_url"),
     suspendedFrom: text("suspended_from"),
     previewStartedAt: timestamp("preview_started_at", tz),
     visibility: text("visibility").notNull().default("public"),
@@ -274,6 +275,8 @@ export const learnings = pgTable(
     updatedAt: timestamp("updated_at", tz).defaultNow(),
     lastUsedAt: timestamp("last_used_at", tz),
     supersededBy: integer("superseded_by"),
+    dismissedAt: timestamp("dismissed_at", tz),
+    dismissedBy: text("dismissed_by"),
   },
   (t) => [
     index("learnings_scope_idx").on(t.scope),
