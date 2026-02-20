@@ -105,7 +105,7 @@ function estimatedCost(task: TaskRow): number | undefined {
 
 // ── Task table ──────────────────────────────────────────────────────────────
 
-function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNames: Map<number, string> = new Map()): string {
+function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNames: Map<number, string> = new Map(), isAdmin = false): string {
   if (tasks.length === 0) {
     return emptyState(
       "No tasks found",
@@ -116,9 +116,16 @@ function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNa
     );
   }
 
-  const headers = ["ID", "Title", "Status", "Score", "Est. Cost", "Actual", "Repo", "Creator", "Updated", "Actions"];
+  const headers = [
+    ...(isAdmin ? [""] : []),
+    "ID", "Title", "Status", "Score", "Est. Cost", "Actual", "Repo", "Creator", "Updated", "Actions",
+  ];
 
   const rows = tasks.map((t) => {
+    const checkbox = isAdmin
+      ? [`<input type="checkbox" class="bulk-select h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400" value="${escapeHtml(t.id)}" onclick="event.stopPropagation(); updateBulkCount()">`]
+      : [];
+
     const id = `<span class="font-mono text-xs text-slate-400 cursor-pointer"
       hx-get="/api/tasks/${escapeHtml(t.id)}"
       hx-target="#detail-panel"
@@ -141,14 +148,18 @@ function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNa
       hx-target="#detail-panel"
       hx-swap="innerHTML">View</button>`;
 
-    return [id, title, status, score, estCost, actualCost, repo, creator, updated, viewBtn];
+    return [...checkbox, id, title, status, score, estCost, actualCost, repo, creator, updated, viewBtn];
   });
 
   // Build table manually for row-level data attributes
+  const selectAllTh = isAdmin
+    ? `<th class="px-4 py-3"><input type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400" onclick="toggleSelectAll(this)"></th>`
+    : "";
   const ths = headers
-    .map(
-      (h) =>
-        `<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">${escapeHtml(h)}</th>`,
+    .map((h, idx) =>
+      isAdmin && idx === 0
+        ? selectAllTh
+        : `<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">${escapeHtml(h)}</th>`,
     )
     .join("");
 
@@ -809,9 +820,46 @@ export function taskListPartial(
   activeStatus?: string,
   repoNames: Map<number, string> = new Map(),
   userNames: Map<number, string> = new Map(),
+  isAdmin = false,
 ): string {
+  const bulkToolbar = isAdmin
+    ? `<div id="bulk-toolbar" class="hidden mt-3 flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2">
+        <span id="bulk-count" class="text-sm text-slate-300">0 selected</span>
+        <button onclick="bulkDelete()" class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500">Delete Selected</button>
+      </div>
+      <script>
+        function toggleSelectAll(el) {
+          var boxes = document.querySelectorAll('.bulk-select');
+          boxes.forEach(function(b) { b.checked = el.checked; });
+          updateBulkCount();
+        }
+        function updateBulkCount() {
+          var checked = document.querySelectorAll('.bulk-select:checked');
+          var toolbar = document.getElementById('bulk-toolbar');
+          var label = document.getElementById('bulk-count');
+          if (checked.length > 0) {
+            toolbar.classList.remove('hidden');
+            label.textContent = checked.length + ' selected';
+          } else {
+            toolbar.classList.add('hidden');
+          }
+        }
+        function bulkDelete() {
+          var checked = document.querySelectorAll('.bulk-select:checked');
+          var ids = Array.from(checked).map(function(b) { return b.value; });
+          if (ids.length === 0) return;
+          if (!confirm('Delete ' + ids.length + ' task(s)? This cannot be undone.')) return;
+          htmx.ajax('POST', '/api/tasks/bulk-delete', {
+            target: '#task-list', swap: 'innerHTML',
+            values: { ids: JSON.stringify(ids) }
+          });
+        }
+      </script>`
+    : "";
+
   return `${filterTabs(activeStatus ?? "", counts)}
-<div class="mt-4">${taskTable(tasks, repoNames, userNames)}</div>`;
+${bulkToolbar}
+<div class="mt-4">${taskTable(tasks, repoNames, userNames, isAdmin)}</div>`;
 }
 
 /**
@@ -845,7 +893,7 @@ export function taskListPage(
 
   const content = `${hasNoAccess ? noAccessBanner() + "\n" : ""}${header}
 <div id="task-list">
-  ${taskListPartial(tasks, counts, activeStatus, repoNames, userNames)}
+  ${taskListPartial(tasks, counts, activeStatus, repoNames, userNames, user.role === "admin")}
 </div>
 
 <!-- Create panel (slide-over) -->
@@ -857,7 +905,7 @@ ${taskCreateForm(repos, user, selfRepoFullName)}`;
 /**
  * Task detail slide-over panel.
  */
-export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map()): string {
+export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map(), user?: SessionUser): string {
   const actions = getAvailableActions(task.status);
 
   const actionButtons = actions
@@ -1012,6 +1060,12 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
         </select>
       </div>`;
     })()}
+    ${user?.role === "admin" ? `<div class="pt-3 border-t border-slate-700">
+      ${button("Reset Task", {
+        variant: "danger",
+        attrs: `onclick="if(confirm('Reset this task to pending? All enrichment, gate, and execution state will be cleared.')){htmx.ajax('POST','/api/tasks/${escapeHtml(task.id)}/reset',{target:'#task-list',swap:'innerHTML'});document.getElementById('detail-panel').innerHTML=''}"`,
+      })}
+    </div>` : ""}
   </div>
 </div>`;
 }

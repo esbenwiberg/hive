@@ -287,6 +287,77 @@ export async function deleteByTitlePattern(pattern: string): Promise<number> {
 }
 
 /**
+ * Deletes tasks by an array of IDs, cascading through all dependent tables.
+ * Returns the number of deleted task rows.
+ */
+export async function deleteByIds(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+
+  const result = await db.execute(sql`
+    WITH doomed AS (
+      SELECT id FROM tasks WHERE id = ANY(${ids})
+    ),
+    d1 AS (DELETE FROM costs WHERE task_id IN (SELECT id FROM doomed)),
+    d2 AS (DELETE FROM gate_decisions WHERE task_id IN (SELECT id FROM doomed)),
+    d3 AS (DELETE FROM code_reviews WHERE task_id IN (SELECT id FROM doomed)),
+    d4 AS (DELETE FROM active_agents WHERE task_id IN (SELECT id FROM doomed)),
+    d5 AS (DELETE FROM enrichment_runs WHERE task_id IN (SELECT id FROM doomed)),
+    d6 AS (DELETE FROM preview_logs WHERE task_id IN (SELECT id FROM doomed)),
+    d7 AS (DELETE FROM learning_events WHERE task_id IN (SELECT id FROM doomed))
+    DELETE FROM tasks WHERE id IN (SELECT id FROM doomed)
+  `);
+
+  return Number(result.rowCount ?? 0);
+}
+
+/**
+ * Resets a task to initial pending state, clearing all enrichment, gate,
+ * execution, and review state. Also deletes related rows from dependent tables.
+ */
+export async function resetTask(id: string) {
+  const existing = await getById(id);
+  if (!existing) {
+    throw new Error(`Task ${id} not found`);
+  }
+
+  // Delete related rows
+  await db.execute(sql`
+    WITH target AS (SELECT ${id}::text AS tid)
+    , d1 AS (DELETE FROM enrichment_runs WHERE task_id = (SELECT tid FROM target))
+    , d2 AS (DELETE FROM gate_decisions WHERE task_id = (SELECT tid FROM target))
+    , d3 AS (DELETE FROM code_reviews WHERE task_id = (SELECT tid FROM target))
+    , d4 AS (DELETE FROM active_agents WHERE task_id = (SELECT tid FROM target))
+    SELECT 1
+  `);
+
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      status: "pending",
+      enrichment: null,
+      gateVerdict: null,
+      gateReasoning: null,
+      executionAttempts: 0,
+      prUrl: null,
+      failureReason: null,
+      reworkCount: 0,
+      reworkHistory: [],
+      retryInstructions: null,
+      blueprint: null,
+      previewPort: null,
+      previewStatus: null,
+      previewUrl: null,
+      previewStartedAt: null,
+      suspendedFrom: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, id))
+    .returning();
+
+  return updated;
+}
+
+/**
  * Returns task counts grouped by status.
  * Uses Drizzle's sql template for the GROUP BY query.
  */

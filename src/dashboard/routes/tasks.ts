@@ -85,8 +85,9 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
       : repos;
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
+    const isAdmin = user.role === "admin";
     if (req.headers["hx-request"]) {
-      res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames));
+      res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames, isAdmin));
     } else {
       res.send(taskListPage(tasks, filters, counts, user, filteredRepos, userNames, HIVE_SELF_REPO, accessibleRepoIds));
     }
@@ -113,7 +114,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
     ]);
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
-    res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames));
+    res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames, user.role === "admin"));
   } catch (err) {
     next(err);
   }
@@ -205,7 +206,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       "HX-Trigger",
       JSON.stringify({ showToast: { message: "Task created", type: "success" } }),
     );
-    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, user.role === "admin"));
   } catch (err) {
     next(err);
   }
@@ -237,7 +238,7 @@ router.get("/api/tasks/:id", requireAuth, async (req: Request, res: Response, ne
       }
     }
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
-    res.send(taskDetailPanel(task, repoNames, events, latestReview, userNames));
+    res.send(taskDetailPanel(task, repoNames, events, latestReview, userNames, user));
   } catch (err) {
     next(err);
   }
@@ -330,7 +331,7 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
         },
       }),
     );
-    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, user.role === "admin"));
   } catch (err) {
     next(err);
   }
@@ -414,7 +415,7 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
         },
       }),
     );
-    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames));
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, user.role === "admin"));
   } catch (err) {
     next(err);
   }
@@ -495,6 +496,84 @@ router.post("/api/tasks/:id/preview/extend", requireAuth, async (req: Request, r
       JSON.stringify({ showToast: { message: "Preview lifetime extended", type: "success" } }),
     );
     res.send(updated ? previewSection(updated) : "");
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/tasks/bulk-delete ─ Bulk delete tasks (admin-only) ─────────
+
+router.post("/api/tasks/bulk-delete", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.session.user!;
+    if (user.role !== "admin") {
+      res.status(403).send("Admin access required");
+      return;
+    }
+
+    let ids: string[];
+    try {
+      ids = typeof req.body.ids === "string" ? JSON.parse(req.body.ids) : req.body.ids;
+    } catch {
+      res.status(400).send("Invalid ids");
+      return;
+    }
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).send("ids must be a non-empty array");
+      return;
+    }
+
+    const deleted = await taskQueries.deleteByIds(ids);
+
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
+    const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
+      taskQueries.listWithCosts({}, undefined, undefined, userContext),
+      taskQueries.countByStatus(accessibleRepoIds),
+      repoQueries.listAll(),
+      fetchUserNames(),
+    ]);
+    const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: `Deleted ${deleted} task(s)`, type: "success" } }),
+    );
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, true));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/tasks/:id/reset ─ Reset task to pending (admin-only) ──────
+
+router.post("/api/tasks/:id/reset", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.session.user!;
+    if (user.role !== "admin") {
+      res.status(403).send("Admin access required");
+      return;
+    }
+
+    const id = req.params.id as string;
+    await taskQueries.resetTask(id);
+
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
+    const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
+      taskQueries.listWithCosts({}, undefined, undefined, userContext),
+      taskQueries.countByStatus(accessibleRepoIds),
+      repoQueries.listAll(),
+      fetchUserNames(),
+    ]);
+    const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: "Task reset to pending", type: "success" } }),
+    );
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, true));
   } catch (err) {
     next(err);
   }
