@@ -295,7 +295,7 @@ export async function deleteByIds(ids: string[]): Promise<number> {
 
   const result = await db.execute(sql`
     WITH doomed AS (
-      SELECT id FROM tasks WHERE id = ANY(${ids})
+      SELECT id FROM tasks WHERE id = ANY(${ids}::text[])
     ),
     d1 AS (DELETE FROM costs WHERE task_id IN (SELECT id FROM doomed)),
     d2 AS (DELETE FROM gate_decisions WHERE task_id IN (SELECT id FROM doomed)),
