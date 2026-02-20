@@ -338,17 +338,35 @@ function enricherPills(): string {
 <p class="mt-2 text-xs text-slate-500">Clarification check: human / ai / auto mode</p>`;
 }
 
+function routingContent(): string {
+  const types = ["bug", "feature", "security", "refactor", "improvement"];
+  const sizes = ["trivial", "small", "medium", "large"];
+  const pill = (t: string) =>
+    `<span class="inline-block rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">${t}</span>`;
+
+  return `<div class="mt-2 space-y-2">
+  <div><span class="text-xs text-slate-500 mr-1.5">Type:</span>${types.map(pill).join(" ")}</div>
+  <div><span class="text-xs text-slate-500 mr-1.5">Size:</span>${sizes.map(pill).join(" ")}</div>
+  <div><span class="text-xs text-slate-500 mr-1.5">Workflow:</span>${pill("flow")} ${pill("epic")}</div>
+  <p class="text-xs text-slate-500">+ model selection, max turns, budget per task</p>
+</div>`;
+}
+
 function executionPaths(): string {
   return `<p class="mt-2 text-xs text-slate-400">Claude + tools (read_file, write_file, list_directory, run_command)</p>
-<p class="mt-1 text-xs text-slate-400">Multi-turn agentic loop, max 30 turns</p>
-<div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+<p class="mt-1 text-xs text-slate-400">Multi-turn agentic loop, max 30 turns &nbsp;&bull;&nbsp; Budget guard per user</p>
+<div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
   <div class="rounded border border-slate-600 bg-slate-900 p-2.5">
-    <p class="text-xs font-medium text-slate-300">Path A: Milestones</p>
+    <p class="text-xs font-medium text-slate-300">Milestones</p>
     <p class="mt-1 text-xs text-slate-500">For each: code &rarr; review-fix &rarr; commit</p>
   </div>
   <div class="rounded border border-slate-600 bg-slate-900 p-2.5">
-    <p class="text-xs font-medium text-slate-300">Path B: Single Flow</p>
+    <p class="text-xs font-medium text-slate-300">Single Flow</p>
     <p class="mt-1 text-xs text-slate-500">Code &rarr; review-fix</p>
+  </div>
+  <div class="rounded border border-slate-600 bg-slate-900 p-2.5">
+    <p class="text-xs font-medium text-slate-300">Epic Decompose</p>
+    <p class="mt-1 text-xs text-slate-500">Split &rarr; child tasks &rarr; execute each</p>
   </div>
 </div>`;
 }
@@ -356,12 +374,12 @@ function executionPaths(): string {
 export function buildStages(): StageDefinition[] {
   return [
     { name: "Task Sources", content: sourceBoxes() },
-    { name: "Routing", content: `<p class="mt-2 text-xs text-slate-400">Claude classifies: type, size, workflow, model</p>` },
+    { name: "Routing", content: routingContent() },
     { name: "Enrichment", content: enricherPills() },
-    { name: "Gate", content: `<p class="mt-2 text-xs text-slate-400">Mode: human / auto / ai</p>\n<p class="mt-1 text-xs text-slate-400">Verdict: approve / reject / rework</p>` },
+    { name: "Gate", content: `<p class="mt-2 text-xs text-slate-400">Mode: human / auto / ai</p>\n<p class="mt-1 text-xs text-slate-400">Verdict: approve / reject / rework</p>\n<p class="mt-1 text-xs text-slate-500">Gate-analyst: pattern detection across recent decisions</p>` },
     { name: "Execution", content: executionPaths() },
-    { name: "Review Gate", content: `<p class="mt-2 text-xs text-slate-400">Code quality + security + test verification</p>\n<p class="mt-1 text-xs text-slate-400">Pass &rarr; PR + push &nbsp;|&nbsp; Rework (&le;2 cycles, then FAILED)</p>` },
-    { name: "Done / Merged", content: `<p class="mt-2 text-xs text-slate-400">PR created in GitHub/Azure DevOps</p>\n<p class="mt-1 text-xs text-slate-400">Preview environment (optional)</p>` },
+    { name: "Review Gate", content: `<p class="mt-2 text-xs text-slate-400">Code quality + security + test verification</p>\n<p class="mt-1 text-xs text-slate-400">Pass &rarr; PR + push &nbsp;|&nbsp; Rework (&le;2 cycles, then FAILED)</p>\n<p class="mt-1 text-xs text-slate-500">Rework &rarr; refiner generates retry instructions</p>` },
+    { name: "Done / Merged", content: `<p class="mt-2 text-xs text-slate-400">PR created in GitHub / Azure DevOps</p>\n<p class="mt-1 text-xs text-slate-400">Preview environment (optional, browser-validated)</p>\n<p class="mt-1 text-xs text-slate-500">PR close/merge &rarr; auto-cleanup preview</p>` },
   ];
 }
 

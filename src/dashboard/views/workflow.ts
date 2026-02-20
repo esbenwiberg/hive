@@ -271,20 +271,19 @@ function cicdDiagram(): string {
 // ── Daemon Processes Diagram ────────────────────────────────────────────────
 
 function daemonDiagram(): string {
-  return `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  return `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
   <!-- Box 1: Task Scheduler -->
   <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
     <div class="flex items-center gap-2 mb-2">
       <span class="flex h-5 w-5 items-center justify-center rounded bg-amber-400/10">
         <svg class="h-3 w-3 text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
       </span>
-      <p class="text-xs font-medium text-slate-300">Task Scheduler</p>
+      <p class="text-xs font-medium text-slate-300">Task Scheduler <span class="text-slate-500 font-normal">(5s poll)</span></p>
     </div>
     <ul class="space-y-1 text-xs text-slate-500">
-      <li>Poll interval: <span class="text-slate-400">5s</span></li>
       <li>Max concurrent: <span class="text-slate-400">5</span></li>
       <li>Max per user: <span class="text-slate-400">2</span></li>
-      <li class="pt-1 text-slate-400">PENDING &rarr; runPipeline() (route &rarr; enrich &rarr; gate)</li>
+      <li class="pt-1 text-slate-400">PENDING &rarr; runPipeline()</li>
       <li class="text-slate-400">APPROVED / REWORK &rarr; executeTask()</li>
     </ul>
   </div>
@@ -295,7 +294,7 @@ function daemonDiagram(): string {
       <span class="flex h-5 w-5 items-center justify-center rounded bg-blue-400/10">
         <svg class="h-3 w-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" /></svg>
       </span>
-      <p class="text-xs font-medium text-slate-300">Producers <span class="text-slate-500 font-normal">(every 15 min)</span></p>
+      <p class="text-xs font-medium text-slate-300">Producers <span class="text-slate-500 font-normal">(every 15 min, staggered)</span></p>
     </div>
     <div class="flex flex-wrap gap-1.5">
       <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">logScanner</span>
@@ -303,26 +302,57 @@ function daemonDiagram(): string {
       <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">securityScanner</span>
       <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">featureScout</span>
       <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">selfMonitor</span>
+      <span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">docAuditor</span>
     </div>
-    <p class="mt-2 text-xs text-slate-500">&rarr; Auto-create tasks</p>
+    <p class="mt-2 text-xs text-slate-500">Per-repo toggles &rarr; auto-create tasks</p>
   </div>
 
-  <!-- Box 3: Maintenance -->
+  <!-- Box 3: Retrospective -->
   <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
     <div class="flex items-center gap-2 mb-2">
       <span class="flex h-5 w-5 items-center justify-center rounded bg-emerald-400/10">
         <svg class="h-3 w-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17l-5.384 3.171 1.028-5.993L2.13 7.603l6.02-.875L11.42 1.5l3.27 5.228 6.02.875-4.934 4.745 1.028 5.993-5.384-3.17Z" /></svg>
       </span>
-      <p class="text-xs font-medium text-slate-300">Maintenance</p>
+      <p class="text-xs font-medium text-slate-300">Retrospective <span class="text-slate-500 font-normal">(weekly)</span></p>
     </div>
     <ul class="space-y-1 text-xs text-slate-500">
-      <li>Retrospective: <span class="text-slate-400">every 24h</span></li>
-      <li>Learning decay: <span class="text-slate-400">every 24h</span></li>
-      <li>Preview cleanup: <span class="text-slate-400">every 60s</span></li>
+      <li>Analyzes completed tasks</li>
+      <li>Generates improvement proposals</li>
+      <li>Identifies blind spots</li>
     </ul>
   </div>
 
-  <!-- Box 4: Stale Recovery -->
+  <!-- Box 4: Learning Lifecycle -->
+  <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-5 w-5 items-center justify-center rounded bg-amber-400/10">
+        <svg class="h-3 w-3 text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" /></svg>
+      </span>
+      <p class="text-xs font-medium text-slate-300">Keeper &amp; Decay</p>
+    </div>
+    <ul class="space-y-1 text-xs text-slate-500">
+      <li>Monthly confidence decay: <span class="text-slate-400">&times;0.95</span></li>
+      <li>Stale archival: confidence <span class="text-red-400">&lt;0.2</span></li>
+      <li>Duplicate detection &amp; merge</li>
+      <li>Scope promotion: repo &rarr; universal</li>
+    </ul>
+  </div>
+
+  <!-- Box 5: Cleanup -->
+  <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="flex h-5 w-5 items-center justify-center rounded bg-emerald-400/10">
+        <svg class="h-3 w-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+      </span>
+      <p class="text-xs font-medium text-slate-300">Cleanup <span class="text-slate-500 font-normal">(60s poll)</span></p>
+    </div>
+    <ul class="space-y-1 text-xs text-slate-500">
+      <li>Expired previews: stop + remove worktree</li>
+      <li>PR close/merge: stop preview + cleanup</li>
+    </ul>
+  </div>
+
+  <!-- Box 6: Stale Recovery -->
   <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
     <div class="flex items-center gap-2 mb-2">
       <span class="flex h-5 w-5 items-center justify-center rounded bg-red-400/10">
@@ -331,8 +361,9 @@ function daemonDiagram(): string {
       <p class="text-xs font-medium text-slate-300">Stale Recovery</p>
     </div>
     <ul class="space-y-1 text-xs text-slate-500">
-      <li>On startup: <span class="text-slate-400">clean stale agents</span></li>
-      <li>Tasks stuck &gt;30min in transitional states &rarr; <span class="text-red-400">FAILED</span></li>
+      <li>On startup: clean stale agents</li>
+      <li>Stuck &gt;30min &rarr; <span class="text-red-400">FAILED</span></li>
+      <li>Suspended tasks &rarr; resume on restart</li>
     </ul>
   </div>
 </div>`;
@@ -608,45 +639,6 @@ function hivemindDiagram(): string {
 </div>`;
 }
 
-// ── Keeper Daemon Diagram ───────────────────────────────────────────────────
-
-function keeperDiagram(): string {
-  return `<div class="space-y-4">
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-    <!-- Duplicate Detection -->
-    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
-      <p class="text-xs font-medium text-slate-300 mb-2">Duplicate Detection</p>
-      <p class="text-xs text-slate-500">Claude identifies semantically similar learnings — keeps higher confidence, supersedes others.</p>
-    </div>
-
-    <!-- Stale Archival -->
-    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
-      <p class="text-xs font-medium text-slate-300 mb-2">Stale Archival</p>
-      <ul class="space-y-1 text-xs text-slate-500">
-        <li class="font-medium text-slate-400">Claude-driven</li>
-        <li>Evaluates relevance &amp; freshness</li>
-        <li class="font-medium text-slate-400 pt-1">Automated</li>
-        <li>Confidence <span class="text-red-400">&lt;0.2</span></li>
-        <li>Reinforcements <span class="text-slate-400">&lt;3</span></li>
-        <li>Unused <span class="text-slate-400">30 days</span></li>
-      </ul>
-    </div>
-
-    <!-- Scope Promotion -->
-    <div class="rounded-lg border border-slate-600 bg-slate-900 p-3">
-      <p class="text-xs font-medium text-slate-300 mb-2">Scope Promotion</p>
-      <p class="text-xs text-slate-500">Repo &rarr; universal when:</p>
-      <ul class="mt-1 space-y-1 text-xs text-slate-500">
-        <li>&ge;5 reinforcements</li>
-        <li>Confidence &ge;<span class="text-emerald-400">0.8</span></li>
-      </ul>
-    </div>
-  </div>
-
-  <p class="text-xs text-slate-500">Runs after retrospective + own <span class="text-slate-400">24h</span> schedule.</p>
-</div>`;
-}
-
 // ── Workflow page ────────────────────────────────────────────────────────────
 
 /**
@@ -700,7 +692,6 @@ export function workflowPage(tasks: TaskRow[], user: SessionUser): string {
     ${detailsSection("PR Review Gate", prReviewDiagram())}
     ${detailsSection("Docs Agent", docsAgentDiagram())}
     ${detailsSection("Hivemind & Learnings", hivemindDiagram())}
-    ${detailsSection("Keeper Daemon", keeperDiagram())}
   </div>
 </div>
 
