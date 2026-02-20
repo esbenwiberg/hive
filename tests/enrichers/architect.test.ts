@@ -69,15 +69,27 @@ describe("architectEnricher", () => {
     expect(architectEnricher.name).toBe("architect");
   });
 
-  it("skips trivial tasks without a Claude call", async () => {
+  it("calls Claude even for trivial tasks", async () => {
     const trivialTask = { ...DUMMY_TASK, size: "trivial" } as TaskRow;
+
+    const blueprint = {
+      approach: "Quick one-liner fix",
+      keyFiles: ["src/utils.ts"],
+      checklist: ["Fix the typo"],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: makeCostMeta(),
+    });
 
     const result = await architectEnricher.run(trivialTask, "/tmp", {}, DEFAULT_CONFIG);
 
-    expect(mockCallClaude).not.toHaveBeenCalled();
-    expect(result.data.architect).toEqual({ skipped: true, approach: "" });
+    expect(mockCallClaude).toHaveBeenCalledOnce();
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.approach).toBe("Quick one-liner fix");
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
-    expect(result.costUsd).toBeUndefined();
+    expect(result.costUsd).toBeTypeOf("number");
   });
 
   it("produces a plan with keyFiles and checklist for small tasks (no milestones)", async () => {
