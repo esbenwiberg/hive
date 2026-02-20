@@ -54,6 +54,14 @@ export async function unregister(taskId: string): Promise<void> {
 }
 
 /**
+ * Returns the active agent for a specific task, or null if none.
+ */
+export async function getByTaskId(taskId: string) {
+  const [row] = await db.select().from(activeAgents).where(eq(activeAgents.taskId, taskId));
+  return row ?? null;
+}
+
+/**
  * Returns all currently active agents.
  */
 export async function listActive() {

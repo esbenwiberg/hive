@@ -415,6 +415,40 @@ export async function getBreakdownByModel(
   }));
 }
 
+export interface TaskCostBreakdownRow {
+  agent: string;
+  model: string;
+  totalUsd: number;
+  turns: number;
+  durationMs: number;
+}
+
+/**
+ * Returns cost breakdown grouped by agent+model for a single task.
+ */
+export async function getBreakdownForTask(taskId: string): Promise<TaskCostBreakdownRow[]> {
+  const rows = await db
+    .select({
+      agent: costs.agent,
+      model: costs.model,
+      totalUsd: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+      turns: sql<number>`coalesce(sum(${costs.turns}), 0)::int`,
+      durationMs: sql<number>`coalesce(sum(${costs.durationMs}), 0)::int`,
+    })
+    .from(costs)
+    .where(eq(costs.taskId, taskId))
+    .groupBy(costs.agent, costs.model)
+    .orderBy(sql`sum(${costs.costUsd}) desc`);
+
+  return rows.map((r) => ({
+    agent: r.agent,
+    model: r.model,
+    totalUsd: parseFloat(r.totalUsd),
+    turns: r.turns,
+    durationMs: r.durationMs,
+  }));
+}
+
 /**
  * Monthly cost summary for the last N months (default 12).
  * Returns one row per month with total USD and entry count.

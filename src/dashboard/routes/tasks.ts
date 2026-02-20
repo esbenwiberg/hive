@@ -14,9 +14,13 @@ import {
   taskDetailPanel,
   previewSection,
   activityEventList,
+  taskDebugPanel,
 } from "../views/tasks.js";
 import { getEvents } from "../../db/queries/task-events.js";
 import { getLatestByTask as getLatestReview } from "../../db/queries/code-reviews.js";
+import * as activeAgentQueries from "../../db/queries/active-agents.js";
+import * as enrichmentRunQueries from "../../db/queries/enrichment-runs.js";
+import * as costQueries from "../../db/queries/costs.js";
 import { previewManager } from "../../execution/preview/manager.js";
 import { cleanupWorktree } from "../../execution/worktree.js";
 import * as repoAccessQueries from "../../db/queries/user-repo-access.js";
@@ -252,6 +256,39 @@ router.get("/api/tasks/:id/events", requireAuth, async (req: Request, res: Respo
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const events = await getEvents(id, limit);
     res.send(activityEventList(events));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/tasks/:id/debug ─ Debug panel partial (HTMX) ───────────────────
+
+router.get("/api/tasks/:id/debug", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const user = req.session.user!;
+
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
+    }
+
+    const [agent, enrichRuns, events, costBreakdown] = await Promise.all([
+      activeAgentQueries.getByTaskId(id),
+      enrichmentRunQueries.listByTask(id),
+      getEvents(id, 20),
+      costQueries.getBreakdownForTask(id),
+    ]);
+
+    res.send(taskDebugPanel(task, agent, enrichRuns, events, costBreakdown));
   } catch (err) {
     next(err);
   }

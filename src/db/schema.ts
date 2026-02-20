@@ -351,3 +351,4 @@ export type UserCredentialRow = InferSelectModel<typeof userCredentials>;
 export type LearningRow = InferSelectModel<typeof learnings>;
 export type LearningEventRow = InferSelectModel<typeof learningEvents>;
 export type UserRepoAccessRow = InferSelectModel<typeof userRepoAccess>;
+export type EnrichmentRunRow = InferSelectModel<typeof enrichmentRuns>;

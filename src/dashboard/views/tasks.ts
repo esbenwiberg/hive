@@ -1,7 +1,8 @@
 // Task list views — pure functions returning HTML strings
 
 import type { SessionUser, TaskFilters } from "../../domain/types.js";
-import type { TaskRow, RepoRow, TaskEventRow, CodeReviewRow } from "../../db/schema.js";
+import type { TaskRow, RepoRow, TaskEventRow, CodeReviewRow, ActiveAgentRow, EnrichmentRunRow } from "../../db/schema.js";
+import type { TaskCostBreakdownRow } from "../../db/queries/costs.js";
 import { getAvailableActions, getAllowedTargets } from "../../domain/state-machine.js";
 import {
   escapeHtml,
@@ -809,6 +810,219 @@ function activitySection(task: TaskRow, events: TaskEventRow[]): string {
   </div>`;
 }
 
+// ── Debug panel ─────────────────────────────────────────────────────────────
+
+const TRANSITIONAL_STATUSES = ["enriching", "executing", "reviewing"];
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const remSec = sec % 60;
+  if (min < 60) return remSec > 0 ? `${min}m ${remSec}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return remMin > 0 ? `${hr}h ${remMin}m` : `${hr}h`;
+}
+
+function stuckDiagnosis(task: TaskRow, agent: ActiveAgentRow | null): string {
+  if (!TRANSITIONAL_STATUSES.includes(task.status)) {
+    return `<div class="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2">
+      <span class="h-2 w-2 rounded-full bg-slate-500"></span>
+      <span class="text-sm text-slate-400">Idle — task is not in a transitional state</span>
+    </div>`;
+  }
+
+  if (!agent) {
+    return `<div class="flex items-center gap-2 rounded-lg bg-red-950/30 border border-red-500/20 px-4 py-2">
+      <span class="h-2 w-2 rounded-full bg-red-500"></span>
+      <span class="text-sm text-red-300">No active agent — likely stuck</span>
+    </div>`;
+  }
+
+  const hbAge = agent.lastHeartbeatAt ? Date.now() - new Date(agent.lastHeartbeatAt).getTime() : Infinity;
+  const TWO_MIN = 2 * 60 * 1000;
+  const TEN_MIN = 10 * 60 * 1000;
+
+  if (hbAge < TWO_MIN) {
+    return `<div class="flex items-center gap-2 rounded-lg bg-emerald-950/30 border border-emerald-500/20 px-4 py-2">
+      <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+      <span class="text-sm text-emerald-300">Alive — heartbeat ${formatDuration(hbAge)} ago</span>
+    </div>`;
+  }
+
+  if (hbAge < TEN_MIN) {
+    return `<div class="flex items-center gap-2 rounded-lg bg-amber-950/30 border border-amber-500/20 px-4 py-2">
+      <span class="h-2 w-2 rounded-full bg-amber-500"></span>
+      <span class="text-sm text-amber-300">Slow — heartbeat ${formatDuration(hbAge)} ago</span>
+    </div>`;
+  }
+
+  return `<div class="flex items-center gap-2 rounded-lg bg-red-950/30 border border-red-500/20 px-4 py-2">
+    <span class="h-2 w-2 rounded-full bg-red-500"></span>
+    <span class="text-sm text-red-300">Likely stuck — heartbeat ${formatDuration(hbAge)} ago</span>
+  </div>`;
+}
+
+function debugAgentDetails(task: TaskRow, agent: ActiveAgentRow | null): string {
+  if (!agent) return "";
+
+  const hbAge = agent.lastHeartbeatAt ? formatDuration(Date.now() - new Date(agent.lastHeartbeatAt).getTime()) : "-";
+  const started = agent.startedAt ? new Date(agent.startedAt).toLocaleString() : "-";
+  const timeInStatus = task.updatedAt ? formatDuration(Date.now() - new Date(task.updatedAt).getTime()) : "-";
+
+  const rows = [
+    ["Agent", escapeHtml(agent.agent)],
+    ["Model", escapeHtml(agent.model)],
+    ["Phase", agent.phase ? escapeHtml(agent.phase) : `<span class="text-slate-500">-</span>`],
+    ["Started", escapeHtml(started)],
+    ["Heartbeat Age", hbAge],
+    ["Time in Status", timeInStatus],
+  ];
+
+  const html = rows.map(([label, value]) =>
+    `<div class="flex justify-between py-1.5">
+      <span class="text-xs text-slate-400">${label}</span>
+      <span class="text-xs text-slate-200">${value}</span>
+    </div>`
+  ).join("");
+
+  return `<div>
+    <h5 class="text-xs font-medium text-slate-400 mb-1">Agent</h5>
+    <div class="divide-y divide-slate-800 rounded-lg bg-slate-900 px-3">${html}</div>
+  </div>`;
+}
+
+function debugEnrichmentTable(runs: EnrichmentRunRow[]): string {
+  if (runs.length === 0) return "";
+
+  const rows = runs.map((r) => {
+    const statusColors: Record<string, "emerald" | "amber" | "red" | "slate"> = {
+      completed: "emerald",
+      running: "amber",
+      failed: "red",
+      skipped: "slate",
+    };
+    const dur = r.durationMs != null ? formatDuration(r.durationMs) : "-";
+    const cost = r.costUsd != null ? `$${parseFloat(r.costUsd).toFixed(4)}` : "-";
+    const errHtml = r.error
+      ? `<span class="text-red-400 truncate max-w-[200px] inline-block align-bottom" title="${escapeHtml(r.error)}">${escapeHtml(r.error.slice(0, 80))}${r.error.length > 80 ? "..." : ""}</span>`
+      : "";
+
+    return `<tr class="text-xs">
+      <td class="py-1.5 pr-3 text-slate-300">${escapeHtml(r.enricher)}</td>
+      <td class="py-1.5 pr-3">${badge(r.status, statusColors[r.status] ?? "slate")}</td>
+      <td class="py-1.5 pr-3 text-slate-400">${dur}</td>
+      <td class="py-1.5 pr-3 text-slate-400">${cost}</td>
+      <td class="py-1.5 text-slate-400">${errHtml}</td>
+    </tr>`;
+  }).join("");
+
+  return `<div>
+    <h5 class="text-xs font-medium text-slate-400 mb-1">Enrichment Runs</h5>
+    <div class="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2">
+      <table class="w-full">
+        <thead><tr class="text-xs text-slate-500">
+          <th class="text-left py-1 pr-3">Enricher</th>
+          <th class="text-left py-1 pr-3">Status</th>
+          <th class="text-left py-1 pr-3">Duration</th>
+          <th class="text-left py-1 pr-3">Cost</th>
+          <th class="text-left py-1">Error</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-800">${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function debugEventTimeline(events: TaskEventRow[]): string {
+  if (events.length === 0) return "";
+
+  const FIVE_MIN = 5 * 60 * 1000;
+
+  const rows = events.map((e, i) => {
+    const ts = e.createdAt ? new Date(e.createdAt) : null;
+    const timeStr = ts ? ts.toLocaleTimeString() : "-";
+
+    let gapHtml = "";
+    if (i < events.length - 1) {
+      const prev = events[i + 1].createdAt ? new Date(events[i + 1].createdAt!) : null;
+      if (ts && prev) {
+        const gapMs = ts.getTime() - prev.getTime();
+        if (gapMs > 0) {
+          const gapColor = gapMs > FIVE_MIN ? "text-red-400" : "text-slate-500";
+          gapHtml = `<span class="${gapColor} text-xs ml-1">(+${formatDuration(gapMs)})</span>`;
+        }
+      }
+    }
+
+    return `<div class="flex items-start gap-2 py-1.5 text-xs">
+      <span class="shrink-0 w-20 text-right text-slate-500">${escapeHtml(timeStr)}${gapHtml}</span>
+      <span class="shrink-0">${agentBadge(e.agent)}</span>
+      <span class="text-slate-300 truncate">${escapeHtml(e.message)}</span>
+    </div>`;
+  }).join("");
+
+  return `<div>
+    <h5 class="text-xs font-medium text-slate-400 mb-1">Event Timeline <span class="text-slate-500">(last ${events.length})</span></h5>
+    <div class="rounded-lg bg-slate-900 px-3 py-2 max-h-60 overflow-y-auto divide-y divide-slate-800">${rows}</div>
+  </div>`;
+}
+
+function debugCostTable(breakdown: TaskCostBreakdownRow[]): string {
+  if (breakdown.length === 0) return "";
+
+  const total = breakdown.reduce((sum, r) => sum + r.totalUsd, 0);
+
+  const rows = breakdown.map((r) =>
+    `<tr class="text-xs">
+      <td class="py-1.5 pr-3 text-slate-300">${escapeHtml(r.agent)}</td>
+      <td class="py-1.5 pr-3 text-slate-400">${escapeHtml(r.model)}</td>
+      <td class="py-1.5 pr-3 text-slate-300">$${r.totalUsd.toFixed(4)}</td>
+      <td class="py-1.5 pr-3 text-slate-400">${r.turns}</td>
+      <td class="py-1.5 text-slate-400">${r.durationMs > 0 ? formatDuration(r.durationMs) : "-"}</td>
+    </tr>`
+  ).join("");
+
+  return `<div>
+    <h5 class="text-xs font-medium text-slate-400 mb-1">Cost Breakdown <span class="text-slate-300">$${total.toFixed(4)}</span></h5>
+    <div class="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2">
+      <table class="w-full">
+        <thead><tr class="text-xs text-slate-500">
+          <th class="text-left py-1 pr-3">Agent</th>
+          <th class="text-left py-1 pr-3">Model</th>
+          <th class="text-left py-1 pr-3">Cost</th>
+          <th class="text-left py-1 pr-3">Turns</th>
+          <th class="text-left py-1">Duration</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-800">${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+export function taskDebugPanel(
+  task: TaskRow,
+  agent: ActiveAgentRow | null,
+  enrichRuns: EnrichmentRunRow[],
+  events: TaskEventRow[],
+  costBreakdown: TaskCostBreakdownRow[],
+): string {
+  const isActive = TRANSITIONAL_STATUSES.includes(task.status);
+  const autoRefresh = isActive
+    ? ` hx-get="/api/tasks/${escapeHtml(task.id)}/debug" hx-trigger="every 5s" hx-swap="innerHTML"`
+    : "";
+
+  return `<div id="debug-content"${autoRefresh} class="space-y-4">
+    ${stuckDiagnosis(task, agent)}
+    ${debugAgentDetails(task, agent)}
+    ${debugEnrichmentTable(enrichRuns)}
+    ${debugEventTimeline(events)}
+    ${debugCostTable(costBreakdown)}
+  </div>`;
+}
+
 // ── Exported views ──────────────────────────────────────────────────────────
 
 /**
@@ -1033,6 +1247,17 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
 
     <!-- Activity -->
     ${activitySection(task, events)}
+
+    <!-- Debug -->
+    <div>
+      <h4 class="text-sm font-medium text-slate-400 mb-2">Debug</h4>
+      <div id="debug-panel">
+        ${button("Load Debug Info", {
+          variant: "secondary",
+          attrs: `hx-get="/api/tasks/${escapeHtml(task.id)}/debug" hx-target="#debug-panel" hx-swap="innerHTML"`,
+        })}
+      </div>
+    </div>
 
     <!-- Actions -->
     ${
