@@ -1,12 +1,102 @@
 # Changelog
 
 ## 2026-02-20
-- feat: add creator display, task visibility, and admin-only self-repo
-- docs: update workflow diagrams to reflect current 14-state pipeline
+- feat: add changelog page, health dashboard, and settings/worker updates
 
 ## 2026-02-19
+- feat: add creator display, task visibility, and admin-only self-repo
+- docs: update workflow diagrams to reflect current 14-state pipeline
 - feat: add tool use to worker execution
 - feat: allow FAILED → REVIEWING transition for re-review without re-execution
+- feat: add "Move to" dropdown, FAILED→APPROVED transition, review findings, git identity
+- fix: remove terminal fail verdict, surface errors in activity log, add git timeouts
+- fix: seed enrichment runner with existing task enrichment data
+- fix: prevent endless clarification loop in architect enricher
+- fix: clarify route transitions to pending so daemon re-runs pipeline
+- fix: remove non-ASCII em dash from HX-Trigger header causing 500
+- fix: allow retrying cancelled tasks back to pending
+- fix: clarification form only shows in ready status, show server error in toast
+- fix: daemon auto-executes human-approved tasks, remove manual Execute buttons
+- fix: move scorer section above blueprint in task detail
+- fix: add clarification answer form, remove broken rework from ready
+- feat: enrich producer prompts, split self-monitor/log-scanner roles
+- refactor: move enricher config to per-repo only, default disabled
+- feat: add dedicated Blueprint section to task detail panel
+- feat: add task heartbeats, activity log, and time tracking
+- feat: add clarification settings, scorer badges, and cleanup stale docs
+- fix: display repo names instead of numeric IDs in tasks and costs views
+- feat: polish workflow page with task badge, scroll, and transitions
+- feat: add state machine, CI/CD, daemon, and tech stack diagrams
+- fix: clone repo in pipeline before enrichment instead of skipping
+- feat: add full pipeline diagram with live task position highlighting
+- feat: add /workflow page skeleton with nav link and route plumbing
+- Merge pull request #1 from esbenwiberg/feature/self-validate
+- fix: extract milestone review/fix prompts into editable files
+- feat: close preview environment gaps — PR comments, PR-close cleanup, per-repo settings
+- fix: move architect/scorer prompts into enrichers/ subfolder
+- test: add milestone review-fix loop tests
+- test: add unit tests for architect and scorer enrichers
+- feat: add sequential milestone execution with per-milestone review-fix
+- feat: add per-milestone review-fix loop with shell verify and Claude review
+- feat: add pipeline clarification flow and dashboard answer endpoint
+- feat: wire architect/scorer enrichers, add clarification config and state transition
+- feat: add scorer enricher with value/complexity/risk/feasibility scoring
+- feat: add architect enricher with two-phase clarification/blueprint flow
+- fix: producers shallow-clone repos before running and cleanup afterwards
+- fix: producer schedule display, repo badges, and scheduler hang recovery
+- fix: allow-no-subscriptions in Azure login step
+- fix: mock gatherRepoSummary in security-scanner tests
+- fix: mock gatherRepoSummary in producer tests to avoid filesystem dependency
+- feat: expose all prompts in dashboard, admin-only
+- feat: fix producers to use repo content, add per-repo toggles for enrichers
+- fix: sanitize Key Vault secret names to replace underscores with hyphens
+- feat: make global settings editable from the dashboard UI
+- fix: use dropdown for provider field in add repo form
+- fix: remove auto-added User.Read permission from Entra app setup
 
 ## 2026-02-18
-- feat: add "Move to" dropdown, FAILED→APPROVED transition, review findings, git identity
+- fix: save session before redirect to prevent login loop
+- fix: add trust proxy for secure cookies behind Container Apps
+- fix: only seed placeholder secrets on first Bicep run
+- fix: wait for Container App Environment before deploying app
+- fix: move Container App Environment out of conditional module
+- fix: regenerate package-lock.json from public npm registry
+- fix: copy .npmrc before npm ci in Dockerfile
+- fix: add project .npmrc pointing to public npm registry
+- fix: split Bicep deploy into two phases for first-run image push
+- fix: remove role assignments, use access policies + ACR admin
+- fix: seed placeholder Key Vault secrets in Bicep
+- fix: unique ACR name + PostgreSQL SSL config race condition
+- fix: apply tags to existing resource groups in setup.sh
+- fix: add --tags param to setup.sh for Azure policy compliance
+- feat: add Azure setup and teardown scripts
+- docs: add README and expand .env.example
+- docs: milestone 10 handoff report — blueprint complete
+- fix: address review findings from milestone 10
+- feat: milestone 10 - preview environments with Docker host + reverse proxy
+- docs: milestone 9 handoff report for milestone 10
+- fix: address review findings from milestone 9
+- feat: milestone 9 - deployment pipeline with Container Apps + CI/CD
+- docs: milestone 8 handoff report for milestone 9
+- fix: address review findings from milestone 8
+- feat: milestone 8 - hivemind structured learning system
+- docs: milestone 7 handoff report for milestone 8
+- fix: address review findings from milestone 7
+- feat: milestone 7 - full dashboard (costs, settings, producers, prompts)
+- docs: milestone 6 handoff report for milestone 7
+- fix: address review findings from milestone 6
+- feat: milestone 6 - producers + notifications
+- docs: milestone 5 handoff report for milestone 6
+- fix: address review findings from milestone 5
+- feat: milestone 5 - daemon orchestration
+- feat: milestone 4 hardening - configurable models, prompt safety, enrichment metadata
+- fix: address review findings from milestone 4
+- feat: milestone 4 - worker + git + review gate
+- feat: milestone 3 - pipeline agents (route → enrich → gate)
+- fix: address code review findings from milestone 2
+
+## 2026-02-17
+- feat: milestone 2 - task CRUD + dashboard core
+- fix: address code review findings from milestone 1
+- feat: milestone 1 - scaffold + database + auth
+- docs: add rebuild blueprint
