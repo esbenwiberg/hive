@@ -45,6 +45,8 @@ export interface DockerHostConfig {
   tls_cert_vault_secret: string;
   tls_key_vault_secret: string;
   tls_ca_vault_secret: string;
+  ssh_key_vault_secret: string;
+  ssh_user: string;
 }
 
 export interface PreviewSettings {
@@ -89,6 +91,8 @@ const DEFAULTS: AutonomousConfig = {
       tls_cert_vault_secret: "docker-tls-cert",
       tls_key_vault_secret: "docker-tls-key",
       tls_ca_vault_secret: "docker-tls-ca",
+      ssh_key_vault_secret: "docker-ssh-key",
+      ssh_user: "azureuser",
     },
     port_range: [4001, 4099],
   },

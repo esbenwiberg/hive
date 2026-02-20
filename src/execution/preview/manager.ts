@@ -8,6 +8,13 @@ import { db } from "../../db/connection.js";
 import { tasks } from "../../db/schema.js";
 import { addPreviewLog } from "../../db/queries/preview-logs.js";
 import type { PreviewInfo, PreviewConfig } from "./types.js";
+import {
+  ensureCerts,
+  syncWorktree,
+  remoteComposeUp,
+  remoteComposeDown,
+  cleanupRemoteWorktree,
+} from "./remote-docker.js";
 
 /**
  * Manages preview environment lifecycles: starting, stopping, health-checking,
@@ -41,7 +48,8 @@ export class PreviewManager {
     }
 
     const port = this.allocatePort();
-    const host = "localhost";
+    const dockerIp = this.settings.docker_host.ip;
+    const host = dockerIp ? dockerIp : "localhost";
 
     await addPreviewLog(taskId, "manager", `Starting ${config.type} preview on port ${port}`);
 
@@ -128,7 +136,7 @@ export class PreviewManager {
 
     try {
       if (info.type === "compose" && info.composeProject) {
-        await this.stopCompose(info.composeProject, info.worktreePath);
+        await this.stopCompose(info.composeProject, info.worktreePath, info.remoteWorktreePath, info.taskId);
       } else if (info.childProcess) {
         this.killProcess(info.childProcess);
       }
@@ -226,8 +234,8 @@ export class PreviewManager {
   // ── Private: start handlers ─────────────────────────────────────────────────
 
   /**
-   * Starts a Docker Compose preview. Runs `docker compose up -d` in the worktree directory.
-   * For local Docker only — remote Docker host support is a TODO.
+   * Starts a Docker Compose preview. Runs `docker compose up -d` either
+   * locally or on the remote Docker host depending on config.
    */
   private async startCompose(
     taskId: string,
@@ -236,13 +244,41 @@ export class PreviewManager {
     port: number,
     host: string,
   ): Promise<PreviewInfo> {
-    // TODO: When config.docker_host.ip is set, rsync worktree to remote host
-    // and execute docker compose remotely. For now, only local Docker is supported.
-
     const project = `hive-${taskId}`;
+    const isRemote = !!this.settings.docker_host.ip;
 
-    await addPreviewLog(taskId, "compose", `Running docker compose up for project ${project}`);
+    await addPreviewLog(taskId, "compose", `Running docker compose up for project ${project}${isRemote ? " (remote)" : ""}`);
 
+    if (isRemote) {
+      const certs = await ensureCerts(this.settings.docker_host);
+      const remotePath = await syncWorktree(
+        this.settings.docker_host,
+        worktreePath,
+        taskId,
+        certs.sshKey,
+      );
+      await remoteComposeUp(
+        this.settings.docker_host,
+        certs.sshKey,
+        remotePath,
+        project,
+        config.compose_file,
+        config.env,
+      );
+
+      return {
+        taskId,
+        type: "compose",
+        port,
+        host,
+        worktreePath,
+        startedAt: new Date(),
+        composeProject: project,
+        remoteWorktreePath: remotePath,
+      };
+    }
+
+    // Local Docker
     await new Promise<void>((resolve, reject) => {
       execFile(
         "docker",
@@ -346,9 +382,25 @@ export class PreviewManager {
   // ── Private: stop helpers ───────────────────────────────────────────────────
 
   /**
-   * Stops a Docker Compose project.
+   * Stops a Docker Compose project, locally or on the remote host.
    */
-  private stopCompose(project: string, worktreePath: string): Promise<void> {
+  private async stopCompose(
+    project: string,
+    worktreePath: string,
+    remoteWorktreePath?: string,
+    taskId?: string,
+  ): Promise<void> {
+    const isRemote = !!this.settings.docker_host.ip;
+
+    if (isRemote) {
+      const certs = await ensureCerts(this.settings.docker_host);
+      await remoteComposeDown(this.settings.docker_host, certs.sshKey, project);
+      if (taskId) {
+        await cleanupRemoteWorktree(this.settings.docker_host, taskId, certs.sshKey);
+      }
+      return;
+    }
+
     return new Promise<void>((resolve, reject) => {
       execFile(
         "docker",

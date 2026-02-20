@@ -9,7 +9,7 @@ RUN npm run build
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM node:20-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git wget ca-certificates \
+    && apt-get install -y --no-install-recommends git wget ca-certificates rsync openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI

@@ -43,10 +43,12 @@ preview:
   cleanup_timeout_minutes: 30
   # Docker host configuration for remote Docker
   docker_host:
-    ip: ""
+    ip: "20.107.218.135"
     port: 2376
     tls_cert_vault_secret: docker-tls-cert
     tls_key_vault_secret: docker-tls-key
     tls_ca_vault_secret: docker-tls-ca
+    ssh_key_vault_secret: docker-ssh-key
+    ssh_user: azureuser
   # Port range for preview environments [start, end]
   port_range: [4001, 4099]

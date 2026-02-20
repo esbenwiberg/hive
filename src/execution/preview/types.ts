@@ -13,4 +13,5 @@ export interface PreviewInfo {
   startedAt: Date;
   childProcess?: ChildProcess;
   composeProject?: string;
+  remoteWorktreePath?: string;
 }
