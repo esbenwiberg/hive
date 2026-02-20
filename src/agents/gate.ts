@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { getById, updateStatus } from "../db/queries/tasks.js";
+import { getById as getRepoById } from "../db/queries/repos.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
 import { recordDecision } from "../db/queries/gate-decisions.js";
@@ -216,7 +217,8 @@ export async function evaluateGate(taskId: string): Promise<void> {
     );
 
     // Fire-and-forget gate pattern analysis — never blocks or throws
-    void analyzeGatePatterns(taskId, result.verdict, result.reasoning).catch((err) => {
+    const repo = await getRepoById(task.repoId);
+    void analyzeGatePatterns(taskId, result.verdict, result.reasoning, repo?.fullName).catch((err) => {
       logger.error({ taskId, err }, "Gate pattern analysis failed (non-blocking)");
     });
 

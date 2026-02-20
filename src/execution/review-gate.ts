@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import logger from "../logger.js";
 import { callClaude } from "../agents/sdk.js";
 import { getById } from "../db/queries/tasks.js";
+import { getById as getRepoById } from "../db/queries/repos.js";
 import { recordReview } from "../db/queries/code-reviews.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
@@ -159,7 +160,8 @@ export async function reviewChanges(
 
     // Fire-and-forget review pattern analysis — never blocks or throws
     if (result.findings.length > 0) {
-      void analyzeReviewPatterns(taskId, result.findings).catch((err) => {
+      const repo = await getRepoById(task.repoId);
+      void analyzeReviewPatterns(taskId, result.findings, repo?.fullName).catch((err) => {
         logger.error({ taskId, err }, "Review pattern analysis failed (non-blocking)");
       });
     }

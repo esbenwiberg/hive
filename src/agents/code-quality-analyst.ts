@@ -15,6 +15,10 @@ Your goal: find recurring categories of findings (e.g., same finding category ap
 
 Given recent code review findings and the current task's findings, identify patterns.
 
+Scope rules:
+- Use "universal" for patterns that apply across all repos.
+- Use "repo:<owner/name>" (matching the repo in the input) for patterns specific to one repo.
+
 Respond with JSON:
 \`\`\`json
 {
@@ -23,7 +27,7 @@ Respond with JSON:
       "category": "The recurring finding category",
       "occurrences": <number>,
       "learning": {
-        "scope": "universal",
+        "scope": "universal or repo:<owner/name>",
         "category": "code-quality",
         "content": "Actionable advice to avoid this recurring issue",
         "tags": ["review", "quality"],
@@ -68,6 +72,7 @@ function parseCodeQualityResult(text: string): CodeQualityResult {
 export async function analyzeReviewPatterns(
   taskId: string,
   findings: ReviewFinding[],
+  repoFullName?: string,
 ): Promise<void> {
   const config = getAutonomousConfig();
   const model = config.models.gate;
@@ -136,6 +141,7 @@ export async function analyzeReviewPatterns(
     const userPrompt = [
       `## Current Task Findings`,
       `Task: ${taskId}`,
+      ...(repoFullName ? [`Repo: ${repoFullName}`] : []),
       currentFindingsStr || "(none)",
       ``,
       `## Category Frequency`,

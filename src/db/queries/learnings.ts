@@ -306,6 +306,7 @@ export async function getLearningStats(): Promise<{
   dismissed: number;
   avgConfidence: number;
   topCategories: { category: string; count: number }[];
+  topScopes: { scope: string; count: number }[];
 }> {
   const [statsRow] = await db
     .select({
@@ -317,16 +318,28 @@ export async function getLearningStats(): Promise<{
     })
     .from(learnings);
 
-  const topCategories = await db
-    .select({
-      category: learnings.category,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(learnings)
-    .where(isNull(learnings.supersededBy))
-    .groupBy(learnings.category)
-    .orderBy(sql`count(*) desc`)
-    .limit(10);
+  const [topCategories, topScopes] = await Promise.all([
+    db
+      .select({
+        category: learnings.category,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(learnings)
+      .where(isNull(learnings.supersededBy))
+      .groupBy(learnings.category)
+      .orderBy(sql`count(*) desc`)
+      .limit(10),
+    db
+      .select({
+        scope: learnings.scope,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(learnings)
+      .where(isNull(learnings.supersededBy))
+      .groupBy(learnings.scope)
+      .orderBy(sql`count(*) desc`)
+      .limit(20),
+  ]);
 
   return {
     total: statsRow.total,
@@ -335,5 +348,6 @@ export async function getLearningStats(): Promise<{
     dismissed: statsRow.dismissed,
     avgConfidence: parseFloat(statsRow.avgConfidence),
     topCategories,
+    topScopes,
   };
 }

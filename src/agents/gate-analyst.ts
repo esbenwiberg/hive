@@ -15,6 +15,10 @@ Your goal: find anti-patterns — common reasons tasks are being rejected — an
 Given recent gate decisions, identify patterns where similar rejection reasons appear 3+ times.
 For each pattern found, propose a learning.
 
+Scope rules:
+- Use "universal" for patterns that apply across all repos.
+- Use "repo:<owner/name>" (matching the repo in the input) for patterns specific to one repo.
+
 Respond with JSON:
 \`\`\`json
 {
@@ -23,7 +27,7 @@ Respond with JSON:
       "description": "Brief description of the pattern",
       "occurrences": <number>,
       "learning": {
-        "scope": "universal",
+        "scope": "universal or repo:<owner/name>",
         "category": "anti-pattern",
         "content": "Actionable advice to avoid this pattern",
         "tags": ["gate", "rejection"],
@@ -69,6 +73,7 @@ export async function analyzeGatePatterns(
   taskId: string,
   verdict: string,
   reasoning: string,
+  repoFullName?: string,
 ): Promise<void> {
   const config = getAutonomousConfig();
   const model = config.models.gate;
@@ -106,6 +111,7 @@ export async function analyzeGatePatterns(
     const userPrompt = [
       `## Current Decision`,
       `Task: ${taskId}`,
+      ...(repoFullName ? [`Repo: ${repoFullName}`] : []),
       `Verdict: ${verdict}`,
       `Reasoning: ${reasoning}`,
       ``,

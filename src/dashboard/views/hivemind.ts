@@ -23,6 +23,7 @@ export interface HivemindPageData {
     dismissed: number;
     avgConfidence: number;
     topCategories: { category: string; count: number }[];
+    topScopes: { scope: string; count: number }[];
   };
   learnings: LearningRow[];
   total: number;
@@ -120,11 +121,21 @@ function statsRow(stats: HivemindPageData["stats"]): string {
 
 // ── Filter controls ─────────────────────────────────────────────────────────
 
-function filterControls(topCategories: { category: string; count: number }[]): string {
+function filterControls(
+  topCategories: { category: string; count: number }[],
+  topScopes: { scope: string; count: number }[],
+): string {
   const categoryOptions = topCategories
     .map(
       (c) =>
         `<option value="${escapeHtml(c.category)}">${escapeHtml(c.category)} (${c.count})</option>`,
+    )
+    .join("");
+
+  const scopeOptions = topScopes
+    .map(
+      (s) =>
+        `<option value="${escapeHtml(s.scope)}">${escapeHtml(s.scope)} (${s.count})</option>`,
     )
     .join("");
 
@@ -138,7 +149,7 @@ function filterControls(topCategories: { category: string; count: number }[]): s
         hx-swap="innerHTML"
         hx-include="[name='category'],[name='minConfidence']">
         <option value="">All scopes</option>
-        <option value="universal">Universal</option>
+        ${scopeOptions}
       </select>
     </div>
 
@@ -506,7 +517,7 @@ export function hivemindPage(data: HivemindPageData, user: SessionUser): string 
 
   <!-- Filters + learnings list -->
   ${card(`
-    ${filterControls(data.stats.topCategories)}
+    ${filterControls(data.stats.topCategories, data.stats.topScopes)}
     <div id="learnings-list" class="mt-4">
       ${learningsListPartial(data.learnings, data.total, data.currentPage)}
     </div>
