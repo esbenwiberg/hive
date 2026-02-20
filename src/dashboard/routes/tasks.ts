@@ -73,7 +73,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
 
     const [{ tasks }, counts, repos, userNames] = await Promise.all([
-      taskQueries.list(filters, undefined, undefined, userContext),
+      taskQueries.listWithCosts(filters, undefined, undefined, userContext),
       taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
@@ -106,7 +106,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
     const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
 
     const [{ tasks }, counts, repos, userNames] = await Promise.all([
-      taskQueries.list(filters, undefined, undefined, userContext),
+      taskQueries.listWithCosts(filters, undefined, undefined, userContext),
       taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
@@ -193,7 +193,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
     const accessibleRepoIds = await getAccessibleRepoIds(user);
     const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
     const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
-      taskQueries.list({}, undefined, undefined, userContext),
+      taskQueries.listWithCosts({}, undefined, undefined, userContext),
       taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
@@ -217,7 +217,7 @@ router.get("/api/tasks/:id", requireAuth, async (req: Request, res: Response, ne
     const id = req.params.id as string;
     const user = req.session.user!;
     const [task, repos, events, latestReview, userNames] = await Promise.all([
-      taskQueries.getById(id),
+      taskQueries.getByIdWithCost(id),
       repoQueries.listAll(),
       getEvents(id, 50),
       getLatestReview(id),
@@ -313,7 +313,7 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
     const accessibleRepoIds = await getAccessibleRepoIds(user);
     const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
     const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
-      taskQueries.list({}, undefined, undefined, userContext),
+      taskQueries.listWithCosts({}, undefined, undefined, userContext),
       taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
@@ -397,7 +397,7 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
     const accessibleRepoIds = await getAccessibleRepoIds(user);
     const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
     const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
-      taskQueries.list({}, undefined, undefined, userContext),
+      taskQueries.listWithCosts({}, undefined, undefined, userContext),
       taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),

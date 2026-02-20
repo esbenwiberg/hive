@@ -15,7 +15,7 @@ const { findOrCreate: findOrCreateRepo } = await import(
   "../../src/db/queries/repos.js"
 );
 const { create: createTask } = await import("../../src/db/queries/tasks.js");
-const { recordCost, getTodayTotal, getUserTotal, checkBudget } = await import(
+const { recordCost, getTodayTotal, getUserTotal, checkBudget, getTotalCostForTask } = await import(
   "../../src/db/queries/costs.js"
 );
 
@@ -84,6 +84,73 @@ describe("cost queries", () => {
 
       expect(row.turns).toBeNull();
       expect(row.durationMs).toBeNull();
+    });
+  });
+
+  // ── getTotalCostForTask ────────────────────────────────────────────────────
+
+  describe("getTotalCostForTask", () => {
+    it("returns 0 when no costs exist for a task", async () => {
+      const { task } = await seedData();
+
+      const total = await getTotalCostForTask(task.id);
+      expect(total).toBe(0);
+    });
+
+    it("sums all costs for a specific task", async () => {
+      const { user, task } = await seedData();
+
+      await recordCost(task.id, user.id, "router", "model-a", 1.5);
+      await recordCost(task.id, user.id, "gate", "model-a", 2.25);
+      await recordCost(task.id, user.id, "worker", "model-b", 3.0);
+
+      const total = await getTotalCostForTask(task.id);
+      expect(total).toBeCloseTo(6.75, 2);
+    });
+
+    it("only includes costs for the specific task", async () => {
+      const { user, repo } = await seedData();
+      
+      const task1 = await createTask({
+        title: "Task 1",
+        body: "body",
+        source: "manual",
+        repoId: repo.id,
+        createdBy: user.id,
+      });
+      
+      const task2 = await createTask({
+        title: "Task 2",
+        body: "body",
+        source: "manual",
+        repoId: repo.id,
+        createdBy: user.id,
+      });
+
+      await recordCost(task1.id, user.id, "router", "model-a", 5.0);
+      await recordCost(task2.id, user.id, "router", "model-a", 10.0);
+
+      const total1 = await getTotalCostForTask(task1.id);
+      const total2 = await getTotalCostForTask(task2.id);
+      
+      expect(total1).toBeCloseTo(5.0, 2);
+      expect(total2).toBeCloseTo(10.0, 2);
+    });
+
+    it("handles non-existent task gracefully", async () => {
+      const total = await getTotalCostForTask("non-existent-task");
+      expect(total).toBe(0);
+    });
+
+    it("accumulates costs with different decimal precision", async () => {
+      const { user, task } = await seedData();
+
+      await recordCost(task.id, user.id, "router", "model-a", 0.0001);
+      await recordCost(task.id, user.id, "gate", "model-a", 0.9999);
+      await recordCost(task.id, user.id, "worker", "model-b", 1.0);
+
+      const total = await getTotalCostForTask(task.id);
+      expect(total).toBeCloseTo(2.0, 4);
     });
   });
 

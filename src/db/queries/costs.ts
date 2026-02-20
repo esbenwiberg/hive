@@ -62,6 +62,21 @@ export async function recordCost(
 }
 
 /**
+ * Returns the total cost (USD) for a specific task.
+ * Sums all cost records associated with the given taskId.
+ */
+export async function getTotalCostForTask(taskId: string): Promise<number> {
+  const [row] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${costs.costUsd}), 0)`,
+    })
+    .from(costs)
+    .where(eq(costs.taskId, taskId));
+
+  return parseFloat(row.total);
+}
+
+/**
  * Returns the total cost (USD) for a user today (since midnight UTC).
  * Numeric columns come back as strings from pg — parsed with parseFloat.
  */
