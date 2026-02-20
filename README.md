@@ -17,7 +17,7 @@ Route, enrich, gate, execute, and review code changes — end to end — powered
 
 The Hive is a self-hosted system that turns task descriptions into pull requests. You describe what needs to change, and The Hive classifies the task, gathers context from your codebase, decides whether it's safe to proceed, implements the changes in an isolated git worktree, reviews its own work, and opens a PR — all without human intervention (unless you want it).
 
-It supports 10 concurrent users, each with their own git credentials, cost budgets, and approval workflows.
+It supports multiple concurrent users, each with their own git credentials, cost budgets, repo access permissions, and approval workflows.
 
 ### The Pipeline
 
@@ -76,11 +76,17 @@ It supports 10 concurrent users, each with their own git credentials, cost budge
 - **Rework loop** — failed reviews trigger refinement and re-execution (max 2 cycles), with manual re-review and re-approve paths
 - **Epic workflows** — large tasks decomposed into sequential milestones, each executed independently
 - **Preview environments** — spin up the app under test (Docker Compose, TestContainers, or process) for validation before merging
-- **5 producers** — auto-discover tasks by scanning logs, hunting bugs, finding security issues, scouting features, and self-monitoring
+- **6 producers** — auto-discover tasks by scanning logs, hunting bugs, finding security issues, scouting features, auditing docs, and self-monitoring
 - **Hivemind** — structured learning system with confidence scores, feedback loops, and weekly retrospectives
 - **Per-user cost tracking** — daily budgets, per-task limits, cost breakdown by agent/model/repo
 - **Azure Entra ID auth** — "Sign in with Microsoft", role-based access (viewer/user/admin)
 - **Per-user git credentials** — GitHub tokens and Azure DevOps PATs stored in Key Vault
+- **Browser validation** — optional headless Playwright checks for preview environments
+- **Per-user repo access** — fine-grained permissions controlling which repos each user can see and work on
+- **Per-task skipPreview** — user, architect, or worker can skip preview for individual tasks
+- **Bulk actions** — admin-only bulk delete and task reset
+- **Debug panel** — lazy-loaded per-task debug info in slide-over detail view
+- **Estimated cost** — scorer predicts token/cost before execution; actual cost tracked alongside
 - **HTMX dashboard** — fast, server-rendered UI with Tailwind CSS, keyboard shortcuts, command palette
 
 ## Tech Stack
@@ -95,7 +101,7 @@ It supports 10 concurrent users, each with their own git credentials, cost budge
 | Secrets | Azure Key Vault |
 | Infra | Azure Container Apps, Bicep IaC |
 | CI/CD | GitHub Actions → ACR → Container Apps |
-| Testing | Vitest 3 |
+| Testing | Vitest 3, Playwright (browser validation) |
 | Logging | Pino → stdout → Azure Monitor |
 
 ## Architecture
@@ -287,6 +293,7 @@ npm run cli -- run bug-hunter --repo 1
 npm run cli -- run security-scanner --repo 1
 npm run cli -- run log-scanner --repo 1
 npm run cli -- run feature-scout --repo 1
+npm run cli -- run doc-auditor --repo 1
 npm run cli -- run self-monitor
 ```
 
@@ -312,19 +319,19 @@ npm run typecheck
 
 ```
 src/
-├── agents/          # Claude agent wrappers (router, gate, refiner, decomposer, ...)
+├── agents/          # Claude agent wrappers (router, gate, refiner, decomposer, browser-validator, ...)
 ├── auth/            # Entra ID auth, session, middleware
 ├── daemon/          # Background orchestrator, scheduler, cleanup
 ├── dashboard/       # Express routes + HTMX views
-│   ├── routes/      # HTTP handlers
+│   ├── routes/      # HTTP handlers (tasks, costs, settings, workflow, hivemind, ...)
 │   └── views/       # HTML template functions (Tailwind)
 ├── db/
-│   ├── queries/     # One file per table
+│   ├── queries/     # One file per table (16 query modules)
 │   └── schema.ts    # Drizzle table definitions
 ├── domain/          # Types, state machine (14 states), config
 ├── enrichers/       # Codebase, docs, git-history, dependencies, architect, scorer
-├── execution/       # Worker, worktree, git provider, review gate, preview
-├── producers/       # Auto task discovery (5 producers)
+├── execution/       # Worker, worktree, git provider, review gate, browser tools, preview
+├── producers/       # Auto task discovery (6 producers)
 ├── integrations/    # Azure DevOps, Azure Monitor
 └── vault/           # Key Vault client
 ```
@@ -337,8 +344,17 @@ PostgreSQL 16 with Drizzle ORM. Key tables:
 - `tasks` — 14-state pipeline with enrichment, gate, review, preview tracking
 - `costs` — Per-agent, per-model cost records
 - `learnings` — Hivemind knowledge base with confidence scores
+- `learning_events` — Feedback loop events for learning entries
 - `enrichment_runs` — Per-enricher results
+- `code_reviews` — Review gate verdicts and findings
+- `gate_decisions` — Gate approval/rejection records
+- `active_agents` — Currently running agent tracking
+- `task_events` — Activity log / heartbeat events per task
+- `producer_runs` — Producer execution history
+- `preview_instances` — Active preview environments
 - `preview_logs` — Preview lifecycle events
+- `user_repo_access` — Per-user repo permissions
+- `user_credentials` — Encrypted git credentials (Key Vault refs)
 
 Migrations in `drizzle/`. Auto-run on startup via `src/db/migrate.ts`.
 
