@@ -1,6 +1,18 @@
 # Changelog
 
 ## 2026-02-20
+- refactor: replace SVG pipeline dialog with vertical timeline matching workflow page
+- feat: per-task skipPreview toggle
+- feat: browser validation, doc auditor, pipeline viz, deploy changelog
+- feat: add admin-only Instances page for preview environments
+- feat: filter costs page by user's own data and accessible repos for non-admins
+- feat: restrict sidebar nav to admin-only for workflow, hivemind, changelog, health
+- feat: add SVG favicon matching sidebar brand icon
+- fix: review gate diffs against worktree baseSha, not origin/HEAD
+- fix: only archive hivemind entries unused for 30+ days
+- feat: add per-user repo access permissions
+- fix: copy CHANGELOG.md into Docker runtime image
+- feat: add changelog generator script, regenerate full changelog
 - feat: add changelog page, health dashboard, and settings/worker updates
 
 ## 2026-02-19
