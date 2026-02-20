@@ -103,7 +103,7 @@ If the task has no user-facing output, no UI changes, or is a pure backend/confi
 3. **Acceptance criteria must be testable.** Prefer criteria like "endpoint returns 200 with valid JSON" over "endpoint works correctly".
 4. **Respect scope.** The blueprint should cover exactly what the task asks for — no more, no less. Do not add milestones for "nice-to-have" improvements.
 5. **Consider dependencies.** If milestone 2 depends on files created in milestone 1, note this in the description.
-6. **Keep it lean.** Prefer fewer milestones with clear boundaries over many granular milestones.
+6. **Keep milestones focused.** Each milestone should touch a bounded set of source files. Avoid milestones that require reading most of the codebase — the worker has a 200k token context window and will run out of room. For documentation or audit tasks, create one milestone per source directory or per output file, not broad milestones like "document all modules".
 7. **Apply learnings.** If `<learnings>` are provided, incorporate their guidance into the blueprint — e.g. if a learning says "always add integration tests for new endpoints", include a testing step in your milestones or checklist.
 
 ## Response Format

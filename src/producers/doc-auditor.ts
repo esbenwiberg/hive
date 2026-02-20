@@ -94,6 +94,7 @@ function isDocFile(name: string): boolean {
 interface Finding {
   title: string;
   description: string;
+  size?: string;
 }
 
 /**
@@ -155,17 +156,28 @@ function checkCoverageGaps(repoDir: string): Finding[] {
 
   if (!existsSync(internalDir)) {
     // If source dirs like src/enrichers or src/agents exist, docs/internal/ probably should too
-    const hasSrcDirs = ["src/enrichers", "src/agents", "src/producers"].some(
-      (d) => existsSync(join(repoDir, d)),
-    );
-    if (hasSrcDirs) {
+    const srcDirsPresent = ["src/enrichers", "src/agents", "src/producers", "src/dashboard", "src/execution", "src/daemon", "src/db", "src/domain", "src/auth"]
+      .filter((d) => existsSync(join(repoDir, d)));
+    if (srcDirsPresent.length > 0) {
+      const dirList = srcDirsPresent.map((d) => `- \`${d}/\``).join("\n");
       findings.push({
-        title: "Missing docs/internal/ directory",
+        title: "Bootstrap documentation for repository",
+        size: "large",
         description: [
-          "This repository has source directories (enrichers, agents, or producers)",
-          "but no `docs/internal/` directory for developer documentation.",
+          "This repository has multiple source directories but no `docs/internal/` directory.",
           "",
-          "Consider creating `docs/internal/` with architecture and module documentation.",
+          "**This is a large task.** The following source directories need documentation:",
+          "",
+          dirList,
+          "",
+          "Create `docs/internal/` with:",
+          "- `architecture.md` — high-level system overview, key components, data flow",
+          "- `conventions.md` — coding patterns, naming, error handling, testing approach",
+          "",
+          "Additionally, create a separate module guide for each major source directory.",
+          "Each milestone should cover ONE directory only to keep scope manageable.",
+          "",
+          "If the repo has API routes (Express, REST, etc.), also create `docs/external/api.md`.",
         ].join("\n"),
       });
     }
@@ -308,6 +320,7 @@ export class DocAuditorProducer implements Producer {
             body: finding.description,
             source: SOURCE,
             type: TASK_TYPE,
+            size: finding.size,
             repoId: ctx.repoId,
             createdBy: ctx.createdBy,
           });
