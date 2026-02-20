@@ -8,8 +8,17 @@ import { beforeAll, afterAll } from "vitest";
 const { Pool } = pg;
 
 const connectionString =
-  process.env.DATABASE_URL ??
+  process.env.TEST_DATABASE_URL ??
   "postgresql://hive:hive@localhost:5432/hive_test";
+
+// Safety: never run tests against a remote database
+const parsed = new URL(connectionString);
+if (!["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) {
+  throw new Error(
+    `Refusing to run tests against remote database (${parsed.hostname}). ` +
+      `Set TEST_DATABASE_URL to a local database.`,
+  );
+}
 
 export const pool = new Pool({ connectionString });
 export const db = drizzle(pool, { schema });
