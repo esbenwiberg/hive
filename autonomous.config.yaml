@@ -73,6 +73,6 @@ preview:
     tls_key_vault_secret: docker-tls-key
     tls_ca_vault_secret: docker-tls-ca
     ssh_key_vault_secret: docker-ssh-key
-    ssh_user: azureuser
+    ssh_user: hiveadmin
   # Port range for preview environments [start, end]
   port_range: [4001, 4099]

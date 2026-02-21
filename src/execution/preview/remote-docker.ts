@@ -6,7 +6,7 @@ import { getSecret } from "../../vault/keyvault.js";
 import type { DockerHostConfig } from "../../domain/autonomous-config.js";
 
 const CERT_DIR = "/tmp/hive-docker-tls";
-const REMOTE_BASE = "/home/azureuser/hive-previews";
+const REMOTE_BASE = "/home/hiveadmin/hive-previews";
 
 /** Paths to cached cert/key files on the local filesystem. */
 interface CertPaths {
