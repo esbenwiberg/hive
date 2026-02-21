@@ -18,6 +18,15 @@ vi.mock("../../src/agents/cost-utils.js", () => ({
   estimateCostUsd: vi.fn().mockReturnValue(0.01),
 }));
 
+// Mock autonomous-config so reviewFix resolves its own models
+vi.mock("../../src/domain/autonomous-config.js", () => ({
+  getModelFor: vi.fn((component: string) => {
+    if (component === "milestone-review") return "test-review-model";
+    if (component === "milestone-fix") return "test-fix-model";
+    return "test-default-model";
+  }),
+}));
+
 // Mock the logger so tests don't produce output
 vi.mock("../../src/logger.js", () => ({
   default: {
@@ -239,7 +248,7 @@ describe("reviewFix", () => {
     // Claude review returns no issues
     mockCallClaude.mockResolvedValueOnce({
       text: JSON.stringify({ issues: [] }),
-      cost: { model: "test-model", inputTokens: 100, outputTokens: 50 },
+      cost: { model: "test-review-model", inputTokens: 100, outputTokens: 50 },
     });
 
     const result = await reviewFix("/tmp/test-worktree", "Add login feature", "test-model");
@@ -248,8 +257,9 @@ describe("reviewFix", () => {
     expect(result.issues).toHaveLength(0);
     expect(result.costUsd).toBeGreaterThan(0);
 
-    // callClaude should have been called once (for the code review)
+    // callClaude should have been called once (for the code review) using the review model
     expect(mockCallClaude).toHaveBeenCalledTimes(1);
+    expect(mockCallClaude.mock.calls[0][0].model).toBe("test-review-model");
   });
 
   it("calls Claude fix + re-verifies on failure", async () => {
@@ -299,16 +309,16 @@ describe("reviewFix", () => {
       },
     );
 
-    // claudeFix uses callClaudeWithTools
+    // claudeFix uses callClaudeWithTools with fix model
     mockCallClaudeWithTools.mockResolvedValueOnce({
       text: "Fixed the lint error in src/foo.ts",
-      cost: { model: "test-model", inputTokens: 200, outputTokens: 100 },
+      cost: { model: "test-fix-model", inputTokens: 200, outputTokens: 100 },
     });
 
-    // claudeReview after final verify passes uses callClaude
+    // claudeReview after final verify passes uses callClaude with review model
     mockCallClaude.mockResolvedValueOnce({
       text: JSON.stringify({ issues: [] }),
-      cost: { model: "test-model", inputTokens: 100, outputTokens: 50 },
+      cost: { model: "test-review-model", inputTokens: 100, outputTokens: 50 },
     });
 
     const result = await reviewFix(
@@ -322,6 +332,9 @@ describe("reviewFix", () => {
     // callClaudeWithTools called once for fix, callClaude once for review
     expect(mockCallClaudeWithTools).toHaveBeenCalledTimes(1);
     expect(mockCallClaude).toHaveBeenCalledTimes(1);
+    // Verify models: fix uses fix model, review uses review model
+    expect(mockCallClaudeWithTools.mock.calls[0][0].model).toBe("test-fix-model");
+    expect(mockCallClaude.mock.calls[0][0].model).toBe("test-review-model");
     expect(result.costUsd).toBeGreaterThan(0);
   });
 
@@ -363,10 +376,10 @@ describe("reviewFix", () => {
       },
     );
 
-    // claudeFix calls use callClaudeWithTools (one per iteration)
+    // claudeFix calls use callClaudeWithTools (one per iteration) with fix model
     mockCallClaudeWithTools.mockResolvedValue({
       text: "Attempted fix",
-      cost: { model: "test-model", inputTokens: 200, outputTokens: 100 },
+      cost: { model: "test-fix-model", inputTokens: 200, outputTokens: 100 },
     });
 
     const maxIterations = 2;
@@ -414,22 +427,22 @@ describe("reviewFix", () => {
       },
     );
 
-    // Claude review finds an issue (callClaude)
+    // Claude review finds an issue (callClaude) using review model
     mockCallClaude.mockResolvedValueOnce({
       text: JSON.stringify({ issues: ["Missing null check on user input"] }),
-      cost: { model: "test-model", inputTokens: 150, outputTokens: 60 },
+      cost: { model: "test-review-model", inputTokens: 150, outputTokens: 60 },
     });
 
-    // Claude fix (callClaudeWithTools)
+    // Claude fix (callClaudeWithTools) using fix model
     mockCallClaudeWithTools.mockResolvedValueOnce({
       text: "Added null check",
-      cost: { model: "test-model", inputTokens: 200, outputTokens: 100 },
+      cost: { model: "test-fix-model", inputTokens: 200, outputTokens: 100 },
     });
 
-    // Final Claude review (callClaude) - clean this time
+    // Final Claude review (callClaude) - clean this time, using review model
     mockCallClaude.mockResolvedValueOnce({
       text: JSON.stringify({ issues: [] }),
-      cost: { model: "test-model", inputTokens: 100, outputTokens: 50 },
+      cost: { model: "test-review-model", inputTokens: 100, outputTokens: 50 },
     });
 
     const result = await reviewFix(
@@ -449,5 +462,67 @@ describe("reviewFix", () => {
     // Verify the first callClaude was the review (system prompt contains "Review")
     const firstCall = mockCallClaude.mock.calls[0][0];
     expect(firstCall.systemPrompt).toContain("Review");
+  });
+
+  it("uses incremental review with prior issues on iteration 2+", async () => {
+    // Shell passes every time, but Claude review finds issues on first iteration
+    mockExecFile.mockImplementation(
+      (
+        cmd: string,
+        args: string[],
+        opts: unknown,
+        callback?: ExecFileCallback,
+      ) => {
+        const cb =
+          callback ?? (opts as ExecFileCallback);
+
+        if (cmd === "git") {
+          if (args[0] === "diff" && args.includes("--name-only")) {
+            cb(null, { stdout: "src/baz.ts", stderr: "" });
+          } else if (args[0] === "diff") {
+            cb(null, { stdout: "diff --git a/src/baz.ts", stderr: "" });
+          } else {
+            cb(null, { stdout: "", stderr: "" });
+          }
+          return;
+        }
+
+        // npm: all pass
+        cb(null, { stdout: "", stderr: "" });
+      },
+    );
+
+    // First review: finds issues
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ issues: ["Unchecked return value"] }),
+      cost: { model: "test-review-model", inputTokens: 150, outputTokens: 60 },
+    });
+
+    // Fix
+    mockCallClaudeWithTools.mockResolvedValueOnce({
+      text: "Fixed return value check",
+      cost: { model: "test-fix-model", inputTokens: 200, outputTokens: 100 },
+    });
+
+    // Final review after fix: clean — this is the incremental review
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ issues: [] }),
+      cost: { model: "test-review-model", inputTokens: 100, outputTokens: 50 },
+    });
+
+    const result = await reviewFix(
+      "/tmp/test-worktree",
+      "Add baz feature",
+      "test-model",
+      2,
+    );
+
+    expect(result.passed).toBe(true);
+    expect(mockCallClaude).toHaveBeenCalledTimes(2);
+
+    // The second callClaude (final review) should contain prior issues in the prompt
+    const secondReviewPrompt = mockCallClaude.mock.calls[1][0].prompt as string;
+    expect(secondReviewPrompt).toContain("Previously Identified Issues");
+    expect(secondReviewPrompt).toContain("Unchecked return value");
   });
 });

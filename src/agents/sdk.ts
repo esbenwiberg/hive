@@ -19,6 +19,8 @@ export interface CostMeta {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
 }
 
 export interface SdkResponse {
@@ -82,28 +84,34 @@ function parseContextLimitError(
 
 /**
  * Truncates large tool_result blocks in older conversation messages to reclaim context.
- * Preserves the last user message for coherence.
+ * Preserves the most recent `recentTurnCount * 2` messages (assistant+user pairs).
  * Returns true if any compaction was performed.
  */
-function compactMessages(messages: MessageParam[]): boolean {
-  const MAX_CHARS = 500;
-  const SUFFIX = "\n...[truncated to fit context window]";
+function compactMessages(
+  messages: MessageParam[],
+  recentTurnCount: number = 3,
+  maxChars: number = 200,
+): boolean {
+  const SUFFIX = "\n...[truncated]";
   let compacted = false;
 
-  // Skip the last message to preserve the most recent tool results
-  for (let i = 0; i < messages.length - 1; i++) {
+  // Preserve the last N turn pairs (each turn = assistant + user message)
+  const preserveCount = recentTurnCount * 2;
+  const compactEnd = Math.max(0, messages.length - preserveCount);
+
+  for (let i = 0; i < compactEnd; i++) {
     const msg = messages[i];
     if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
     for (const block of msg.content) {
       const tb = block as ToolResultBlockParam;
       if (tb.type !== "tool_result") continue;
-      if (typeof tb.content === "string" && tb.content.length > MAX_CHARS) {
-        tb.content = tb.content.slice(0, MAX_CHARS) + SUFFIX;
+      if (typeof tb.content === "string" && tb.content.length > maxChars) {
+        tb.content = tb.content.slice(0, maxChars) + SUFFIX;
         compacted = true;
       } else if (Array.isArray(tb.content)) {
         for (const sub of tb.content) {
-          if (sub.type === "text" && sub.text.length > MAX_CHARS) {
-            sub.text = sub.text.slice(0, MAX_CHARS) + SUFFIX;
+          if (sub.type === "text" && sub.text.length > maxChars) {
+            sub.text = sub.text.slice(0, maxChars) + SUFFIX;
             compacted = true;
           }
         }
@@ -144,9 +152,13 @@ export async function callClaude(req: SdkRequest): Promise<SdkResponse> {
     };
   }
 
+  const system = req.systemPrompt
+    ? [{ type: "text" as const, text: req.systemPrompt, cache_control: { type: "ephemeral" as const } }]
+    : undefined;
+
   const createParams = {
     model,
-    ...(req.systemPrompt ? { system: req.systemPrompt } : {}),
+    ...(system ? { system } : {}),
     messages: [{ role: "user" as const, content: req.prompt }],
   };
 
@@ -167,12 +179,15 @@ export async function callClaude(req: SdkRequest): Promise<SdkResponse> {
     .map((block) => block.text)
     .join("");
 
+  const usage = message.usage as unknown as Record<string, number>;
   return {
     text,
     cost: {
       model,
-      inputTokens: message.usage.input_tokens,
-      outputTokens: message.usage.output_tokens,
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      cacheCreationInputTokens: usage.cache_creation_input_tokens || undefined,
+      cacheReadInputTokens: usage.cache_read_input_tokens || undefined,
     },
   };
 }
@@ -188,16 +203,29 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
 
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
+  let totalCacheCreationTokens = 0;
+  let totalCacheReadTokens = 0;
   let turns = 0;
   let collectedText = "";
+
+  const system = req.systemPrompt
+    ? [{ type: "text" as const, text: req.systemPrompt, cache_control: { type: "ephemeral" as const } }]
+    : undefined;
+
+  // Mark the last tool with cache_control so the entire system+tools prefix is cached
+  const tools = req.tools.map((t, i) =>
+    i === req.tools.length - 1
+      ? { ...t, cache_control: { type: "ephemeral" as const } }
+      : t,
+  );
 
   const messages: MessageParam[] = [{ role: "user", content: req.prompt }];
 
   for (turns = 1; turns <= maxTurns; turns++) {
     const createParams = {
       model,
-      ...(req.systemPrompt ? { system: req.systemPrompt } : {}),
-      tools: req.tools,
+      ...(system ? { system } : {}),
+      tools,
       messages,
     };
 
@@ -231,8 +259,11 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
       }
     }
 
-    totalInputTokens += message.usage.input_tokens;
-    totalOutputTokens += message.usage.output_tokens;
+    const turnUsage = message.usage as unknown as Record<string, number>;
+    totalInputTokens += turnUsage.input_tokens;
+    totalOutputTokens += turnUsage.output_tokens;
+    totalCacheCreationTokens += turnUsage.cache_creation_input_tokens || 0;
+    totalCacheReadTokens += turnUsage.cache_read_input_tokens || 0;
 
     // Collect any text blocks from this turn
     for (const block of message.content) {
@@ -285,19 +316,24 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
 
     messages.push({ role: "user", content: toolResults });
 
+    // Proactive compaction: after 4+ turns, compact older tool results
+    if (turns >= 4 && compactMessages(messages)) {
+      logger.debug({ turn: turns }, "Proactively compacted old tool results");
+    }
+
     // Proactively shrink max_tokens for next turn as context fills up.
     // Estimate: this turn's input + output + tool result chars (÷4 for tokens).
     const toolResultTokens = Math.ceil(toolResultChars / 4);
-    const estimatedNextInput = message.usage.input_tokens + message.usage.output_tokens + toolResultTokens;
+    const estimatedNextInput = turnUsage.input_tokens + turnUsage.output_tokens + toolResultTokens;
     const contextLimit = 200_000;
     if (estimatedNextInput + effectiveMaxTokens > contextLimit) {
       effectiveMaxTokens = Math.max(MIN_OUTPUT_TOKENS, contextLimit - estimatedNextInput - 1000);
     }
 
-    // If even MIN_OUTPUT_TOKENS won't fit, compact old tool results before the next call
+    // Emergency compaction: if even MIN_OUTPUT_TOKENS won't fit, compact aggressively
     if (estimatedNextInput + MIN_OUTPUT_TOKENS > contextLimit) {
-      if (compactMessages(messages)) {
-        logger.warn({ turn: turns, estimatedNextInput, contextLimit }, "Proactively compacting conversation");
+      if (compactMessages(messages, 1, 100)) {
+        logger.warn({ turn: turns, estimatedNextInput, contextLimit }, "Emergency compaction — conversation near context limit");
         effectiveMaxTokens = MIN_OUTPUT_TOKENS;
       }
     }
@@ -305,7 +341,13 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
 
   return {
     text: collectedText,
-    cost: { model, inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+    cost: {
+      model,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      cacheCreationInputTokens: totalCacheCreationTokens || undefined,
+      cacheReadInputTokens: totalCacheReadTokens || undefined,
+    },
     turns,
   };
 }

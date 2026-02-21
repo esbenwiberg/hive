@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import logger from "../logger.js";
 import { callClaude, callClaudeWithTools } from "../agents/sdk.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import { loadPrompt } from "../prompt-cache.js";
 
@@ -144,23 +145,43 @@ function parseReviewJson(text: string): ClaudeReviewResponse {
 
 /**
  * Asks Claude to review the diff for logical issues.
+ * When `priorIssues` is provided, the prompt focuses on verifying those are fixed + new issues.
  * Returns the list of issues and cost in USD.
  */
 async function claudeReview(
   diff: string,
   model: string,
+  priorIssues?: string[],
 ): Promise<{ issues: string[]; costUsd: number }> {
   const truncatedDiff = diff.length > MAX_DIFF_CHARS
     ? diff.substring(0, MAX_DIFF_CHARS) + "\n...(truncated)"
     : diff;
 
+  let prompt = truncatedDiff;
+  if (priorIssues && priorIssues.length > 0) {
+    const issueList = priorIssues.map((i) => `- ${i}`).join("\n");
+    prompt = [
+      "## Previously Identified Issues",
+      issueList,
+      "",
+      "Verify these are resolved AND check for any NEW issues introduced by the fixes.",
+      "",
+      truncatedDiff,
+    ].join("\n");
+  }
+
   const response = await callClaude({
-    prompt: truncatedDiff,
+    prompt,
     model,
     systemPrompt: getReviewPrompt(),
   });
 
-  const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+  const { cost } = response;
+  const costUsd = estimateCostUsd(
+    cost.inputTokens, cost.outputTokens,
+    undefined, undefined,
+    cost.cacheCreationInputTokens, cost.cacheReadInputTokens,
+  );
   const parsed = parseReviewJson(response.text);
 
   return { issues: parsed.issues, costUsd };
@@ -201,7 +222,12 @@ async function claudeFix(
     executeTool: createWorktreeToolExecutor(worktreePath),
   });
 
-  const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+  const { cost } = response;
+  const costUsd = estimateCostUsd(
+    cost.inputTokens, cost.outputTokens,
+    undefined, undefined,
+    cost.cacheCreationInputTokens, cost.cacheReadInputTokens,
+  );
   return { costUsd };
 }
 
@@ -216,6 +242,9 @@ async function claudeFix(
  * 4. Re-run quickVerify + optional Claude re-review
  * 5. Repeat up to `maxIterations`
  * 6. Return consolidated result
+ *
+ * Uses separately configurable models for review (milestone-review) and fix (milestone-fix).
+ * The `model` parameter is used as fallback for the fix model.
  */
 export async function reviewFix(
   worktreePath: string,
@@ -223,12 +252,18 @@ export async function reviewFix(
   model: string,
   maxIterations: number = 2,
 ): Promise<ReviewFixResult> {
+  const reviewModel = getModelFor("milestone-review");
+  const fixModel = getModelFor("milestone-fix") !== getModelFor("default")
+    ? getModelFor("milestone-fix")
+    : model; // fall back to worker model if milestone-fix not explicitly configured
+
   let totalCostUsd = 0;
   const allIssues: string[] = [];
   let passed = false;
+  let priorIterationIssues: string[] | undefined;
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
-    logger.info({ iteration, maxIterations, worktreePath }, "review-fix iteration start");
+    logger.info({ iteration, maxIterations, worktreePath, reviewModel, fixModel }, "review-fix iteration start");
 
     // Step 1: Run shell verification
     const verify = await quickVerify(worktreePath);
@@ -241,7 +276,7 @@ export async function reviewFix(
       // Step 2: Shell passed — ask Claude to review the diff for logical issues
       const diff = await getDiff(worktreePath);
       logger.info({ iteration, diffChars: diff.length, worktreePath }, "review-fix calling claudeReview");
-      const review = await claudeReview(diff, model);
+      const review = await claudeReview(diff, reviewModel, priorIterationIssues);
       totalCostUsd += review.costUsd;
       reviewIssues = review.issues;
       logger.info({ iteration, issueCount: reviewIssues.length, costUsd: review.costUsd, worktreePath }, "review-fix claudeReview done");
@@ -257,8 +292,9 @@ export async function reviewFix(
       break;
     }
 
-    // Record the issues found
+    // Record the issues found and thread them for incremental review
     allIssues.push(...iterationIssues);
+    priorIterationIssues = iterationIssues;
     logger.info(
       { iteration, issueCount: iterationIssues.length, worktreePath },
       "review-fix found issues, requesting fix",
@@ -267,7 +303,7 @@ export async function reviewFix(
     // Step 3: Ask Claude to fix
     const changedFiles = await getChangedFiles(worktreePath);
     logger.info({ iteration, issueCount: iterationIssues.length, changedFileCount: changedFiles.length, worktreePath }, "review-fix calling claudeFix");
-    const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, model);
+    const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, fixModel);
     totalCostUsd += fix.costUsd;
     logger.info({ iteration, costUsd: fix.costUsd, worktreePath }, "review-fix claudeFix done");
 
@@ -275,9 +311,9 @@ export async function reviewFix(
     if (iteration === maxIterations) {
       const finalVerify = await quickVerify(worktreePath);
       if (finalVerify.passed) {
-        // Final shell check passed — do one last Claude review
+        // Final shell check passed — do one last Claude review (incremental)
         const diff = await getDiff(worktreePath);
-        const finalReview = await claudeReview(diff, model);
+        const finalReview = await claudeReview(diff, reviewModel, priorIterationIssues);
         totalCostUsd += finalReview.costUsd;
 
         if (finalReview.issues.length === 0) {

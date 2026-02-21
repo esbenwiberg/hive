@@ -38,6 +38,8 @@ models:
     code-quality-analyst: claude-sonnet-4-6  # code review needs judgment
     gate-analyst: claude-haiku-4-5-20251001    # pattern analysis — lightweight
     browser-validator: claude-sonnet-4-6  # UI validation
+    milestone-review: claude-sonnet-4-6  # milestone diff review — classification
+    milestone-fix: claude-sonnet-4-6     # milestone fix loop — agentic
     review-gate: claude-sonnet-4-6    # code review — quality critical
     architect: claude-sonnet-4-6      # architecture design
     producer: claude-haiku-4-5-20251001        # task discovery — lightweight
