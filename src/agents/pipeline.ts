@@ -150,6 +150,11 @@ export async function runPipeline(taskId: string): Promise<void> {
     const enrichment = (postEnrichTask.enrichment ?? {}) as Record<string, unknown>;
     const architect = enrichment.architect as ArchitectBlueprint | undefined;
 
+    // Propagate architect's skipPreview recommendation to task column
+    if (architect?.skipPreview === true) {
+      await db.update(tasks).set({ skipPreview: true, updatedAt: new Date() }).where(eq(tasks.id, taskId));
+    }
+
     if (architect?.awaitingInput) {
       const config = getAutonomousConfig();
       const clarificationMode = config.clarification.mode;

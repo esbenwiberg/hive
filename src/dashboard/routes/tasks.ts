@@ -13,6 +13,7 @@ import {
   taskListPartial,
   taskDetailPanel,
   previewSection,
+  previewMetaRow,
   activityEventList,
   taskDebugPanel,
 } from "../views/tasks.js";
@@ -25,6 +26,9 @@ import { previewManager } from "../../execution/preview/manager.js";
 import { cleanupWorktree } from "../../execution/worktree.js";
 import * as repoAccessQueries from "../../db/queries/user-repo-access.js";
 import type { SessionUser } from "../../domain/types.js";
+import { db } from "../../db/connection.js";
+import { tasks } from "../../db/schema.js";
+import { eq } from "drizzle-orm";
 import logger from "../../logger.js";
 
 const router = Router();
@@ -533,6 +537,46 @@ router.post("/api/tasks/:id/preview/extend", requireAuth, async (req: Request, r
       JSON.stringify({ showToast: { message: "Preview lifetime extended", type: "success" } }),
     );
     res.send(updated ? previewSection(updated) : "");
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/tasks/:id/preview/toggle ─ Toggle skipPreview flag ─────────
+
+const PRE_EXECUTION_STATES: Set<string> = new Set(["pending", "queued", "enriching", "ready"]);
+
+router.post("/api/tasks/:id/preview/toggle", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const user = req.session.user!;
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
+    }
+    if (!PRE_EXECUTION_STATES.has(task.status)) {
+      res.status(409).send("Preview can only be toggled before execution");
+      return;
+    }
+
+    const newValue = !task.skipPreview;
+    await db.update(tasks).set({ skipPreview: newValue, updatedAt: new Date() }).where(eq(tasks.id, id));
+
+    const updated = await taskQueries.getById(id);
+    const label = newValue ? "Preview disabled" : "Preview enabled";
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: label, type: "success" } }),
+    );
+    res.send(updated ? previewMetaRow(updated) : "");
   } catch (err) {
     next(err);
   }

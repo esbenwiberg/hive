@@ -268,6 +268,7 @@ interface BlueprintData {
   clarificationQuestions?: string[];
   awaitingInput?: boolean;
   skipped?: boolean;
+  skipPreview?: boolean;
 }
 
 function fileChips(files: string[]): string {
@@ -374,6 +375,10 @@ function blueprintSection(task: TaskRow): string {
   // ── No approach text → nothing to render ───────────────────────────────
   if (!bp.approach) return "";
 
+  const skipPreviewNote = bp.skipPreview
+    ? `<p class="mt-2 text-xs text-amber-400/80">Architect recommended skipping preview (no user-facing output)</p>`
+    : "";
+
   // ── Small task (no milestones) ─────────────────────────────────────────
   if (!bp.milestones || bp.milestones.length === 0) {
     return `<div>
@@ -382,6 +387,7 @@ function blueprintSection(task: TaskRow): string {
         <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(bp.approach)}</p>
         ${fileChips(bp.keyFiles ?? [])}
         ${checklistHtml(bp.checklist ?? [])}
+        ${skipPreviewNote}
       </div>
     </div>`;
   }
@@ -392,6 +398,7 @@ function blueprintSection(task: TaskRow): string {
     <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
       <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(bp.approach)}</p>
       ${milestonesHtml(bp.milestones)}
+      ${skipPreviewNote}
     </div>
   </div>`;
 }
@@ -688,6 +695,30 @@ function previewStatusBadge(status: string): string {
     stopped: "slate",
   };
   return badge(status, colors[status] ?? "slate");
+}
+
+const PRE_EXECUTION_STATES: Set<string> = new Set(["pending", "queued", "enriching", "ready"]);
+
+/** Returns the Preview meta row for the task detail panel (swappable via HTMX). */
+export function previewMetaRow(task: TaskRow): string {
+  const enrichment = task.enrichment as Record<string, unknown> | null;
+  const architectRec = (enrichment?.architect as Record<string, unknown> | undefined)?.skipPreview === true;
+  const canToggle = PRE_EXECUTION_STATES.has(task.status);
+
+  const currentBadge = task.skipPreview ? badge("skip", "amber") : badge("enabled", "slate");
+  const toggleBtn = canToggle
+    ? ` <button class="ml-1 text-xs text-slate-400 hover:text-amber-400 underline"
+        hx-post="/api/tasks/${escapeHtml(task.id)}/preview/toggle"
+        hx-target="#preview-meta-row" hx-swap="outerHTML">${task.skipPreview ? "enable" : "skip"}</button>`
+    : "";
+  const architectNote = architectRec && !task.skipPreview
+    ? ` <span class="text-xs text-slate-500">(architect recommended skip)</span>`
+    : "";
+
+  return `<div id="preview-meta-row" class="flex justify-between py-2">
+    <span class="text-sm text-slate-400">Preview</span>
+    <span class="text-sm text-slate-200">${currentBadge}${toggleBtn}${architectNote}</span>
+  </div>`;
 }
 
 export function previewSection(task: TaskRow): string {
@@ -1152,7 +1183,7 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     ["Created By", escapeHtml(creatorLabel(task, userNames))],
     ["Total Cost", formatCost(task.totalCost)],
     ["Visibility", task.visibility === "private" ? badge("private", "amber") : badge("public", "slate")],
-    ["Preview", task.skipPreview ? badge("skip", "amber") : badge("enabled", "slate")],
+    ["Preview", null],
     [
       "Created",
       task.createdAt
@@ -1181,7 +1212,9 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
   const metaHtml = metaRows
     .map(
       ([label, value]) =>
-        `<div class="flex justify-between py-2">
+        value === null
+          ? previewMetaRow(task)
+          : `<div class="flex justify-between py-2">
         <span class="text-sm text-slate-400">${label}</span>
         <span class="text-sm text-slate-200">${value}</span>
       </div>`,

@@ -561,9 +561,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       let previewUrl: string | undefined;
       const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
       const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
-      const taskSkip = task.skipPreview === true;
-      const architectSkip = architectData?.skipPreview === true;
-      const previewEnabled = !taskSkip && !architectSkip
+      const previewEnabled = !task.skipPreview
         && ((repoPreview.enabled as boolean | undefined) ?? config.preview.enabled);
 
       // .hive.yaml takes precedence; fall back to repo settings
