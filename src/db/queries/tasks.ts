@@ -288,8 +288,8 @@ export async function updateEnrichment(
 
 /**
  * Deletes tasks whose title matches a LIKE pattern, cascading through
- * all dependent tables (costs, gate_decisions, code_reviews, active_agents,
- * enrichment_runs, learnings, preview_logs).
+ * all dependent tables (task_events, costs, gate_decisions, code_reviews,
+ * active_agents, enrichment_runs, learnings, preview_logs).
  * Returns the number of deleted task rows.
  */
 export async function deleteByTitlePattern(pattern: string): Promise<number> {
@@ -297,13 +297,14 @@ export async function deleteByTitlePattern(pattern: string): Promise<number> {
     WITH doomed AS (
       SELECT id FROM tasks WHERE title ILIKE ${pattern}
     ),
-    d1 AS (DELETE FROM costs WHERE task_id IN (SELECT id FROM doomed)),
-    d2 AS (DELETE FROM gate_decisions WHERE task_id IN (SELECT id FROM doomed)),
-    d3 AS (DELETE FROM code_reviews WHERE task_id IN (SELECT id FROM doomed)),
-    d4 AS (DELETE FROM active_agents WHERE task_id IN (SELECT id FROM doomed)),
-    d5 AS (DELETE FROM enrichment_runs WHERE task_id IN (SELECT id FROM doomed)),
-    d6 AS (DELETE FROM preview_logs WHERE task_id IN (SELECT id FROM doomed)),
-    d7 AS (DELETE FROM learning_events WHERE task_id IN (SELECT id FROM doomed))
+    d1 AS (DELETE FROM task_events WHERE task_id IN (SELECT id FROM doomed)),
+    d2 AS (DELETE FROM costs WHERE task_id IN (SELECT id FROM doomed)),
+    d3 AS (DELETE FROM gate_decisions WHERE task_id IN (SELECT id FROM doomed)),
+    d4 AS (DELETE FROM code_reviews WHERE task_id IN (SELECT id FROM doomed)),
+    d5 AS (DELETE FROM active_agents WHERE task_id IN (SELECT id FROM doomed)),
+    d6 AS (DELETE FROM enrichment_runs WHERE task_id IN (SELECT id FROM doomed)),
+    d7 AS (DELETE FROM preview_logs WHERE task_id IN (SELECT id FROM doomed)),
+    d8 AS (DELETE FROM learning_events WHERE task_id IN (SELECT id FROM doomed))
     DELETE FROM tasks WHERE id IN (SELECT id FROM doomed)
   `);
 
@@ -323,13 +324,14 @@ export async function deleteByIds(ids: string[]): Promise<number> {
     WITH doomed AS (
       SELECT id FROM tasks WHERE id = ANY(${idArray})
     ),
-    d1 AS (DELETE FROM costs WHERE task_id IN (SELECT id FROM doomed)),
-    d2 AS (DELETE FROM gate_decisions WHERE task_id IN (SELECT id FROM doomed)),
-    d3 AS (DELETE FROM code_reviews WHERE task_id IN (SELECT id FROM doomed)),
-    d4 AS (DELETE FROM active_agents WHERE task_id IN (SELECT id FROM doomed)),
-    d5 AS (DELETE FROM enrichment_runs WHERE task_id IN (SELECT id FROM doomed)),
-    d6 AS (DELETE FROM preview_logs WHERE task_id IN (SELECT id FROM doomed)),
-    d7 AS (DELETE FROM learning_events WHERE task_id IN (SELECT id FROM doomed))
+    d1 AS (DELETE FROM task_events WHERE task_id IN (SELECT id FROM doomed)),
+    d2 AS (DELETE FROM costs WHERE task_id IN (SELECT id FROM doomed)),
+    d3 AS (DELETE FROM gate_decisions WHERE task_id IN (SELECT id FROM doomed)),
+    d4 AS (DELETE FROM code_reviews WHERE task_id IN (SELECT id FROM doomed)),
+    d5 AS (DELETE FROM active_agents WHERE task_id IN (SELECT id FROM doomed)),
+    d6 AS (DELETE FROM enrichment_runs WHERE task_id IN (SELECT id FROM doomed)),
+    d7 AS (DELETE FROM preview_logs WHERE task_id IN (SELECT id FROM doomed)),
+    d8 AS (DELETE FROM learning_events WHERE task_id IN (SELECT id FROM doomed))
     DELETE FROM tasks WHERE id IN (SELECT id FROM doomed)
   `);
 
