@@ -11,6 +11,14 @@ function escapeLike(str: string): string {
 }
 
 /**
+ * Builds a properly parameterised SQL text[] array from a JS string array.
+ * Uses sql.join so each element becomes its own bind parameter inside ARRAY[…]::text[].
+ */
+function sqlTextArray(ids: string[]) {
+  return sql`ARRAY[${sql.join(ids.map((id) => sql`${id}`), sql`, `)}]::text[]`;
+}
+
+/**
  * Creates a new task with a generated HIVE-YYYYMMDD-xxxx id.
  * Status is always set to 'pending'.
  */
@@ -293,9 +301,11 @@ export async function deleteByTitlePattern(pattern: string): Promise<number> {
 export async function deleteByIds(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
 
+  const idArray = sqlTextArray(ids);
+
   const result = await db.execute(sql`
     WITH doomed AS (
-      SELECT id FROM tasks WHERE id = ANY(${ids}::text[])
+      SELECT id FROM tasks WHERE id = ANY(${idArray})
     ),
     d1 AS (DELETE FROM costs WHERE task_id IN (SELECT id FROM doomed)),
     d2 AS (DELETE FROM gate_decisions WHERE task_id IN (SELECT id FROM doomed)),
