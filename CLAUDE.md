@@ -65,3 +65,4 @@ Manual dispatch only via `.github/workflows/deploy.yml` (or the dashboard upgrad
 - Enrichment data lives in `task.enrichment.<enricherName>` (architect, scorer, etc.)
 - Commit messages: `feat:` / `fix:` / `refactor:` prefix style
 - Build must pass (`npm run build`) before deploying
+- **Drizzle migrations**: When adding a migration SQL file to `drizzle/`, you must also add a corresponding entry in `drizzle/meta/_journal.json`. Migrations not listed in the journal are silently skipped.
