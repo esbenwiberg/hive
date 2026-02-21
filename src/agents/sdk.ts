@@ -40,6 +40,14 @@ export interface AgenticRequest {
   maxTurns?: number;
   /** Called after each API round-trip (useful for heartbeats). */
   onTurnComplete?: (turn: number) => void;
+  /**
+   * Called when Claude stops without tool_use. If it returns a non-null string,
+   * that string is injected as a user message and the loop continues.
+   * Useful for nudging Claude to actually call write_file when it only analyzed.
+   */
+  postCompletionNudge?: (context: { toolsCalled: string[]; turns: number }) => string | null;
+  /** Max number of nudges before accepting Claude's stop (default: 1). */
+  maxNudges?: number;
 }
 
 export interface AgenticResponse {
@@ -207,6 +215,9 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
   let totalCacheReadTokens = 0;
   let turns = 0;
   let collectedText = "";
+  const toolsCalled: string[] = [];
+  let nudgesUsed = 0;
+  const maxNudges = req.maxNudges ?? 1;
 
   const system = req.systemPrompt
     ? [{ type: "text" as const, text: req.systemPrompt, cache_control: { type: "ephemeral" as const } }]
@@ -277,8 +288,17 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
 
     req.onTurnComplete?.(turns);
 
-    // If stop reason is not tool_use, we're done
+    // If stop reason is not tool_use, check for nudge or finish
     if (message.stop_reason !== "tool_use") {
+      if (req.postCompletionNudge && nudgesUsed < maxNudges) {
+        const nudge = req.postCompletionNudge({ toolsCalled, turns });
+        if (nudge) {
+          nudgesUsed++;
+          logger.info({ turn: turns, nudgesUsed }, "Nudging Claude to continue (no required tool call detected)");
+          messages.push({ role: "user", content: nudge });
+          continue;
+        }
+      }
       break;
     }
 
@@ -290,6 +310,7 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
     const toolResults: ToolResultBlockParam[] = [];
     let toolResultChars = 0;
     for (const toolUse of toolUseBlocks) {
+      toolsCalled.push(toolUse.name);
       const input = toolUse.input as Record<string, unknown>;
       const inputSummary = input.path ?? input.command ?? input.file_path ?? toolUse.name;
       try {

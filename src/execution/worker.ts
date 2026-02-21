@@ -288,6 +288,12 @@ async function executeMilestones(
       tools: WORKER_TOOLS,
       executeTool: createWorktreeToolExecutor(worktreePath),
       onTurnComplete: () => heartbeat(task.id),
+      postCompletionNudge: ({ toolsCalled }) => {
+        if (!toolsCalled.includes("write_file")) {
+          return "IMPORTANT: You have not called write_file yet. You MUST use the write_file tool to implement the changes for this milestone now. Do not explain — write the code.";
+        }
+        return null;
+      },
     });
 
     const implCost = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
@@ -498,6 +504,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       ``,
       `## Branch`,
       branchName,
+      ``,
+      `## Reminder`,
+      `You MUST call write_file to implement changes. Do not just analyze or explain — write the code.`,
     ].join("\n");
 
     // Check for architect milestones
@@ -521,6 +530,12 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         tools: WORKER_TOOLS,
         executeTool: createWorktreeToolExecutor(worktree.path),
         onTurnComplete: () => heartbeat(taskId),
+        postCompletionNudge: ({ toolsCalled }) => {
+          if (!toolsCalled.includes("write_file")) {
+            return "IMPORTANT: You have not called write_file yet. You MUST use the write_file tool to implement the changes now. Do not explain — write the code.";
+          }
+          return null;
+        },
       });
       implCostUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
 
