@@ -46,6 +46,16 @@ export async function listAll() {
  */
 export async function listAllWithRole() {
   return db
-    .select({ id: users.id, displayName: users.displayName, role: users.role })
+    .select({ id: users.id, displayName: users.displayName, role: users.role, dailyBudget: users.dailyBudget })
     .from(users);
+}
+
+/**
+ * Updates a user's daily budget.
+ */
+export async function updateDailyBudget(userId: number, budget: string) {
+  await db
+    .update(users)
+    .set({ dailyBudget: budget, updatedAt: new Date() })
+    .where(eq(users.id, userId));
 }

@@ -86,4 +86,37 @@ router.post("/api/permissions/revoke", requireRole("admin"), async (req: Request
   }
 });
 
+// ── POST /api/permissions/budget ─ Update user daily budget ──────────────────
+
+router.post("/api/permissions/budget", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId, dailyBudget } = req.body;
+
+    if (!userId || dailyBudget == null) {
+      res.status(400).send("userId and dailyBudget are required");
+      return;
+    }
+
+    const budget = parseFloat(dailyBudget);
+    if (isNaN(budget) || budget < 0) {
+      res.status(400).send("dailyBudget must be a non-negative number");
+      return;
+    }
+
+    await userQueries.updateDailyBudget(Number(userId), budget.toFixed(2));
+
+    // Return updated matrix
+    const [users, repos, grants] = await Promise.all([
+      userQueries.listAllWithRole(),
+      repoQueries.listAll(),
+      buildGrantSet(),
+    ]);
+
+    const nonAdminUsers = users.filter((u) => u.role !== "admin");
+    res.send(permissionsMatrix(nonAdminUsers, repos, grants));
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

@@ -6,6 +6,7 @@ interface UserInfo {
   id: number;
   displayName: string;
   role: string;
+  dailyBudget: string | null;
 }
 
 interface RepoInfo {
@@ -109,8 +110,20 @@ export function permissionsMatrix(
         })
         .join("");
 
+      const budgetVal = u.dailyBudget ?? "100.00";
       return `<tr class="hover:bg-slate-800/50">
         <td class="px-4 py-3 text-sm font-medium text-slate-300 whitespace-nowrap">${escapeHtml(u.displayName)}</td>
+        <td class="px-3 py-3">
+          <input type="number" min="0" step="0.01"
+            name="dailyBudget" value="${escapeHtml(budgetVal)}"
+            hx-post="/api/permissions/budget"
+            hx-vals='${JSON.stringify({ userId: u.id })}'
+            hx-target="#permissions-matrix"
+            hx-swap="innerHTML"
+            hx-trigger="change, keydown[key=='Enter']"
+            class="w-24 rounded-md border border-slate-600 bg-slate-700 px-2 py-1 text-sm text-slate-200 text-right focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+          />
+        </td>
         ${cells}
       </tr>`;
     })
@@ -121,6 +134,7 @@ export function permissionsMatrix(
       <thead class="bg-slate-800/50">
         <tr>
           <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">User</th>
+          <th class="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400 whitespace-nowrap">Daily Budget</th>
           ${repoHeaders}
         </tr>
       </thead>
