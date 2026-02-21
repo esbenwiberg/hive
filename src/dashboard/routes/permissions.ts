@@ -52,8 +52,7 @@ router.post("/api/permissions/grant", requireRole("admin"), async (req: Request,
       buildGrantSet(),
     ]);
 
-    const nonAdminUsers = users.filter((u) => u.role !== "admin");
-    res.send(permissionsMatrix(nonAdminUsers, repos, grants));
+    res.send(permissionsMatrix(users, repos, grants));
   } catch (err) {
     next(err);
   }
@@ -79,8 +78,7 @@ router.post("/api/permissions/revoke", requireRole("admin"), async (req: Request
       buildGrantSet(),
     ]);
 
-    const nonAdminUsers = users.filter((u) => u.role !== "admin");
-    res.send(permissionsMatrix(nonAdminUsers, repos, grants));
+    res.send(permissionsMatrix(users, repos, grants));
   } catch (err) {
     next(err);
   }
@@ -112,8 +110,7 @@ router.post("/api/permissions/budget", requireRole("admin"), async (req: Request
       buildGrantSet(),
     ]);
 
-    const nonAdminUsers = users.filter((u) => u.role !== "admin");
-    res.send(permissionsMatrix(nonAdminUsers, repos, grants));
+    res.send(permissionsMatrix(users, repos, grants));
   } catch (err) {
     next(err);
   }

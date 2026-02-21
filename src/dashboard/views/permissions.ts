@@ -23,11 +23,9 @@ export function permissionsPage(
   grants: Set<string>,
   currentUser: SessionUser,
 ): string {
-  const nonAdminUsers = users.filter((u) => u.role !== "admin");
-
-  if (nonAdminUsers.length === 0 || repos.length === 0) {
-    const msg = nonAdminUsers.length === 0
-      ? "No non-admin users found. Admins have access to all repos by default."
+  if (users.length === 0 || repos.length === 0) {
+    const msg = users.length === 0
+      ? "No users found."
       : "No repositories found. Add repos first.";
 
     return layout(
@@ -47,7 +45,7 @@ export function permissionsPage(
     );
   }
 
-  const matrixHtml = permissionsMatrix(nonAdminUsers, repos, grants);
+  const matrixHtml = permissionsMatrix(users, repos, grants);
 
   return layout(
     "Permissions",
@@ -85,34 +83,40 @@ export function permissionsMatrix(
 
   const rows = users
     .map((u) => {
-      const cells = repos
-        .map((r) => {
-          const key = `${u.id}:${r.id}`;
-          const checked = grants.has(key);
-          const action = checked ? "revoke" : "grant";
-          return `<td class="px-3 py-3 text-center">
-            <button
-              hx-post="/api/permissions/${action}"
-              hx-vals='${JSON.stringify({ userId: u.id, repoId: r.id })}'
-              hx-target="#permissions-matrix"
-              hx-swap="innerHTML"
-              class="inline-flex items-center justify-center w-6 h-6 rounded transition-colors ${
-                checked
-                  ? "bg-amber-400/20 text-amber-400 hover:bg-red-400/20 hover:text-red-400"
-                  : "bg-slate-700/50 text-slate-500 hover:bg-emerald-400/20 hover:text-emerald-400"
-              }">
-              ${checked
-                ? '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>'
-                : '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>'
-              }
-            </button>
-          </td>`;
-        })
-        .join("");
+      const isAdmin = u.role === "admin";
+      const cells = isAdmin
+        ? `<td colspan="${repos.length}" class="px-3 py-3 text-center text-xs text-slate-500 italic">full access</td>`
+        : repos
+            .map((r) => {
+              const key = `${u.id}:${r.id}`;
+              const checked = grants.has(key);
+              const action = checked ? "revoke" : "grant";
+              return `<td class="px-3 py-3 text-center">
+                <button
+                  hx-post="/api/permissions/${action}"
+                  hx-vals='${JSON.stringify({ userId: u.id, repoId: r.id })}'
+                  hx-target="#permissions-matrix"
+                  hx-swap="innerHTML"
+                  class="inline-flex items-center justify-center w-6 h-6 rounded transition-colors ${
+                    checked
+                      ? "bg-amber-400/20 text-amber-400 hover:bg-red-400/20 hover:text-red-400"
+                      : "bg-slate-700/50 text-slate-500 hover:bg-emerald-400/20 hover:text-emerald-400"
+                  }">
+                  ${checked
+                    ? '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>'
+                    : '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>'
+                  }
+                </button>
+              </td>`;
+            })
+            .join("");
 
       const budgetVal = u.dailyBudget ?? "100.00";
+      const nameLabel = isAdmin
+        ? `${escapeHtml(u.displayName)} <span class="ml-1 text-xs text-amber-400/70">admin</span>`
+        : escapeHtml(u.displayName);
       return `<tr class="hover:bg-slate-800/50">
-        <td class="px-4 py-3 text-sm font-medium text-slate-300 whitespace-nowrap">${escapeHtml(u.displayName)}</td>
+        <td class="px-4 py-3 text-sm font-medium text-slate-300 whitespace-nowrap">${nameLabel}</td>
         <td class="px-3 py-3">
           <input type="number" min="0" step="0.01"
             name="dailyBudget" value="${escapeHtml(budgetVal)}"
