@@ -127,7 +127,7 @@ describe("routeTask", () => {
 
     expect(mockCallClaude).toHaveBeenCalledTimes(1);
     const call = mockCallClaude.mock.calls[0][0];
-    expect(call.model).toBe("claude-sonnet-4-20250514");
+    expect(call.model).toBe("claude-haiku-4-5-20251001");
     expect(call.prompt).toContain(task.title);
     expect(call.prompt).toContain(task.body);
     expect(call.systemPrompt).toContain("task router");
@@ -242,7 +242,7 @@ describe("routeTask", () => {
     expect(result.type).toBe("improvement"); // default from config
     expect(result.size).toBe("medium"); // default from config
     expect(result.workflow).toBe("flow"); // default fallback
-    expect(result.model).toBe("claude-sonnet-4-20250514"); // default model
+    expect(result.model).toBe("claude-haiku-4-5-20251001"); // router component model
   });
 
   it("handles response wrapped in markdown code fences", async () => {
