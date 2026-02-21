@@ -20,6 +20,28 @@ budget:
 clarification:
   mode: human
 
+# models:
+#   default: claude-sonnet-4-20250514
+#   inputCostPerM: 3
+#   outputCostPerM: 15
+#   components:
+#     router: claude-haiku-4-5-20251001
+#     scorer: claude-haiku-4-5-20251001
+#     # gate: claude-sonnet-4-20250514       # inherits default
+#     # worker: claude-sonnet-4-20250514     # inherits default
+#     # decomposer: claude-sonnet-4-20250514
+#     # refiner: claude-sonnet-4-20250514
+#     # clarification: claude-sonnet-4-20250514
+#     # keeper: claude-haiku-4-5-20251001
+#     # retrospective: claude-sonnet-4-20250514
+#     # feedback-loop: claude-haiku-4-5-20251001
+#     # code-quality-analyst: claude-haiku-4-5-20251001
+#     # gate-analyst: claude-haiku-4-5-20251001
+#     # browser-validator: claude-sonnet-4-20250514
+#     # review-gate: claude-sonnet-4-20250514
+#     # architect: claude-sonnet-4-20250514
+#     # producer: claude-haiku-4-5-20251001
+
 enrichers:
   - name: codebase
     enabled: true

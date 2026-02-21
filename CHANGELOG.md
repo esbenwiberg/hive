@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-02-20
+- fix: detect empty changesets, reuse worktrees on rework, log tool calls
+- docs: update README and workflow diagram to reflect current state
 - fix: invert score badge colors for risk/complexity and always run architect
 - fix: handle context window overflow in Claude SDK calls
 - fix: cast ids to text[] for ANY() in deleteByIds query

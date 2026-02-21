@@ -1,7 +1,7 @@
 import { callClaude } from "../agents/sdk.js";
 import { create } from "../db/queries/tasks.js";
 import { isDuplicate, isRefusalTitle, gatherRepoSummary } from "./base.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { loadPrompt } from "../prompt-cache.js";
 import type { Producer, ProducerContext, ProducerResult } from "./base.js";
 
@@ -32,6 +32,7 @@ export class BugHunterProducer implements Producer {
 
       const response = await callClaude({
         prompt,
+        model: getModelFor("producer"),
         systemPrompt: loadPrompt("producers/bug-hunter"),
         dryRun: ctx.dryRun,
       });

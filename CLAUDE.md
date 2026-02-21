@@ -37,7 +37,7 @@ src/
 
 ## Deploy
 
-### Manual (preferred — GitHub Actions deploy is currently broken)
+### Manual
 
 ```bash
 bash scripts/deploy.sh          # Uses git SHA as tag by default
@@ -50,7 +50,7 @@ Azure Container Apps will NOT create a new revision if the image tag hasn't chan
 
 ### GitHub Actions
 
-Triggers on push to `main` via `.github/workflows/deploy.yml`. Already uses `${{ github.sha }}` as the tag, so unique revisions are handled correctly. Currently broken due to test failures.
+Manual dispatch only via `.github/workflows/deploy.yml` (or the dashboard upgrade button, which requires `HIVE_SELF_REPO` env var). Uses `${{ github.sha }}` as the tag, so unique revisions are handled correctly.
 
 ### Infrastructure
 
