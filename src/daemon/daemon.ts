@@ -185,16 +185,14 @@ export class Daemon {
   async stop(): Promise<void> {
     this.stopping = true;
 
-    // Stop producer schedulers first
-    for (const s of this.producerSchedulers) {
-      s.stop();
-    }
+    // Stop producer schedulers first and wait for in-flight ticks
+    await Promise.all(this.producerSchedulers.map((s) => s.stop()));
 
-    this.retrospectiveScheduler.stop();
-    this.decayScheduler.stop();
-    this.previewCleanupScheduler.stop();
-    this.prCloseCleanupScheduler.stop();
-    this.scheduler.stop();
+    await this.retrospectiveScheduler.stop();
+    await this.decayScheduler.stop();
+    await this.previewCleanupScheduler.stop();
+    await this.prCloseCleanupScheduler.stop();
+    await this.scheduler.stop();
 
     // Suspend all in-flight tasks so they survive a deploy
     if (this.activeTaskIds.size > 0) {

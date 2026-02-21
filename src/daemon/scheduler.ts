@@ -46,7 +46,7 @@ export class Scheduler {
     }
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.delayTimer) {
       clearTimeout(this.delayTimer);
       this.delayTimer = null;
@@ -54,6 +54,10 @@ export class Scheduler {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    // Wait for any in-flight tick to complete
+    while (this.running) {
+      await new Promise((r) => setTimeout(r, 10));
     }
   }
 
