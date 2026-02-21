@@ -333,6 +333,12 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
   // Check budget
   const remaining = await checkBudget(task.createdBy);
   if (remaining <= 0) {
+    await addEvent(
+      taskId,
+      "budget_exhausted",
+      "worker",
+      "Daily budget exhausted — task paused until tomorrow. Or bribe an admin with beers to bump your limit!",
+    );
     throw new Error(`Budget exhausted for user ${task.createdBy}`);
   }
 

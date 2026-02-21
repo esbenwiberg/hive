@@ -62,6 +62,8 @@ export class Daemon {
 
   private readonly activeTaskIds = new Set<string>();
   private readonly userCounts = new Map<number, number>();
+  /** Tasks already notified about budget exhaustion (reset on budget recovery). */
+  private readonly budgetNotified = new Set<string>();
   private readonly scheduler: Scheduler;
   private readonly producerSchedulers: Scheduler[] = [];
   private readonly retrospectiveScheduler: Scheduler;
@@ -278,8 +280,20 @@ export class Daemon {
           { taskId: task.id, userId: task.createdBy, remaining },
           "Daemon: user budget exhausted, skipping task",
         );
+        // Notify once per task so the user can see why it's stalled
+        if (!this.budgetNotified.has(task.id)) {
+          this.budgetNotified.add(task.id);
+          void addEvent(
+            task.id,
+            "budget_exhausted",
+            "daemon",
+            "Daily budget exhausted — task paused until tomorrow. Or bribe an admin with beers to bump your limit!",
+          ).catch(() => {});
+        }
         continue;
       }
+      // Clear notification flag if budget recovered
+      this.budgetNotified.delete(task.id);
 
       // All guards passed — dispatch
       this.activeTaskIds.add(task.id);

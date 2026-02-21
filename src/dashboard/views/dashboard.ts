@@ -10,6 +10,7 @@ import {
   table,
   emptyState,
   noAccessBanner,
+  budgetExhaustedBanner,
 } from "./components.js";
 import { layout } from "./layout.js";
 
@@ -117,8 +118,15 @@ export function dashboardPage(
   user: SessionUser,
   todayCost: number = 0,
   accessibleRepoIds?: number[],
+  budgetRemaining?: number,
 ): string {
   const hasNoAccess = accessibleRepoIds !== undefined && accessibleRepoIds.length === 0;
+  const budgetExhausted = budgetRemaining !== undefined && budgetRemaining <= 0;
+
+  const banners = [
+    hasNoAccess ? noAccessBanner() : "",
+    budgetExhausted ? budgetExhaustedBanner() : "",
+  ].filter(Boolean).join("\n");
 
   const content = `<div class="space-y-8">
   <!-- Welcome -->
@@ -127,7 +135,7 @@ export function dashboardPage(
     <p class="mt-1 text-sm text-slate-400">Here's what's happening across your Hive tasks.</p>
   </div>
 
-  ${hasNoAccess ? noAccessBanner() : ""}
+  ${banners}
 
   <!-- Stat cards -->
   ${statsRow(stats, todayCost)}

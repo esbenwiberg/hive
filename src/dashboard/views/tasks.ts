@@ -18,6 +18,7 @@ import {
   pipelineDialog,
   emptyState,
   noAccessBanner,
+  budgetExhaustedBanner,
 } from "./components.js";
 import { layout } from "./layout.js";
 
@@ -1122,9 +1123,11 @@ export function taskListPage(
   userNames: Map<number, string> = new Map(),
   selfRepoFullName?: string,
   accessibleRepoIds?: number[],
+  budgetRemaining?: number,
 ): string {
   const activeStatus = filters?.statuses?.length ? "attention" : (filters?.status ?? "");
   const hasNoAccess = accessibleRepoIds !== undefined && accessibleRepoIds.length === 0;
+  const budgetExhausted = budgetRemaining !== undefined && budgetRemaining <= 0;
 
   const header = `<div class="mb-6 flex items-center justify-between">
   <div>
@@ -1139,7 +1142,12 @@ export function taskListPage(
 
   const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
-  const content = `${hasNoAccess ? noAccessBanner() + "\n" : ""}${header}
+  const banners = [
+    hasNoAccess ? noAccessBanner() : "",
+    budgetExhausted ? budgetExhaustedBanner() : "",
+  ].filter(Boolean).join("\n");
+
+  const content = `${banners ? banners + "\n" : ""}${header}
 <div id="task-list">
   ${taskListPartial(tasks, counts, activeStatus, repoNames, userNames, user.role === "admin")}
 </div>

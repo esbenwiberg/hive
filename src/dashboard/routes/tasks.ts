@@ -80,11 +80,12 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     const accessibleRepoIds = await getAccessibleRepoIds(user);
     const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
 
-    const [{ tasks }, counts, repos, userNames] = await Promise.all([
+    const [{ tasks }, counts, repos, userNames, budgetRemaining] = await Promise.all([
       taskQueries.listWithCosts(filters, undefined, undefined, userContext),
       taskQueries.countByStatus(accessibleRepoIds),
       repoQueries.listAll(),
       fetchUserNames(),
+      costQueries.checkBudget(user.id),
     ]);
 
     // Filter repos in create form to only accessible ones
@@ -97,7 +98,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     if (req.headers["hx-request"]) {
       res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames, isAdmin));
     } else {
-      res.send(taskListPage(tasks, filters, counts, user, filteredRepos, userNames, HIVE_SELF_REPO, accessibleRepoIds));
+      res.send(taskListPage(tasks, filters, counts, user, filteredRepos, userNames, HIVE_SELF_REPO, accessibleRepoIds, budgetRemaining));
     }
   } catch (err) {
     next(err);
@@ -185,6 +186,22 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
         res.status(403).send("Only admins can create tasks for the Hive repository");
         return;
       }
+    }
+
+    // Budget guard — reject early if user has exhausted their daily budget
+    const remaining = await costQueries.checkBudget(user.id);
+    if (remaining <= 0) {
+      res.status(429).setHeader(
+        "HX-Trigger",
+        JSON.stringify({
+          showToast: {
+            message: "Daily budget exhausted! Wait until tomorrow or lure an admin with beers to bump your limit.",
+            type: "error",
+          },
+        }),
+      );
+      res.send("");
+      return;
     }
 
     await taskQueries.create({

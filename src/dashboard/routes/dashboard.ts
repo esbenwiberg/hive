@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import { requireAuth } from "../../auth/middleware.js";
 import * as taskQueries from "../../db/queries/tasks.js";
 import * as repoAccessQueries from "../../db/queries/user-repo-access.js";
-import { getTodayTotalGlobal } from "../../db/queries/costs.js";
+import { getTodayTotalGlobal, checkBudget } from "../../db/queries/costs.js";
 import { db } from "../../db/connection.js";
 import { activeAgents } from "../../db/schema.js";
 import { dashboardPage, activeAgentsFragment } from "../views/dashboard.js";
@@ -24,14 +24,15 @@ router.get("/", requireAuth, async (req: Request, res: Response, next: NextFunct
     const accessibleRepoIds = await getAccessibleRepoIds(user);
     const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
 
-    const [counts, { tasks: recentTasks }, agents, todayCost] = await Promise.all([
+    const [counts, { tasks: recentTasks }, agents, todayCost, budgetRemaining] = await Promise.all([
       taskQueries.countByStatus(accessibleRepoIds),
       taskQueries.list({}, 10, undefined, userContext),
       db.select().from(activeAgents),
       getTodayTotalGlobal(),
+      checkBudget(user.id),
     ]);
 
-    res.send(dashboardPage(counts, recentTasks, agents, user, todayCost, accessibleRepoIds));
+    res.send(dashboardPage(counts, recentTasks, agents, user, todayCost, accessibleRepoIds, budgetRemaining));
   } catch (err) {
     next(err);
   }

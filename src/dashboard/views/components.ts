@@ -537,3 +537,16 @@ export function noAccessBanner(): string {
   </div>
 </div>`;
 }
+
+/** Banner shown when a user's daily budget is exhausted. */
+export function budgetExhaustedBanner(): string {
+  return `<div class="flex items-start gap-3 rounded-lg border border-red-400/30 bg-red-400/5 px-4 py-3">
+  <svg class="mt-0.5 h-5 w-5 shrink-0 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </svg>
+  <div>
+    <p class="text-sm font-medium text-red-400">Daily budget exhausted</p>
+    <p class="mt-0.5 text-sm text-slate-400">You've hit your daily spending limit. New tasks won't be processed until tomorrow — or lure an admin with beers to bump your budget.</p>
+  </div>
+</div>`;
+}
