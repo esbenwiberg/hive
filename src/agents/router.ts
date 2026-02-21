@@ -49,9 +49,8 @@ function parseClassification(text: string): RouterResult {
   const type = VALID_TYPES.has(parsed.type) ? parsed.type : config.classification.defaultType;
   const size = VALID_SIZES.has(parsed.size) ? parsed.size : config.classification.defaultSize;
   const workflow = VALID_WORKFLOWS.has(parsed.workflow) ? parsed.workflow : "flow";
-  const model = typeof parsed.model === "string" && parsed.model.length > 0
-    ? parsed.model
-    : getModelFor("router");
+  // Model is always resolved from config, not from LLM output
+  const model = getModelFor("worker");
 
   const result: RouterResult = { type, size, workflow, model };
 

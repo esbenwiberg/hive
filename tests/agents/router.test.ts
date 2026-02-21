@@ -103,7 +103,7 @@ describe("routeTask", () => {
       type: "bug",
       size: "small",
       workflow: "flow",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-opus-4-6",
       maxTurns: 10,
       maxBudgetUsd: 5.0,
     });
@@ -114,7 +114,7 @@ describe("routeTask", () => {
     expect(updated!.type).toBe("bug");
     expect(updated!.size).toBe("small");
     expect(updated!.workflow).toBe("flow");
-    expect(updated!.model).toBe("claude-sonnet-4-20250514");
+    expect(updated!.model).toBe("claude-opus-4-6");
     expect(updated!.maxTurns).toBe(10);
     expect(parseFloat(updated!.maxBudgetUsd!)).toBeCloseTo(5.0, 2);
   });
@@ -242,7 +242,7 @@ describe("routeTask", () => {
     expect(result.type).toBe("improvement"); // default from config
     expect(result.size).toBe("medium"); // default from config
     expect(result.workflow).toBe("flow"); // default fallback
-    expect(result.model).toBe("claude-haiku-4-5-20251001"); // router component model
+    expect(result.model).toBe("claude-opus-4-6"); // worker component model from config
   });
 
   it("handles response wrapped in markdown code fences", async () => {

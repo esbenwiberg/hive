@@ -336,8 +336,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     throw new Error(`Budget exhausted for user ${task.createdBy}`);
   }
 
-  // Fallback to configured worker model when no task-specific model is set
-  const model = task.model ?? getModelFor("worker");
+  // Always use the configured worker model from autonomous config
+  const model = getModelFor("worker");
   const branchName = `hive/${taskId}`;
   let worktree: WorktreeInfo | undefined;
 
