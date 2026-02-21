@@ -1,6 +1,9 @@
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import { parse, stringify } from "yaml";
 import logger from "../../logger.js";
 import { getAutonomousConfig } from "../../domain/autonomous-config.js";
 import type { PreviewSettings } from "../../domain/autonomous-config.js";
@@ -8,6 +11,7 @@ import { db } from "../../db/connection.js";
 import { tasks } from "../../db/schema.js";
 import { addPreviewLog } from "../../db/queries/preview-logs.js";
 import type { PreviewInfo, PreviewConfig } from "./types.js";
+import type { ComposePreviewConfig } from "../../hive-yaml.js";
 import {
   ensureCerts,
   syncWorktree,
@@ -101,13 +105,14 @@ export class PreviewManager {
     if (healthPath) {
       const healthy = await this.waitForHealthCheck(host, port, healthPath, timeoutMs);
       if (!healthy) {
-        await addPreviewLog(taskId, "health", `Health check failed after ${timeoutMs}ms`);
+        const msg = `Health check failed after ${timeoutMs}ms on port ${port}`;
+        await addPreviewLog(taskId, "health", msg);
         await this.stopPreview(taskId);
         await db
           .update(tasks)
           .set({ previewStatus: "failed", updatedAt: new Date() })
           .where(eq(tasks.id, taskId));
-        return info;
+        throw new Error(msg);
       }
       await addPreviewLog(taskId, "health", "Health check passed");
     }
@@ -234,8 +239,9 @@ export class PreviewManager {
   // ── Private: start handlers ─────────────────────────────────────────────────
 
   /**
-   * Starts a Docker Compose preview. Runs `docker compose up -d` either
-   * locally or on the remote Docker host depending on config.
+   * Starts a Docker Compose preview. Generates a patched compose file that
+   * remaps the app_service port to the allocated preview port, then runs
+   * `docker compose up -d` either locally or on the remote Docker host.
    */
   private async startCompose(
     taskId: string,
@@ -247,7 +253,17 @@ export class PreviewManager {
     const project = `hive-${taskId}`;
     const isRemote = !!this.settings.docker_host.ip;
 
-    await addPreviewLog(taskId, "compose", `Running docker compose up for project ${project}${isRemote ? " (remote)" : ""}`);
+    // Generate a patched compose file that maps the allocated port → internal port
+    const composeConfig = config as ComposePreviewConfig;
+    const previewComposeFile = this.generatePreviewComposeFile(
+      worktreePath,
+      composeConfig.compose_file,
+      composeConfig.app_service,
+      port,
+      composeConfig.port,
+    );
+
+    await addPreviewLog(taskId, "compose", `Running docker compose up for project ${project} (port ${port}→${composeConfig.port})${isRemote ? " (remote)" : ""}`);
 
     if (isRemote) {
       const certs = await ensureCerts(this.settings.docker_host);
@@ -262,7 +278,7 @@ export class PreviewManager {
         certs.sshKey,
         remotePath,
         project,
-        config.compose_file,
+        previewComposeFile,
         config.env,
       );
 
@@ -282,7 +298,7 @@ export class PreviewManager {
     await new Promise<void>((resolve, reject) => {
       execFile(
         "docker",
-        ["compose", "-p", project, "-f", config.compose_file, "up", "-d"],
+        ["compose", "-p", project, "-f", previewComposeFile, "up", "-d"],
         { cwd: worktreePath },
         (error, stdout, stderr) => {
           if (error) {
@@ -305,6 +321,31 @@ export class PreviewManager {
       startedAt: new Date(),
       composeProject: project,
     };
+  }
+
+  /**
+   * Reads the original compose file, replaces the port mapping for the
+   * app_service so the allocated preview port maps to the internal port,
+   * and writes the result as `docker-compose.hive-preview.yml`.
+   */
+  private generatePreviewComposeFile(
+    worktreePath: string,
+    composeFile: string,
+    appService: string,
+    externalPort: number,
+    internalPort: number,
+  ): string {
+    const content = readFileSync(join(worktreePath, composeFile), "utf-8");
+    const doc = parse(content) as Record<string, unknown>;
+
+    const services = doc.services as Record<string, Record<string, unknown>> | undefined;
+    if (services?.[appService]?.ports) {
+      services[appService].ports = [`${externalPort}:${internalPort}`];
+    }
+
+    const previewFile = "docker-compose.hive-preview.yml";
+    writeFileSync(join(worktreePath, previewFile), stringify(doc));
+    return previewFile;
   }
 
   /**
