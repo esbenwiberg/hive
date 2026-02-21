@@ -158,6 +158,42 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
       overrides.clarification = { mode: clarificationMode as ClarificationConfig["mode"] };
     }
 
+    // Models
+    const defaultModel = body.defaultModel?.trim();
+    const inputCostRaw = body.inputCostPerM?.trim();
+    const outputCostRaw = body.outputCostPerM?.trim();
+
+    if (inputCostRaw !== undefined && inputCostRaw !== "") {
+      const val = Number(inputCostRaw);
+      if (Number.isNaN(val) || val < 0) {
+        res.status(400).send("Input cost must be a non-negative number");
+        return;
+      }
+    }
+    if (outputCostRaw !== undefined && outputCostRaw !== "") {
+      const val = Number(outputCostRaw);
+      if (Number.isNaN(val) || val < 0) {
+        res.status(400).send("Output cost must be a non-negative number");
+        return;
+      }
+    }
+
+    const components: Record<string, string> = {};
+    for (const key of Object.keys(body)) {
+      if (key.startsWith("component_")) {
+        const val = body[key].trim();
+        if (val) components[key.slice("component_".length)] = val;
+      }
+    }
+
+    if (defaultModel || (inputCostRaw && inputCostRaw !== "") || (outputCostRaw && outputCostRaw !== "") || Object.keys(components).length > 0) {
+      overrides.models = {};
+      if (defaultModel) overrides.models.default = defaultModel;
+      if (inputCostRaw && inputCostRaw !== "") overrides.models.inputCostPerM = Number(inputCostRaw);
+      if (outputCostRaw && outputCostRaw !== "") overrides.models.outputCostPerM = Number(outputCostRaw);
+      if (Object.keys(components).length > 0) overrides.models.components = components;
+    }
+
     const updatedConfig = await saveConfigOverrides(overrides);
 
     res.setHeader(

@@ -25,8 +25,8 @@ const mockConfig: AutonomousConfig = {
   gate: { mode: "human" },
   budget: { dailyDefault: 100, perTaskMax: 25 },
   models: {
-    router: "claude-sonnet-4-20250514",
-    gate: "claude-sonnet-4-20250514",
+    default: "claude-sonnet-4-20250514",
+    components: {},
     inputCostPerM: 3,
     outputCostPerM: 15,
   },
@@ -154,6 +154,31 @@ describe("globalSettingsPartial", () => {
     const html = globalSettingsPartial(mockConfig);
     expect(html).toContain("Clarification");
     expect(html).toContain("clarificationMode");
+  });
+
+  it("renders Models card with default model and component inputs", () => {
+    const html = globalSettingsPartial(mockConfig);
+    expect(html).toContain("Models");
+    expect(html).toContain("defaultModel");
+    expect(html).toContain("claude-sonnet-4-20250514");
+    expect(html).toContain("inputCostPerM");
+    expect(html).toContain("outputCostPerM");
+    expect(html).toContain("Per-component overrides");
+    expect(html).toContain("component_router");
+    expect(html).toContain("component_worker");
+    expect(html).toContain("component_gate");
+  });
+
+  it("pre-fills component model overrides when present", () => {
+    const configWithComponents = {
+      ...mockConfig,
+      models: {
+        ...mockConfig.models,
+        components: { router: "claude-haiku-4-5-20251001" },
+      },
+    };
+    const html = globalSettingsPartial(configWithComponents);
+    expect(html).toContain("claude-haiku-4-5-20251001");
   });
 });
 

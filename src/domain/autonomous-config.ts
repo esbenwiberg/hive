@@ -22,12 +22,14 @@ export interface BudgetConfig {
 }
 
 export interface ModelConfig {
-  router: string;
-  gate: string;
+  /** Default model used when no component override is configured. */
+  default: string;
   /** Cost per million input tokens in USD */
   inputCostPerM: number;
   /** Cost per million output tokens in USD */
   outputCostPerM: number;
+  /** Per-component model overrides keyed by component name. */
+  components: Record<string, string>;
 }
 
 export interface ClarificationConfig {
@@ -74,10 +76,10 @@ const DEFAULTS: AutonomousConfig = {
   gate: { mode: "human" },
   budget: { dailyDefault: 100, perTaskMax: 25 },
   models: {
-    router: "claude-sonnet-4-20250514",
-    gate: "claude-sonnet-4-20250514",
+    default: "claude-sonnet-4-20250514",
     inputCostPerM: 3,
     outputCostPerM: 15,
+    components: {},
   },
   enrichers: [],
   clarification: { mode: "human" },
@@ -97,6 +99,46 @@ const DEFAULTS: AutonomousConfig = {
     port_range: [4001, 4099],
   },
 };
+
+// ── Model helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Merges raw YAML models section onto defaults.
+ * Supports legacy `router`/`gate` flat keys for backward compatibility,
+ * mapping them into `components`.
+ */
+function mergeModels(raw: Record<string, unknown> | undefined): ModelConfig {
+  if (!raw) return { ...DEFAULTS.models, components: {} };
+
+  const result: ModelConfig = {
+    default: typeof raw.default === "string" ? raw.default : DEFAULTS.models.default,
+    inputCostPerM: typeof raw.inputCostPerM === "number" ? raw.inputCostPerM : DEFAULTS.models.inputCostPerM,
+    outputCostPerM: typeof raw.outputCostPerM === "number" ? raw.outputCostPerM : DEFAULTS.models.outputCostPerM,
+    components: {
+      ...(raw.components && typeof raw.components === "object"
+        ? (raw.components as Record<string, string>)
+        : {}),
+    },
+  };
+
+  // Legacy flat keys → components (YAML with `router:` / `gate:` at models level)
+  if (typeof raw.router === "string" && !result.components.router) {
+    result.components.router = raw.router;
+  }
+  if (typeof raw.gate === "string" && !result.components.gate) {
+    result.components.gate = raw.gate;
+  }
+
+  return result;
+}
+
+/**
+ * Returns the model for a named component, falling back to `models.default`.
+ */
+export function getModelFor(component: string): string {
+  const config = getAutonomousConfig();
+  return config.models.components[component] ?? config.models.default;
+}
 
 // ── Loader ───────────────────────────────────────────────────────────────────
 
@@ -133,10 +175,7 @@ export function loadConfig(
       ...DEFAULTS.budget,
       ...(raw.budget as Partial<BudgetConfig> | undefined),
     },
-    models: {
-      ...DEFAULTS.models,
-      ...(raw.models as Partial<ModelConfig> | undefined),
-    },
+    models: mergeModels(raw.models as Record<string, unknown> | undefined),
     enrichers: Array.isArray(raw.enrichers)
       ? (raw.enrichers as EnricherEntry[])
       : DEFAULTS.enrichers,
@@ -168,6 +207,7 @@ export interface ConfigOverrides {
   gate?: Partial<GateConfig>;
   budget?: Partial<BudgetConfig>;
   clarification?: Partial<ClarificationConfig>;
+  models?: { default?: string; inputCostPerM?: number; outputCostPerM?: number; components?: Record<string, string> };
 }
 
 const CONFIG_DB_KEY = "autonomous";
@@ -211,6 +251,13 @@ function mergeOverrides(
     gate: { ...base.gate, ...overrides.gate },
     budget: { ...base.budget, ...overrides.budget },
     clarification: { ...base.clarification, ...overrides.clarification },
+    models: overrides.models
+      ? {
+          ...base.models,
+          ...overrides.models,
+          components: { ...base.models.components, ...overrides.models.components },
+        }
+      : base.models,
   };
 }
 

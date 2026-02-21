@@ -32,6 +32,13 @@ const PRODUCER_CONFIG_PLACEHOLDERS: Record<string, string> = {
   "log-scanner": '{ "workspaceId": "...", "containerAppName": "..." }',
 };
 
+const ALL_COMPONENT_NAMES = [
+  "router", "gate", "worker", "decomposer", "refiner", "clarification",
+  "keeper", "retrospective", "feedback-loop", "code-quality-analyst",
+  "gate-analyst", "browser-validator", "review-gate", "architect",
+  "scorer", "producer",
+] as const;
+
 const ALL_ENRICHER_NAMES = [
   "codebase",
   "docs",
@@ -162,6 +169,40 @@ export function globalSettingsPartial(
     padding: "compact",
   });
 
+  // Models card
+  const componentInputs = ALL_COMPONENT_NAMES.map((name) =>
+    input(`component_${name}`, name, {
+      value: config.models.components[name] ?? "",
+      placeholder: "Inherit default",
+    }),
+  ).join("");
+
+  const modelsFields = [
+    input("defaultModel", "Default Model", {
+      value: config.models.default,
+      placeholder: "claude-sonnet-4-20250514",
+    }),
+    input("inputCostPerM", "Input Cost $/M", {
+      type: "number",
+      value: String(config.models.inputCostPerM),
+      placeholder: "3",
+    }),
+    input("outputCostPerM", "Output Cost $/M", {
+      type: "number",
+      value: String(config.models.outputCostPerM),
+      placeholder: "15",
+    }),
+    `<details class="mt-2">
+      <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-400">Per-component overrides</summary>
+      <div class="mt-2 space-y-2">${componentInputs}</div>
+    </details>`,
+  ].join("");
+
+  const modelsCard = card(modelsFields, {
+    title: "Models",
+    padding: "compact",
+  });
+
   return `<form hx-post="/settings/global" hx-target="#settings-content" hx-swap="innerHTML">
   <div class="space-y-4">
     <p class="text-sm text-slate-400">Overrides saved to database. <code class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">autonomous.config.yaml</code> provides defaults.</p>
@@ -170,6 +211,7 @@ export function globalSettingsPartial(
       ${gateCard}
       ${budgetCard}
       ${clarificationCard}
+      ${modelsCard}
     </div>
     <div class="flex justify-end">
       ${button("Save Global Settings", { variant: "primary", attrs: `type="submit"` })}
