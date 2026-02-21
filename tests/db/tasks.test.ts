@@ -20,6 +20,9 @@ const { create, getById, getByIdWithCost, list, listWithCosts, updateStatus, cou
 const { recordCost } = await import(
   "../../src/db/queries/costs.js"
 );
+const { addEvent, getEvents } = await import(
+  "../../src/db/queries/task-events.js"
+);
 
 useTestDb();
 
@@ -440,6 +443,28 @@ describe("tasks queries", () => {
 
       expect(deleted).toBe(1);
       expect(await getById(task.id)).toBeUndefined();
+    });
+
+    it("cascades deletion to related task_events rows", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "Task with events", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      // Insert task events
+      await addEvent(task.id, "status_change", "router", "Task queued");
+      await addEvent(task.id, "status_change", "worker", "Task executing");
+
+      // Verify events exist before deletion
+      const eventsBefore = await getEvents(task.id);
+      expect(eventsBefore).toHaveLength(2);
+
+      const deleted = await deleteByIds([task.id]);
+
+      expect(deleted).toBe(1);
+      expect(await getById(task.id)).toBeUndefined();
+
+      // Verify events were also deleted
+      const eventsAfter = await getEvents(task.id);
+      expect(eventsAfter).toHaveLength(0);
     });
   });
 
