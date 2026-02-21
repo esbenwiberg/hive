@@ -76,7 +76,7 @@ const DEFAULTS: AutonomousConfig = {
   gate: { mode: "human" },
   budget: { dailyDefault: 100, perTaskMax: 25 },
   models: {
-    default: "claude-sonnet-4-6-20250514",
+    default: "claude-sonnet-4-6",
     inputCostPerM: 3,
     outputCostPerM: 15,
     components: {},

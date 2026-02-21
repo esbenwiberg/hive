@@ -41,25 +41,25 @@ const ALL_COMPONENT_NAMES = [
 
 /** Latest recommended model for each component. Update this single const when new models release. */
 const LATEST_MODELS: ModelConfig = {
-  default: "claude-sonnet-4-6-20250514",
+  default: "claude-sonnet-4-6",
   inputCostPerM: 3,
   outputCostPerM: 15,
   components: {
     router: "claude-haiku-4-5-20251001",
     scorer: "claude-haiku-4-5-20251001",
-    gate: "claude-sonnet-4-6-20250514",
-    worker: "claude-opus-4-6-20250527",
-    decomposer: "claude-sonnet-4-6-20250514",
-    refiner: "claude-sonnet-4-6-20250514",
+    gate: "claude-sonnet-4-6",
+    worker: "claude-opus-4-6",
+    decomposer: "claude-sonnet-4-6",
+    refiner: "claude-sonnet-4-6",
     clarification: "claude-haiku-4-5-20251001",
     keeper: "claude-haiku-4-5-20251001",
-    retrospective: "claude-sonnet-4-6-20250514",
+    retrospective: "claude-sonnet-4-6",
     "feedback-loop": "claude-haiku-4-5-20251001",
-    "code-quality-analyst": "claude-sonnet-4-6-20250514",
+    "code-quality-analyst": "claude-sonnet-4-6",
     "gate-analyst": "claude-haiku-4-5-20251001",
-    "browser-validator": "claude-sonnet-4-6-20250514",
-    "review-gate": "claude-sonnet-4-6-20250514",
-    architect: "claude-sonnet-4-6-20250514",
+    "browser-validator": "claude-sonnet-4-6",
+    "review-gate": "claude-sonnet-4-6",
+    architect: "claude-sonnet-4-6",
     producer: "claude-haiku-4-5-20251001",
   },
 };
@@ -220,7 +220,7 @@ export function globalSettingsPartial(
   const modelsFields = [
     input("defaultModel", "Default Model", {
       value: config.models.default,
-      placeholder: "claude-sonnet-4-20250514",
+      placeholder: "claude-sonnet-4-6",
     }),
     input("inputCostPerM", "Input Cost $/M", {
       type: "number",
