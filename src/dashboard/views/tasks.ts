@@ -1168,10 +1168,15 @@ ${taskCreateForm(repos, user, selfRepoFullName)}`;
  */
 export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map(), user?: SessionUser): string {
   const allActions = getAvailableActions(task.status);
+  const isMaxCyclesFailed = task.failureReason?.includes("Max rework cycles")
+    || task.failureReason?.includes("Browser validation failed after max");
   // Only show "Continue" when there are completed milestones to resume from
-  const actions = allActions.filter((a) =>
-    a.action !== "continue" || (task.completedMilestones ?? 0) > 0,
-  );
+  // Only show "More Cycles" when the failure was specifically due to max rework cycles
+  const actions = allActions.filter((a) => {
+    if (a.action === "continue") return (task.completedMilestones ?? 0) > 0;
+    if (a.action === "more_cycles") return isMaxCyclesFailed;
+    return true;
+  });
 
   const actionButtons = actions
     .map((a) => {
@@ -1181,7 +1186,8 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
           : a.action === "approve" ||
               a.action === "complete" ||
               a.action === "merge" ||
-              a.action === "continue"
+              a.action === "continue" ||
+              a.action === "more_cycles"
             ? "primary"
             : "secondary";
       const hxVals = escapeHtml(JSON.stringify({ action: a.action, targetStatus: a.targetStatus }));

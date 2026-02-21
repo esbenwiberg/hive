@@ -627,7 +627,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
               // Stop preview to free resources
               try { await previewManager.stopPreview(taskId); } catch { /* swallow */ }
 
-              if ((task.reworkCount ?? 0) < MAX_REWORK_CYCLES) {
+              const maxCycles = task.maxReworkCycles ?? MAX_REWORK_CYCLES;
+              if ((task.reworkCount ?? 0) < maxCycles) {
                 // Send for rework with browser findings
                 await updateStatus(taskId, "rework");
                 const browserReviewResult: ReviewGateResult = {
@@ -649,7 +650,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
               }
 
               // Max rework cycles exhausted
-              const reason = `Browser validation failed after max rework cycles (${MAX_REWORK_CYCLES})`;
+              const reason = `Browser validation failed after max rework cycles (${maxCycles})`;
               await addEvent(taskId, "error", "worker", `Failed: ${reason}`);
               await db
                 .update(tasks)
@@ -725,7 +726,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       return { success: true, prUrl, previewUrl, branch: branchName, reviewResult };
     }
 
-    if ((task.reworkCount ?? 0) < MAX_REWORK_CYCLES) {
+    const maxCyclesReview = task.maxReworkCycles ?? MAX_REWORK_CYCLES;
+    if ((task.reworkCount ?? 0) < maxCyclesReview) {
       // Always rework if under max cycles — no terminal "fail" verdict
       await updateStatus(taskId, "rework");
       await refineTask(taskId, reviewResult);
@@ -736,7 +738,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     }
 
     // Only fail when max rework cycles exhausted
-    const reason = `Max rework cycles (${MAX_REWORK_CYCLES}) exceeded`;
+    const reason = `Max rework cycles (${maxCyclesReview}) exceeded`;
 
     await addEvent(taskId, "error", "worker", `Failed: ${reason}`);
     await db
@@ -773,7 +775,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       const currentTask = await getTask(taskId);
       const isRework = currentTask?.status === "rework";
       const hasPartialMilestones = currentTask?.status === "failed" && (currentTask?.completedMilestones ?? 0) > 0;
-      const preserveWorktree = isRework || hasPartialMilestones;
+      const isMaxCyclesFailed = currentTask?.status === "failed"
+        && (currentTask?.failureReason?.includes("Max rework cycles") || currentTask?.failureReason?.includes("Browser validation failed after max"));
+      const preserveWorktree = isRework || hasPartialMilestones || isMaxCyclesFailed;
 
       if (preserveWorktree) {
         const reason = isRework ? "rework cycle" : "partial milestone progress";

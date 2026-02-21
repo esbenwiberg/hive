@@ -199,6 +199,7 @@ export async function updateStatus(
   // Reset rework state when retrying a failed task (full restart)
   if (newStatus === "pending" && existing.status === "failed") {
     updates.reworkCount = 0;
+    updates.maxReworkCycles = 2;
     updates.reworkHistory = [];
     updates.failureReason = null;
     updates.retryInstructions = null;
@@ -211,6 +212,12 @@ export async function updateStatus(
   if (newStatus === "approved" && existing.status === "failed") {
     updates.failureReason = null;
     updates.retryInstructions = null;
+  }
+
+  // Bump max rework cycles when granting more cycles from failed
+  if (newStatus === "rework" && existing.status === "failed") {
+    updates.maxReworkCycles = (existing.maxReworkCycles ?? 2) + 2;
+    updates.failureReason = null;
   }
 
   // Clear suspendedFrom when resuming from suspended

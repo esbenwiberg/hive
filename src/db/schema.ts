@@ -93,6 +93,7 @@ export const tasks = pgTable(
     prUrl: text("pr_url"),
     failureReason: text("failure_reason"),
     reworkCount: integer("rework_count").default(0),
+    maxReworkCycles: integer("max_rework_cycles").default(2),
     reworkHistory: jsonb("rework_history").default([]),
     retryInstructions: text("retry_instructions"),
     epicId: text("epic_id"),

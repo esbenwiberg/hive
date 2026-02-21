@@ -24,10 +24,12 @@ import * as enrichmentRunQueries from "../../db/queries/enrichment-runs.js";
 import * as costQueries from "../../db/queries/costs.js";
 import { previewManager } from "../../execution/preview/manager.js";
 import { cleanupWorktree } from "../../execution/worktree.js";
+import { refineTask } from "../../agents/refiner.js";
+import type { ReviewGateResult } from "../../domain/types.js";
 import * as repoAccessQueries from "../../db/queries/user-repo-access.js";
 import type { SessionUser } from "../../domain/types.js";
 import { db } from "../../db/connection.js";
-import { tasks } from "../../db/schema.js";
+import { tasks as tasksTable } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 import logger from "../../logger.js";
 
@@ -361,7 +363,54 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       }
     }
 
+    const { action } = req.body;
+
+    // ── Action-specific logic before status transition ─────────────────────
+    if (action === "more_cycles" && task.status === "failed") {
+      // Fetch latest code review and call refineTask so the next execution
+      // cycle starts with fresh retryInstructions based on the review that
+      // caused the failure (refineTask was skipped when hitting max cycles).
+      const review = await getLatestReview(id);
+      if (review) {
+        const reviewResult: ReviewGateResult = {
+          verdict: review.verdict as ReviewGateResult["verdict"],
+          findings: (review.findings ?? []) as ReviewGateResult["findings"],
+          securityFindings: (review.securityFindings ?? []) as ReviewGateResult["securityFindings"],
+          verification: (review.verification ?? { testsRun: false, testsPassed: false, lintClean: false, buildSucceeded: false, notes: [] }) as ReviewGateResult["verification"],
+          costUsd: 0,
+        };
+        await refineTask(id, reviewResult);
+      }
+    }
+
+    if (action === "redesign" && task.status === "failed") {
+      // Clean up existing worktree for a fresh start
+      if (task.worktreePath) {
+        try {
+          await cleanupWorktree({ path: task.worktreePath, branch: "", repoFullName: "", provider: "", createdAt: new Date(), baseSha: "" });
+        } catch (err) {
+          logger.warn({ taskId: id, err }, "Failed to cleanup worktree for redesign");
+        }
+      }
+      // Clear worktree/milestone state and bump max cycles
+      await db.update(tasksTable).set({
+        worktreePath: null,
+        worktreeBaseSha: null,
+        completedMilestones: 0,
+        maxReworkCycles: (task.maxReworkCycles ?? 2) + 2,
+        updatedAt: new Date(),
+      }).where(eq(tasksTable.id, id));
+    }
+
     const updated = await taskQueries.updateStatus(id, targetStatus, user.id);
+
+    // Set redesign retry instructions after updateStatus (which clears retryInstructions)
+    if (action === "redesign" && task.status === "failed") {
+      await db.update(tasksTable).set({
+        retryInstructions: "REDESIGN: The previous implementation approach failed review repeatedly. You MUST take a fundamentally different approach. Do not reuse the same strategy — rethink the architecture, algorithms, or implementation pattern from scratch.",
+        updatedAt: new Date(),
+      }).where(eq(tasksTable.id, id));
+    }
 
     // Record gate decision for approval/rejection/rework actions
     const GATE_STATUSES = new Set(["approved", "rejected", "rework"]);
@@ -585,7 +634,7 @@ router.post("/api/tasks/:id/preview/toggle", requireAuth, async (req: Request, r
     }
 
     const newValue = !task.skipPreview;
-    await db.update(tasks).set({ skipPreview: newValue, updatedAt: new Date() }).where(eq(tasks.id, id));
+    await db.update(tasksTable).set({ skipPreview: newValue, updatedAt: new Date() }).where(eq(tasksTable.id, id));
 
     const updated = await taskQueries.getById(id);
     const label = newValue ? "Preview disabled" : "Preview enabled";

@@ -161,10 +161,12 @@ describe("getAvailableActions", () => {
     expect(actions[0].label).toBe("Merge");
   });
 
-  it("returns continue, retry and archive for failed", () => {
+  it("returns more_cycles, redesign, continue, retry and archive for failed", () => {
     const actions = getAvailableActions("failed");
-    expect(actions).toHaveLength(3);
+    expect(actions).toHaveLength(5);
     const actionNames = actions.map((a) => a.action);
+    expect(actionNames).toContain("more_cycles");
+    expect(actionNames).toContain("redesign");
     expect(actionNames).toContain("continue");
     expect(actionNames).toContain("retry");
     expect(actionNames).toContain("archive");
