@@ -29,15 +29,116 @@ interface FeedbackResult {
   }[];
 }
 
-function parseFeedbackResult(text: string): FeedbackResult {
-  const cleaned = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-  const parsed = JSON.parse(cleaned);
+/**
+ * Extracts the first JSON object or array from a raw string.
+ * Handles markdown code fences, leading/trailing text, and mixed content.
+ * Returns the raw string unchanged if no clear JSON boundaries are found.
+ */
+export function extractJson(raw: string): string {
+  // Strip markdown code fences first (```json ... ``` or ``` ... ```)
+  const fenceStripped = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```\s*$/m, "").trim();
 
-  return {
-    reinforceIds: Array.isArray(parsed.reinforceIds) ? parsed.reinforceIds : [],
-    contradictIds: Array.isArray(parsed.contradictIds) ? parsed.contradictIds : [],
-    newLearnings: Array.isArray(parsed.newLearnings) ? parsed.newLearnings : [],
-  };
+  // Find the outermost JSON object or array by locating the first { or [
+  // and then scanning for the matching closing bracket.
+  const firstBrace = fenceStripped.indexOf("{");
+  const firstBracket = fenceStripped.indexOf("[");
+
+  let openChar: string;
+  let closeChar: string;
+  let startIdx: number;
+
+  if (firstBrace === -1 && firstBracket === -1) {
+    // No JSON structure found — return as-is and let JSON.parse fail naturally
+    return fenceStripped;
+  } else if (firstBrace === -1) {
+    openChar = "[";
+    closeChar = "]";
+    startIdx = firstBracket;
+  } else if (firstBracket === -1) {
+    openChar = "{";
+    closeChar = "}";
+    startIdx = firstBrace;
+  } else {
+    // Use whichever comes first
+    if (firstBrace < firstBracket) {
+      openChar = "{";
+      closeChar = "}";
+      startIdx = firstBrace;
+    } else {
+      openChar = "[";
+      closeChar = "]";
+      startIdx = firstBracket;
+    }
+  }
+
+  // Walk forward counting nesting depth to find the matching closing bracket
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  let endIdx = -1;
+
+  for (let i = startIdx; i < fenceStripped.length; i++) {
+    const ch = fenceStripped[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (ch === "\\" && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === openChar) {
+      depth++;
+    } else if (ch === closeChar) {
+      depth--;
+      if (depth === 0) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (endIdx === -1) {
+    // Unbalanced structure — return fence-stripped text and let JSON.parse handle it
+    return fenceStripped;
+  }
+
+  return fenceStripped.slice(startIdx, endIdx + 1);
+}
+
+const EMPTY_FEEDBACK_RESULT: FeedbackResult = {
+  reinforceIds: [],
+  contradictIds: [],
+  newLearnings: [],
+};
+
+function parseFeedbackResult(text: string): FeedbackResult {
+  try {
+    const jsonStr = extractJson(text);
+    const parsed = JSON.parse(jsonStr);
+
+    return {
+      reinforceIds: Array.isArray(parsed.reinforceIds) ? parsed.reinforceIds : [],
+      contradictIds: Array.isArray(parsed.contradictIds) ? parsed.contradictIds : [],
+      newLearnings: Array.isArray(parsed.newLearnings) ? parsed.newLearnings : [],
+    };
+  } catch (err) {
+    logger.warn(
+      { err, rawPreview: text.slice(0, 200) },
+      "feedback-loop: failed to parse JSON response — skipping learning updates",
+    );
+    return EMPTY_FEEDBACK_RESULT;
+  }
 }
 
 // ── Main analysis function ────────────────────────────────────────────────────
