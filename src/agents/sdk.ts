@@ -48,7 +48,7 @@ export interface AgenticResponse {
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
 
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_MAX_TOKENS = 4096;
 const DEFAULT_AGENTIC_MAX_TOKENS = 16384;
 const DEFAULT_MAX_TURNS = 30;
