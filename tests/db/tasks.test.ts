@@ -14,7 +14,7 @@ const { findOrCreateByEntraOid } = await import(
 const { findOrCreate: findOrCreateRepo } = await import(
   "../../src/db/queries/repos.js"
 );
-const { create, getById, getByIdWithCost, list, listWithCosts, updateStatus, countByStatus } = await import(
+const { create, getById, getByIdWithCost, list, listWithCosts, updateStatus, countByStatus, deleteByIds } = await import(
   "../../src/db/queries/tasks.js"
 );
 const { recordCost } = await import(
@@ -388,6 +388,58 @@ describe("tasks queries", () => {
       const merged = await updateStatus(task.id, "merged");
 
       expect(merged.status).toBe("merged");
+    });
+  });
+
+  // ── deleteByIds ─────────────────────────────────────────────────────────
+
+  describe("deleteByIds", () => {
+    it("deletes a single task by id", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "To delete", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      const deleted = await deleteByIds([task.id]);
+
+      expect(deleted).toBe(1);
+      const found = await getById(task.id);
+      expect(found).toBeUndefined();
+    });
+
+    it("deletes multiple tasks by ids", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const t1 = await create({ title: "Delete me 1", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      const t2 = await create({ title: "Delete me 2", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      const t3 = await create({ title: "Keep me", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      const deleted = await deleteByIds([t1.id, t2.id]);
+
+      expect(deleted).toBe(2);
+      expect(await getById(t1.id)).toBeUndefined();
+      expect(await getById(t2.id)).toBeUndefined();
+      expect(await getById(t3.id)).toBeDefined();
+    });
+
+    it("returns 0 when given an empty array", async () => {
+      const deleted = await deleteByIds([]);
+      expect(deleted).toBe(0);
+    });
+
+    it("returns 0 when ids do not match any tasks", async () => {
+      const deleted = await deleteByIds(["HIVE-00000000-0000", "HIVE-00000000-0001"]);
+      expect(deleted).toBe(0);
+    });
+
+    it("cascades deletion to related cost rows", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "Task with costs", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      await recordCost(task.id, user.id, "router", "model-a", 1.5);
+      await recordCost(task.id, user.id, "gate", "model-a", 2.25);
+
+      const deleted = await deleteByIds([task.id]);
+
+      expect(deleted).toBe(1);
+      expect(await getById(task.id)).toBeUndefined();
     });
   });
 
