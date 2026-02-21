@@ -39,6 +39,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   [TaskStatus.EXECUTING]: [
     TaskStatus.REVIEWING,
     TaskStatus.APPROVED,
+    TaskStatus.REWORK,
     TaskStatus.FAILED,
     TaskStatus.CANCELLED,
     TaskStatus.SUSPENDED,
