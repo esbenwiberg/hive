@@ -12,7 +12,7 @@ import { callClaude } from "./sdk.js";
 import { runEnrichers } from "../enrichers/base.js";
 import { ALL_ENRICHERS } from "../enrichers/index.js";
 import { architectEnricher } from "../enrichers/architect.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { resolveGitCredentials } from "../execution/worktree.js";
 import { getGitProvider } from "../execution/git-provider.js";
 import { addEvent } from "../db/queries/task-events.js";
@@ -269,8 +269,7 @@ async function handleAiClarification(
     "Respond with a JSON array of strings, one answer per question. Example: [\"answer1\", \"answer2\"]",
   ].join("\n");
 
-  const autonomousConfig = getAutonomousConfig();
-  const model = autonomousConfig.models.gate;
+  const model = getModelFor("clarification");
 
   const response = await callClaude({ prompt, model });
 

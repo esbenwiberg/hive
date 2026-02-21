@@ -3,7 +3,7 @@ import { callClaude } from "./sdk.js";
 import { getById, updateClassification, updateStatus } from "../db/queries/tasks.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { loadPrompt } from "../prompt-cache.js";
 
@@ -51,7 +51,7 @@ function parseClassification(text: string): RouterResult {
   const workflow = VALID_WORKFLOWS.has(parsed.workflow) ? parsed.workflow : "flow";
   const model = typeof parsed.model === "string" && parsed.model.length > 0
     ? parsed.model
-    : config.models.router;
+    : getModelFor("router");
 
   const result: RouterResult = { type, size, workflow, model };
 
@@ -92,7 +92,7 @@ export async function routeTask(taskId: string): Promise<RouterResult> {
 
   const startTime = Date.now();
   const config = getAutonomousConfig();
-  const routerModel = config.models.router;
+  const routerModel = getModelFor("router");
 
   // Register as active agent
   await register(taskId, ROUTER_AGENT, routerModel, "classifying");

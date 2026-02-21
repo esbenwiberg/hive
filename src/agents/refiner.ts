@@ -4,7 +4,7 @@ import { loadPrompt } from "../prompt-cache.js";
 import { getById } from "../db/queries/tasks.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
@@ -21,8 +21,7 @@ export async function refineTask(
   reviewResult: ReviewGateResult,
 ): Promise<string> {
   const startTime = Date.now();
-  const config = getAutonomousConfig();
-  const model = config.models.gate; // Use gate model for refiner
+  const model = getModelFor("refiner");
 
   await register(taskId, "refiner", model, "refining");
 

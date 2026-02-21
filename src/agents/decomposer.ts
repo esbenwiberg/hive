@@ -3,7 +3,7 @@ import { callClaude } from "./sdk.js";
 import { getById } from "../db/queries/tasks.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { loadPrompt } from "../prompt-cache.js";
 import type { MilestoneSpec } from "../domain/types.js";
@@ -18,8 +18,7 @@ function getMilestonePrompt(): string {
  */
 export async function decomposeEpic(taskId: string): Promise<MilestoneSpec[]> {
   const startTime = Date.now();
-  const config = getAutonomousConfig();
-  const model = config.models.gate;
+  const model = getModelFor("decomposer");
 
   await register(taskId, "decomposer", model, "decomposing");
 

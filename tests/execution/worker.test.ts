@@ -37,8 +37,8 @@ const mockConfig = {
   gate: { mode: "auto" as string },
   budget: { dailyDefault: 100, perTaskMax: 25 },
   models: {
-    router: "claude-sonnet-4-20250514",
-    gate: "claude-sonnet-4-20250514",
+    default: "claude-sonnet-4-20250514",
+    components: {},
     inputCostPerM: 3,
     outputCostPerM: 15,
   },
@@ -54,6 +54,7 @@ const mockConfig = {
 
 vi.mock("../../src/domain/autonomous-config.js", () => ({
   getAutonomousConfig: () => mockConfig,
+  getModelFor: (c: string) => mockConfig.models.components[c] ?? mockConfig.models.default,
   loadConfig: () => mockConfig,
 }));
 

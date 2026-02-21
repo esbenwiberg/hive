@@ -1,6 +1,6 @@
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { createLearning, buildDismissedContext } from "../db/queries/learnings.js";
 import { recordEvent } from "../db/queries/learning-events.js";
@@ -74,8 +74,7 @@ export async function analyzeReviewPatterns(
   findings: ReviewFinding[],
   repoFullName?: string,
 ): Promise<void> {
-  const config = getAutonomousConfig();
-  const model = config.models.gate;
+  const model = getModelFor("code-quality-analyst");
 
   try {
     // Load recent code reviews (last 30)

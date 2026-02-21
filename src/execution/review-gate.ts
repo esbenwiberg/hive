@@ -7,7 +7,7 @@ import { getById as getRepoById } from "../db/queries/repos.js";
 import { recordReview } from "../db/queries/code-reviews.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
 import { fireAndForgetFeedback } from "../agents/feedback-loop.js";
 import { analyzeReviewPatterns } from "../agents/code-quality-analyst.js";
@@ -102,8 +102,7 @@ export async function reviewChanges(
   learningIds?: number[],
 ): Promise<ReviewGateResult> {
   const startTime = Date.now();
-  const config = getAutonomousConfig();
-  const model = config.models.gate;
+  const model = getModelFor("review-gate");
 
   await register(taskId, "review-gate", model, "reviewing");
 

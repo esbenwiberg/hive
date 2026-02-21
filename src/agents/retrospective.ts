@@ -1,6 +1,6 @@
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { getConfig, setConfig } from "../domain/config.js";
 import {
@@ -81,8 +81,7 @@ function parseRetrospectiveResult(text: string): RetrospectiveReport {
  */
 export async function runRetrospective(): Promise<RetrospectiveReport> {
   const startTime = Date.now();
-  const config = getAutonomousConfig();
-  const model = config.models.gate;
+  const model = getModelFor("retrospective");
 
   try {
     // Determine time range: since last retrospective run (or 7 days ago)

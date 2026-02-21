@@ -8,7 +8,7 @@ import { getById as getRepoById } from "../db/queries/repos.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
 import { recordDecision } from "../db/queries/gate-decisions.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { analyzeGatePatterns } from "./gate-analyst.js";
 import { loadPrompt } from "../prompt-cache.js";
@@ -131,7 +131,7 @@ export async function evaluateGate(taskId: string): Promise<void> {
     throw new Error(`Gate: task ${taskId} was already claimed by another evaluator`);
   }
 
-  const gateModel = config.models.gate;
+  const gateModel = getModelFor("gate");
 
   await register(taskId, GATE_AGENT, gateModel, "evaluating");
 

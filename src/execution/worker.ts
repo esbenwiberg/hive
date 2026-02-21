@@ -10,7 +10,7 @@ import { getById as getRepo } from "../db/queries/repos.js";
 import { recordCost, checkBudget } from "../db/queries/costs.js";
 import { register, unregister, heartbeat } from "../db/queries/active-agents.js";
 import { addEvent } from "../db/queries/task-events.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
 import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
 import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktree.js";
@@ -336,8 +336,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     throw new Error(`Budget exhausted for user ${task.createdBy}`);
   }
 
-  // Fallback to gate model when no task-specific model is configured
-  const model = task.model ?? config.models.gate;
+  // Fallback to configured worker model when no task-specific model is set
+  const model = task.model ?? getModelFor("worker");
   const branchName = `hive/${taskId}`;
   let worktree: WorktreeInfo | undefined;
 

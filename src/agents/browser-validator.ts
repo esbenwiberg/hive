@@ -1,7 +1,7 @@
 import logger from "../logger.js";
 import { callClaudeWithTools } from "./sdk.js";
 import { loadPrompt } from "../prompt-cache.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { register, unregister, heartbeat } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
@@ -47,7 +47,7 @@ export async function validateWithBrowser(
 ): Promise<BrowserValidationResult> {
   const startTime = Date.now();
   const config = getAutonomousConfig();
-  const model = config.models.gate; // vision-capable model
+  const model = getModelFor("browser-validator");
 
   // Dynamic import to avoid loading Playwright when not needed
   const { BROWSER_TOOLS, createBrowserSession, closeBrowserSession, createBrowserToolExecutor } =

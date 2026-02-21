@@ -3,7 +3,7 @@ import { callClaude } from "./sdk.js";
 import { getById } from "../db/queries/tasks.js";
 import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { reinforceLearning, contradictLearning, createLearning, buildDismissedContext } from "../db/queries/learnings.js";
 import { recordEvent } from "../db/queries/learning-events.js";
@@ -53,8 +53,7 @@ export async function analyzeFeedback(
   reviewFindings?: string,
 ): Promise<void> {
   const startTime = Date.now();
-  const config = getAutonomousConfig();
-  const model = config.models.gate;
+  const model = getModelFor("feedback-loop");
 
   await register(taskId, "feedback-loop", model, "analyzing");
 

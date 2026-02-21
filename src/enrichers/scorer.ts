@@ -1,7 +1,7 @@
 import logger from "../logger.js";
 import { callClaude } from "../agents/sdk.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { loadPrompt } from "../prompt-cache.js";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
@@ -289,7 +289,7 @@ export const scorerEnricher: Enricher = {
 
     // ── Resolve model ─────────────────────────────────────────────────────
     const autonomousConfig = getAutonomousConfig();
-    const model = config.model ?? autonomousConfig.models.gate;
+    const model = config.model ?? getModelFor("scorer");
 
     // ── Build prompt ──────────────────────────────────────────────────────
     const systemPrompt = loadPrompt("enrichers/scorer");

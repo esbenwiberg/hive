@@ -10,12 +10,16 @@ vi.mock("../../src/prompt-cache.js", () => ({
   loadPrompt: vi.fn().mockReturnValue("mocked scorer system prompt"),
 }));
 
-vi.mock("../../src/domain/autonomous-config.js", () => ({
-  getAutonomousConfig: vi.fn().mockReturnValue({
-    models: { gate: "claude-sonnet-4-20250514", inputCostPerM: 3, outputCostPerM: 15 },
+vi.mock("../../src/domain/autonomous-config.js", () => {
+  const cfg = {
+    models: { default: "claude-sonnet-4-20250514", components: {} as Record<string, string>, inputCostPerM: 3, outputCostPerM: 15 },
     classification: { defaultSize: "medium" },
-  }),
-}));
+  };
+  return {
+    getAutonomousConfig: vi.fn().mockReturnValue(cfg),
+    getModelFor: (c: string) => cfg.models.components[c] ?? cfg.models.default,
+  };
+});
 
 vi.mock("../../src/logger.js", () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

@@ -1,6 +1,6 @@
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
-import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { listLearnings, supersedeLearning, archiveStale, buildDismissedContext } from "../db/queries/learnings.js";
 import { recordEvent } from "../db/queries/learning-events.js";
@@ -51,8 +51,7 @@ function parseKeeperResult(text: string): KeeperResult {
  */
 export async function curateLearnings(): Promise<void> {
   const startTime = Date.now();
-  const config = getAutonomousConfig();
-  const model = config.models.gate;
+  const model = getModelFor("keeper");
 
   try {
     // Load learnings and filter out already-archived ones
