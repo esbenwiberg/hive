@@ -33,6 +33,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   ],
   [TaskStatus.APPROVED]: [
     TaskStatus.EXECUTING,
+    TaskStatus.FAILED,
     TaskStatus.CANCELLED,
   ],
   [TaskStatus.EXECUTING]: [
@@ -64,6 +65,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   ],
   [TaskStatus.REWORK]: [
     TaskStatus.EXECUTING,
+    TaskStatus.FAILED,
     TaskStatus.CANCELLED,
   ],
   [TaskStatus.SUSPENDED]: [

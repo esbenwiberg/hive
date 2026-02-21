@@ -582,6 +582,15 @@ export class Daemon {
         { taskId: task.id, err },
         "Daemon: dispatch error",
       );
+      // Safety net: if the task is still in a dispatchable state, transition
+      // to failed so it doesn't get retried indefinitely.
+      try {
+        const reason = err instanceof Error ? err.message : String(err);
+        await addEvent(task.id, "error", "daemon", `Dispatch failed: ${reason}`);
+        await updateStatus(task.id, "failed");
+      } catch {
+        // Task may already have transitioned — ignore
+      }
     } finally {
       this.activeTaskIds.delete(task.id);
       const current = this.userCounts.get(task.createdBy) ?? 0;
