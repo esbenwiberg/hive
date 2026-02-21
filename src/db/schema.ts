@@ -107,6 +107,7 @@ export const tasks = pgTable(
     skipPreview: boolean("skip_preview").notNull().default(false),
     worktreePath: text("worktree_path"),
     worktreeBaseSha: text("worktree_base_sha"),
+    completedMilestones: integer("completed_milestones").default(0),
     visibility: text("visibility").notNull().default("public"),
     createdAt: timestamp("created_at", tz).defaultNow(),
     updatedAt: timestamp("updated_at", tz).defaultNow(),

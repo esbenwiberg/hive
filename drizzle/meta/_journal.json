@@ -64,6 +64,13 @@
       "when": 1771704400000,
       "tag": "0008_worktree_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1771704500000,
+      "tag": "0009_milestone_resume",
+      "breakpoints": true
     }
   ]
 }

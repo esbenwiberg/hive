@@ -201,12 +201,27 @@ async function executeMilestones(
   blueprint: ArchitectBlueprint,
   model: string,
   learningsStr: string,
+  startFrom: number = 0,
 ): Promise<{ totalCostUsd: number }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
   const priorSummaries: string[] = [];
 
-  for (let i = 0; i < milestones.length; i++) {
+  // Pre-populate summaries for already-completed milestones so Claude has context
+  for (let j = 0; j < startFrom; j++) {
+    priorSummaries.push(`${milestones[j].title} — completed (prior run)`);
+  }
+
+  if (startFrom > 0) {
+    await addEvent(task.id, "milestone_resumed", "worker",
+      `Resuming from milestone ${startFrom + 1}/${milestones.length} (${startFrom} already completed)`);
+    logger.info(
+      { taskId: task.id, startFrom, total: milestones.length },
+      "Resuming milestones from prior progress",
+    );
+  }
+
+  for (let i = startFrom; i < milestones.length; i++) {
     const ms = milestones[i];
     await addEvent(task.id, "milestone_started", "worker", `Milestone ${i + 1}/${milestones.length}: ${ms.title}`);
     await heartbeat(task.id);
@@ -294,7 +309,13 @@ async function executeMilestones(
     // ── 4. Commit the milestone ───────────────────────────────────────────
     await commitMilestone(worktreePath, ms.title, task.id);
 
-    // ── 5. Accumulate summary ─────────────────────────────────────────────
+    // ── 5. Persist progress so we can resume on failure ──────────────────
+    await db
+      .update(tasks)
+      .set({ completedMilestones: i + 1, updatedAt: new Date() })
+      .where(eq(tasks.id, task.id));
+
+    // ── 6. Accumulate summary ─────────────────────────────────────────────
     priorSummaries.push(`${ms.title} — completed (review ${review.passed ? "passed" : "had issues"})`);
 
     await addEvent(task.id, "milestone_complete", "worker", `Milestone ${i + 1}/${milestones.length} complete`);
@@ -394,6 +415,16 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         .update(tasks)
         .set({ worktreePath: worktree.path, worktreeBaseSha: worktree.baseSha, updatedAt: new Date() })
         .where(eq(tasks.id, taskId));
+
+      // Reset stale milestone progress when creating a fresh worktree
+      if ((task.completedMilestones ?? 0) > 0) {
+        await db
+          .update(tasks)
+          .set({ completedMilestones: 0, updatedAt: new Date() })
+          .where(eq(tasks.id, taskId));
+        logger.warn({ taskId, staleCount: task.completedMilestones },
+          "Reset stale completedMilestones — worktree was recreated");
+      }
     }
 
     // Retrieve relevant learnings for this task (non-blocking — failures degrade gracefully)
@@ -475,7 +506,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
     let implCostUsd: number;
     if (hasMilestones) {
-      const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr);
+      const startFrom = (reusedWorktree && task.completedMilestones) ? task.completedMilestones : 0;
+      const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom);
       implCostUsd = totalCostUsd;
     } else {
       // Single-call path (original behavior for tasks without milestones)
@@ -737,12 +769,15 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     return { success: false, error: reason };
   } finally {
     if (worktree) {
-      // Check if task ended in rework — preserve worktree for next cycle
+      // Preserve worktree for rework or when milestones are partially complete
       const currentTask = await getTask(taskId);
       const isRework = currentTask?.status === "rework";
+      const hasPartialMilestones = currentTask?.status === "failed" && (currentTask?.completedMilestones ?? 0) > 0;
+      const preserveWorktree = isRework || hasPartialMilestones;
 
-      if (isRework) {
-        logger.info({ taskId, path: worktree.path }, "Worktree preserved for rework cycle");
+      if (preserveWorktree) {
+        const reason = isRework ? "rework cycle" : "partial milestone progress";
+        logger.info({ taskId, path: worktree.path, completedMilestones: currentTask?.completedMilestones }, `Worktree preserved for ${reason}`);
       } else {
         // Worktree cleanup deferred — preview manager owns cleanup when preview stops.
         const activePreview = previewManager.getPreviewInfo(taskId);

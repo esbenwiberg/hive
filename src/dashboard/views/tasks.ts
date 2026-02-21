@@ -297,10 +297,11 @@ function checklistHtml(items: string[]): string {
   return `<ul class="mt-2 space-y-0.5 text-sm text-slate-300">${lis}</ul>`;
 }
 
-function milestonesHtml(milestones: BlueprintData["milestones"]): string {
+function milestonesHtml(milestones: BlueprintData["milestones"], completedCount = 0): string {
   if (!milestones || milestones.length === 0) return "";
   const items = milestones
     .map((m, i) => {
+      const isCompleted = i < completedCount;
       const acItems = (m.acceptanceCriteria ?? [])
         .map(
           (ac) =>
@@ -314,9 +315,13 @@ function milestonesHtml(milestones: BlueprintData["milestones"]): string {
         ? `<ul class="mt-2 space-y-0.5 text-sm text-slate-300">${acItems}</ul>`
         : "";
 
+      const numberBadge = isCompleted
+        ? `<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs text-emerald-400">&#10003;</span>`
+        : `<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-600 text-xs text-slate-400">${i + 1}</span>`;
+
       return `<details class="group">
         <summary class="flex cursor-pointer items-center gap-2 rounded-lg bg-slate-800/50 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800">
-          <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-600 text-xs text-slate-400">${i + 1}</span>
+          ${numberBadge}
           <span class="flex-1">${escapeHtml(m.title)}</span>
           <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
@@ -398,7 +403,7 @@ function blueprintSection(task: TaskRow): string {
     <h4 class="text-sm font-medium text-slate-400 mb-2">Blueprint</h4>
     <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
       <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(bp.approach)}</p>
-      ${milestonesHtml(bp.milestones)}
+      ${milestonesHtml(bp.milestones, task.completedMilestones ?? 0)}
       ${skipPreviewNote}
     </div>
   </div>`;
@@ -1162,7 +1167,11 @@ ${taskCreateForm(repos, user, selfRepoFullName)}`;
  * Task detail slide-over panel.
  */
 export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map(), user?: SessionUser): string {
-  const actions = getAvailableActions(task.status);
+  const allActions = getAvailableActions(task.status);
+  // Only show "Continue" when there are completed milestones to resume from
+  const actions = allActions.filter((a) =>
+    a.action !== "continue" || (task.completedMilestones ?? 0) > 0,
+  );
 
   const actionButtons = actions
     .map((a) => {
@@ -1171,7 +1180,8 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
           ? "danger"
           : a.action === "approve" ||
               a.action === "complete" ||
-              a.action === "merge"
+              a.action === "merge" ||
+              a.action === "continue"
             ? "primary"
             : "secondary";
       const hxVals = escapeHtml(JSON.stringify({ action: a.action, targetStatus: a.targetStatus }));
@@ -1182,11 +1192,22 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     })
     .join("\n        ");
 
+  // Milestone progress info
+  const architectEnr = (task.enrichment as Record<string, unknown> | null)?.architect as BlueprintData | undefined;
+  const totalMilestones = architectEnr?.milestones?.length ?? 0;
+  const completedMs = task.completedMilestones ?? 0;
+
   const metaRows = [
     ["Status", statusBadge(task.status)],
     ["Type", task.type ? escapeHtml(task.type) : `<span class="text-slate-500">-</span>`],
     ["Size", task.size ? escapeHtml(task.size) : `<span class="text-slate-500">-</span>`],
     ["Workflow", task.workflow ? escapeHtml(task.workflow) : `<span class="text-slate-500">-</span>`],
+    ...(totalMilestones > 0 ? [["Milestones", `<div class="flex items-center gap-2">
+      <span class="text-sm text-slate-200">${completedMs}/${totalMilestones}</span>
+      <div class="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+        <div class="h-full ${completedMs === totalMilestones ? "bg-emerald-400" : "bg-amber-400"} rounded-full" style="width: ${Math.round((completedMs / totalMilestones) * 100)}%"></div>
+      </div>
+    </div>`]] : []),
     ["Repo", escapeHtml(repoNames.get(task.repoId) ?? `#${task.repoId}`)],
     ["Created By", escapeHtml(creatorLabel(task, userNames))],
     ["Total Cost", formatCost(task.totalCost)],

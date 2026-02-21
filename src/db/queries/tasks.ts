@@ -196,10 +196,19 @@ export async function updateStatus(
     updates.approvedBy = userId;
   }
 
-  // Reset rework state when retrying a failed task
+  // Reset rework state when retrying a failed task (full restart)
   if (newStatus === "pending" && existing.status === "failed") {
     updates.reworkCount = 0;
     updates.reworkHistory = [];
+    updates.failureReason = null;
+    updates.retryInstructions = null;
+    updates.completedMilestones = 0;
+    updates.worktreePath = null;
+    updates.worktreeBaseSha = null;
+  }
+
+  // Clear failure state when continuing a failed task (preserve milestone progress)
+  if (newStatus === "approved" && existing.status === "failed") {
     updates.failureReason = null;
     updates.retryInstructions = null;
   }
@@ -361,6 +370,7 @@ export async function resetTask(id: string) {
       suspendedFrom: null,
       worktreePath: null,
       worktreeBaseSha: null,
+      completedMilestones: 0,
       updatedAt: new Date(),
     })
     .where(eq(tasks.id, id))
