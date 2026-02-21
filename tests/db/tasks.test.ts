@@ -20,6 +20,9 @@ const { create, getById, getByIdWithCost, list, listWithCosts, updateStatus, cou
 const { recordCost } = await import(
   "../../src/db/queries/costs.js"
 );
+const { addEvent } = await import(
+  "../../src/db/queries/task-events.js"
+);
 
 useTestDb();
 
@@ -440,6 +443,40 @@ describe("tasks queries", () => {
 
       expect(deleted).toBe(1);
       expect(await getById(task.id)).toBeUndefined();
+    });
+
+    it("cascades deletion to related task_events rows without FK violation", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const task = await create({ title: "Task with events", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      // Insert task_events referencing the task (the source of the FK violation)
+      await addEvent(task.id, "status_change", "daemon", "Task moved to queued");
+      await addEvent(task.id, "status_change", "daemon", "Task moved to enriching");
+      await addEvent(task.id, "enrichment_done", "enricher", "Enrichment complete");
+
+      // This must not throw a foreign key constraint violation
+      const deleted = await deleteByIds([task.id]);
+
+      expect(deleted).toBe(1);
+      expect(await getById(task.id)).toBeUndefined();
+    });
+
+    it("cascades deletion of task_events for multiple tasks", async () => {
+      const { user, repo } = await seedUserAndRepo();
+      const t1 = await create({ title: "Task A", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      const t2 = await create({ title: "Task B", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      const t3 = await create({ title: "Task C (keep)", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+
+      await addEvent(t1.id, "status_change", "daemon", "Event for task A");
+      await addEvent(t2.id, "status_change", "daemon", "Event for task B");
+      await addEvent(t3.id, "status_change", "daemon", "Event for task C");
+
+      const deleted = await deleteByIds([t1.id, t2.id]);
+
+      expect(deleted).toBe(2);
+      expect(await getById(t1.id)).toBeUndefined();
+      expect(await getById(t2.id)).toBeUndefined();
+      expect(await getById(t3.id)).toBeDefined();
     });
   });
 
