@@ -169,6 +169,11 @@ describe("globalSettingsPartial", () => {
     expect(html).toContain("component_gate");
   });
 
+  it("renders Update to Latest button in the Models card", () => {
+    const html = globalSettingsPartial(mockConfig);
+    expect(html).toContain("Update to Latest");
+  });
+
   it("pre-fills component model overrides when present", () => {
     const configWithComponents = {
       ...mockConfig,

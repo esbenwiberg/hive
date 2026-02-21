@@ -2,7 +2,7 @@
 
 import type { SessionUser } from "../../domain/types.js";
 import type { RepoRow } from "../../db/schema.js";
-import type { AutonomousConfig } from "../../domain/autonomous-config.js";
+import type { AutonomousConfig, ModelConfig } from "../../domain/autonomous-config.js";
 import type { ConfigOverrides } from "../../domain/autonomous-config.js";
 import {
   escapeHtml,
@@ -38,6 +38,31 @@ const ALL_COMPONENT_NAMES = [
   "gate-analyst", "browser-validator", "review-gate", "architect",
   "scorer", "producer",
 ] as const;
+
+/** Latest recommended model for each component. Update this single const when new models release. */
+const LATEST_MODELS: ModelConfig = {
+  default: "claude-sonnet-4-6-20250514",
+  inputCostPerM: 3,
+  outputCostPerM: 15,
+  components: {
+    router: "claude-haiku-4-5-20251001",
+    scorer: "claude-haiku-4-5-20251001",
+    gate: "claude-sonnet-4-6-20250514",
+    worker: "claude-opus-4-6-20250527",
+    decomposer: "claude-sonnet-4-6-20250514",
+    refiner: "claude-sonnet-4-6-20250514",
+    clarification: "claude-haiku-4-5-20251001",
+    keeper: "claude-haiku-4-5-20251001",
+    retrospective: "claude-sonnet-4-6-20250514",
+    "feedback-loop": "claude-haiku-4-5-20251001",
+    "code-quality-analyst": "claude-sonnet-4-6-20250514",
+    "gate-analyst": "claude-haiku-4-5-20251001",
+    "browser-validator": "claude-sonnet-4-6-20250514",
+    "review-gate": "claude-sonnet-4-6-20250514",
+    architect: "claude-sonnet-4-6-20250514",
+    producer: "claude-haiku-4-5-20251001",
+  },
+};
 
 const ALL_ENRICHER_NAMES = [
   "codebase",
@@ -177,6 +202,21 @@ export function globalSettingsPartial(
     }),
   ).join("");
 
+  // Build the inline JS for the "Update to Latest" button
+  const latestAssignments = [
+    `document.getElementById('defaultModel').value=${JSON.stringify(LATEST_MODELS.default)};`,
+    `document.getElementById('inputCostPerM').value=${JSON.stringify(String(LATEST_MODELS.inputCostPerM))};`,
+    `document.getElementById('outputCostPerM').value=${JSON.stringify(String(LATEST_MODELS.outputCostPerM))};`,
+    ...ALL_COMPONENT_NAMES.map((name) =>
+      `document.getElementById('component_${name}').value=${JSON.stringify(LATEST_MODELS.components[name] ?? "")};`,
+    ),
+  ].join("");
+
+  const updateToLatestBtn = button("Update to Latest", {
+    variant: "secondary",
+    attrs: `type="button" onclick="${escapeHtml(latestAssignments)}"`,
+  });
+
   const modelsFields = [
     input("defaultModel", "Default Model", {
       value: config.models.default,
@@ -192,6 +232,7 @@ export function globalSettingsPartial(
       value: String(config.models.outputCostPerM),
       placeholder: "15",
     }),
+    `<div class="mt-2">${updateToLatestBtn}</div>`,
     `<details class="mt-2">
       <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-400">Per-component overrides</summary>
       <div class="mt-2 space-y-2">${componentInputs}</div>
