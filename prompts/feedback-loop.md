@@ -31,7 +31,7 @@ You will receive:
 
 ## Output Format
 
-Respond with a JSON object:
+Respond with **only** a JSON object — no explanation, no markdown prose, no text before or after the JSON. Your entire response must be valid JSON.
 
 ```json
 {
@@ -69,3 +69,4 @@ Respond with a JSON object:
 5. If no learnings were injected (empty learning IDs), skip reinforcement and contradiction — focus only on proposing new learnings
 6. Always return valid JSON with all required fields, even if arrays are empty
 7. Never propose new learnings that are semantically equivalent to any dismissed learning listed in the input
+8. Do not include any text, explanation, or commentary outside the JSON object — output the JSON and nothing else
