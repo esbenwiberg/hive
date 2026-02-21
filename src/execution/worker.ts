@@ -592,7 +592,11 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       const creds = await resolveGitCredentials(task.createdBy, repo.provider);
       const gitProvider = getGitProvider(repo.provider);
 
-      await gitProvider.commitAll(worktree.path, `${task.title}\n\nTask: ${taskId}`);
+      // Milestone-based tasks already commit per-milestone; only the single-call
+      // path needs a final commit here.
+      if (!hasMilestones) {
+        await gitProvider.commitAll(worktree.path, `${task.title}\n\nTask: ${taskId}`);
+      }
       await gitProvider.push(worktree.path, branchName, creds);
 
       // ── Preview + browser validation (before PR) ──────────────────────────
