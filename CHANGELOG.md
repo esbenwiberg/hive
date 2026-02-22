@@ -1,6 +1,54 @@
 # Changelog
 
+## 2026-02-22
+- fix: widen task ID entropy to avoid duplicate key collisions
+- fix: mock fire-and-forget agents in review-gate test
+- fix: mock fire-and-forget agents in review-gate test
+- fix: slim enrichment for small tasks — pass only architect blueprint
+- fix: lowercase docker compose project name to satisfy naming rules
+- Merge pull request #8 from esbenwiberg/hive/HIVE-20260220-08cb
+
+## 2026-02-21
+- feat: Authentication Module Documentation
+- fix: nudge Claude when it stops without calling write_file
+- feat: Database and Domain Modules Documentation
+- feat: Execution and Daemon Modules Documentation
+- feat: Dashboard Module Documentation
+- feat: Producers Module Documentation
+- feat: Agents Module Documentation
+- feat: Foundation Documentation
+- fix: skip redundant commitAll for milestone-based tasks
+- chore: remove stale docs
+- fix: allow executing → rework transition for empty-changeset retry
+- Merge pull request #6 from esbenwiberg/hive/HIVE-20260221-7ac7
+- Merge pull request #7 from esbenwiberg/hive/HIVE-20260221-427d
+- feat: replace upload-docker-certs with end-to-end setup-docker-host script
+- feat: remap compose preview ports and throw on health check failure
+- fix: register 0010_max_rework_cycles migration in Drizzle journal
+- feat: reduce review-fix loop cost with caching, compaction, and split models
+- feat: add "More Cycles" and "Redesign" actions for failed tasks
+- Recurring error: Feedback loop failed (non-blocking)
+- Recurring error: Unhandled error
+- fix: prevent tasks from getting stuck in approved/rework state
+- feat: resume multi-milestone tasks from where they failed
+- feat: notify users when daily budget is exhausted
+- feat: show admins in permissions matrix with editable budget
+- feat: surface per-user daily budget on permissions page
+- Merge pull request #4 from esbenwiberg/hive/HIVE-20260221-9200
+- feat: materialize architect skipPreview into task column with UI toggle
+- Cant delete tasks
+- fix: update sdk.ts DEFAULT_MODEL fallback to claude-sonnet-4-6
+- fix: use getModelFor("worker") instead of LLM-chosen model
+- fix: use correct model IDs for Claude 4.6 (no date suffix)
+- fix: await in-flight scheduler ticks on stop to prevent test leaks
+- fix: update router tests to expect haiku model from config
+- feat: add "Update to Latest" button to Models settings card
+- chore: docs, config example, and producer model overrides
+- refactor: migrate agents to getModelFor() component lookup
+- feat: add editable Models section to settings UI
+
 ## 2026-02-20
+- fix: update architect test to match always-run-architect behavior
 - fix: detect empty changesets, reuse worktrees on rework, log tool calls
 - docs: update README and workflow diagram to reflect current state
 - fix: invert score badge colors for risk/complexity and always run architect
