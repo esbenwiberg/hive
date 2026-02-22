@@ -98,24 +98,28 @@ export class PreviewManager {
 
     this.previews.set(taskId, info);
 
-    // Run health check if configured
+    // Wait for the preview to become reachable. When an explicit health_check
+    // path is configured we require HTTP 200; otherwise we accept any response
+    // on "/" to confirm the container is at least listening.
     const healthPath = config.health_check;
     const timeoutMs = (config.startup_timeout ?? 60) * 1000;
 
-    if (healthPath) {
-      const healthy = await this.waitForHealthCheck(host, port, healthPath, timeoutMs);
-      if (!healthy) {
-        const msg = `Health check failed after ${timeoutMs}ms on port ${port}`;
-        await addPreviewLog(taskId, "health", msg);
-        await this.stopPreview(taskId);
-        await db
-          .update(tasks)
-          .set({ previewStatus: "failed", updatedAt: new Date() })
-          .where(eq(tasks.id, taskId));
-        throw new Error(msg);
-      }
-      await addPreviewLog(taskId, "health", "Health check passed");
+    const checkPath = healthPath ?? "/";
+    const strict = !!healthPath;
+    const reachable = await this.waitForHealthCheck(host, port, checkPath, timeoutMs, strict);
+
+    if (!reachable) {
+      const kind = strict ? "Health check" : "Reachability check";
+      const msg = `${kind} failed after ${timeoutMs}ms on port ${port}`;
+      await addPreviewLog(taskId, "health", msg);
+      await this.stopPreview(taskId);
+      await db
+        .update(tasks)
+        .set({ previewStatus: "failed", updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+      throw new Error(msg);
     }
+    await addPreviewLog(taskId, "health", `${strict ? "Health check" : "Reachability check"} passed`);
 
     // Mark as running
     await db
@@ -472,14 +476,16 @@ export class PreviewManager {
   // ── Private: health check ──────────────────────────────────────────────────
 
   /**
-   * Polls GET http://{host}:{port}{path} every 2 seconds until a 200 response
-   * or the timeout is reached. Returns true if healthy, false otherwise.
+   * Polls GET http://{host}:{port}{path} every 2 seconds until a response
+   * or the timeout is reached. When `strict` is true (default), requires
+   * HTTP 2xx. When false, any HTTP response counts as reachable.
    */
   async waitForHealthCheck(
     host: string,
     port: number,
     path: string,
     timeoutMs: number,
+    strict = true,
   ): Promise<boolean> {
     const url = `http://${host}:${port}${path}`;
     const pollIntervalMs = 2000;
@@ -490,7 +496,7 @@ export class PreviewManager {
         const response = await fetch(url, {
           signal: AbortSignal.timeout(pollIntervalMs),
         });
-        if (response.ok) {
+        if (!strict || response.ok) {
           return true;
         }
       } catch {
