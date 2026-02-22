@@ -1190,11 +1190,11 @@ const threshold = (ctx.config?.someThreshold as number) ?? 10;
 
 ### Step 4 — Write tests
 
-Create a test file alongside your producer (e.g. `src/producers/my-producer.test.ts`). Use the following pattern as a starting point:
+Create a test file alongside your producer (e.g. `src/producers/<your-producer>.test.ts`). Use the following pattern as a starting point:
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
-import { myProducer } from "./my-producer.js";
+import { myProducer } from "./your-producer.js";
 
 vi.mock("../db/queries/tasks.js", () => ({
   create: vi.fn().mockResolvedValue({ id: "TASK-001" }),
