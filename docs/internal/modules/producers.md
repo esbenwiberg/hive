@@ -1196,7 +1196,7 @@ const threshold = (ctx.config?.someThreshold as number) ?? 10;
 - [`docs/internal/modules/agents.md`](./agents.md) — the pipeline that processes tasks created by producers
 - [`docs/internal/modules/daemon.md`](./daemon.md) — how producers are scheduled and invoked
 - [`docs/internal/modules/database.md`](./database.md) — `producer_runs` table schema and task creation queries
-- `src/producers/base.ts` — shared types, helpers, and guards
+- [`src/producers/base.ts`](../../../src/producers/base.ts) — shared types, helpers, and guards
 - `autonomous.config.yaml` — enable/disable producers and tune thresholds
 - `src/integrations/azure-monitor.ts` — KQL execution layer used by `log-scanner`
 - `src/log-buffer.ts` — in-process log ring-buffer used by `self-monitor`
