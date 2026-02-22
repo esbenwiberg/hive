@@ -282,6 +282,10 @@ async function executeMilestones(
     await addEvent(task.id, "claude_call_started", "worker", `Calling Claude (${model})`);
     await heartbeat(task.id);
 
+    const msFiles = ms.filesToModify.map(f => `\`${f}\``).join(", ");
+    let msMidNudgeSent = false;
+    const msHasWritten = (calls: string[]) => calls.includes("write_file") || calls.includes("edit_file");
+
     const response = await callClaudeWithTools({
       prompt: milestonePrompt,
       model,
@@ -289,9 +293,17 @@ async function executeMilestones(
       tools: WORKER_TOOLS,
       executeTool: createWorktreeToolExecutor(worktreePath),
       onTurnComplete: () => heartbeat(task.id),
+      maxNudges: 2,
+      midLoopNudge: ({ toolsCalled, turns }) => {
+        if (!msMidNudgeSent && turns >= 3 && !msHasWritten(toolsCalled)) {
+          msMidNudgeSent = true;
+          return `IMPORTANT: You have spent ${turns} turns reading without writing. Stop exploring and call edit_file or write_file NOW to modify ${msFiles}.`;
+        }
+        return null;
+      },
       postCompletionNudge: ({ toolsCalled }) => {
-        if (!toolsCalled.includes("write_file")) {
-          return "IMPORTANT: You have not called write_file yet. You MUST use the write_file tool to implement the changes for this milestone now. Do not explain — write the code.";
+        if (!msHasWritten(toolsCalled)) {
+          return `CRITICAL: You have not written any files. This milestone WILL FAIL unless you produce code changes. Call edit_file or write_file RIGHT NOW to modify ${msFiles}. Write your best implementation even if uncertain.`;
         }
         return null;
       },
@@ -481,13 +493,23 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       const enrichObj = task.enrichment as Record<string, unknown>;
 
       if (taskSize === "trivial" || taskSize === "small") {
-        // Architect already distilled everything — only pass the blueprint
-        const slim: Record<string, unknown> = {};
-        if (enrichObj.architect) slim.architect = enrichObj.architect;
-        if (enrichObj.scorer) slim.scorer = enrichObj.scorer;
-        enrichmentStr = Object.keys(slim).length > 0
-          ? `\n## Enrichment Context\n${JSON.stringify(slim, null, 2)}`
-          : "";
+        // Format the architect blueprint as structured sections (matching the
+        // milestone prompt format) instead of dumping raw JSON.  This gives
+        // the worker model clear, actionable instructions.
+        const bp = enrichObj.architect as ArchitectBlueprint | undefined;
+        if (bp && !bp.skipped) {
+          const parts: string[] = [];
+          if (bp.approach) {
+            parts.push(`\n## Implementation Plan\n\n${bp.approach}`);
+          }
+          if (bp.keyFiles?.length) {
+            parts.push(`\n### Files to Modify\n\n${bp.keyFiles.map(f => `- ${f}`).join("\n")}`);
+          }
+          if (bp.checklist?.length) {
+            parts.push(`\n### Checklist\n\n${bp.checklist.map(c => `- ${c}`).join("\n")}`);
+          }
+          enrichmentStr = parts.join("\n");
+        }
       } else {
         // Medium/large: full enrichment helps Claude navigate unfamiliar code
         enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(task.enrichment, null, 2)}`;
@@ -557,6 +579,12 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       await addEvent(taskId, "claude_call_started", "worker", `Calling Claude (${model})`);
       await heartbeat(taskId);
 
+      const keyFiles = architectData?.keyFiles?.length
+        ? architectData.keyFiles.map(f => `\`${f}\``).join(", ")
+        : "the relevant files";
+      let midNudgeSent = false;
+      const hasWritten = (calls: string[]) => calls.includes("write_file") || calls.includes("edit_file");
+
       const response = await callClaudeWithTools({
         prompt: userPrompt,
         model,
@@ -564,9 +592,17 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         tools: WORKER_TOOLS,
         executeTool: createWorktreeToolExecutor(worktree.path),
         onTurnComplete: () => heartbeat(taskId),
+        maxNudges: 2,
+        midLoopNudge: ({ toolsCalled, turns }) => {
+          if (!midNudgeSent && turns >= 3 && !hasWritten(toolsCalled)) {
+            midNudgeSent = true;
+            return `IMPORTANT: You have spent ${turns} turns reading without writing any files. Stop exploring and start implementing NOW. Call edit_file (for surgical changes) or write_file (for new files) to modify ${keyFiles}. Do not explain what you would do — write the code.`;
+          }
+          return null;
+        },
         postCompletionNudge: ({ toolsCalled }) => {
-          if (!toolsCalled.includes("write_file")) {
-            return "IMPORTANT: You have not called write_file yet. You MUST use the write_file tool to implement the changes now. Do not explain — write the code.";
+          if (!hasWritten(toolsCalled)) {
+            return `CRITICAL: You have not written any files. This task WILL FAIL unless you produce code changes. Call edit_file or write_file RIGHT NOW to modify ${keyFiles}. Write your best implementation even if you are uncertain.`;
           }
           return null;
         },

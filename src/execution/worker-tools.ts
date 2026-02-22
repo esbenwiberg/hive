@@ -45,7 +45,7 @@ export const WORKER_TOOLS: Tool[] = [
   },
   {
     name: "write_file",
-    description: "Write content to a file relative to the working directory. Creates parent directories if needed.",
+    description: "Write content to a file relative to the working directory. Creates parent directories if needed. For small edits to existing files, prefer edit_file instead.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -53,6 +53,19 @@ export const WORKER_TOOLS: Tool[] = [
         content: { type: "string", description: "The full file content to write" },
       },
       required: ["path", "content"],
+    },
+  },
+  {
+    name: "edit_file",
+    description: "Make a targeted edit to an existing file by replacing a specific string. Much more efficient than write_file for small changes — you only need to provide the changed portion, not the entire file. The old_string must match exactly (including whitespace/indentation). If old_string appears multiple times, the first occurrence is replaced.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: { type: "string", description: "File path relative to the working directory" },
+        old_string: { type: "string", description: "The exact text to find and replace (must match file content exactly, including indentation)" },
+        new_string: { type: "string", description: "The replacement text" },
+      },
+      required: ["path", "old_string", "new_string"],
     },
   },
   {
@@ -109,6 +122,20 @@ export function createWorktreeToolExecutor(
         await mkdir(dir, { recursive: true });
         await writeFile(filePath, input.content as string, "utf-8");
         return `Wrote ${filePath}`;
+      }
+
+      case "edit_file": {
+        const filePath = safePath(worktreePath, input.path as string);
+        const oldStr = input.old_string as string;
+        const newStr = input.new_string as string;
+        const content = await readFile(filePath, "utf-8");
+        const idx = content.indexOf(oldStr);
+        if (idx === -1) {
+          throw new Error(`old_string not found in ${input.path as string}. Make sure the string matches exactly, including whitespace and indentation.`);
+        }
+        const updated = content.slice(0, idx) + newStr + content.slice(idx + oldStr.length);
+        await writeFile(filePath, updated, "utf-8");
+        return `Edited ${input.path as string} (replaced ${oldStr.length} chars with ${newStr.length} chars)`;
       }
 
       case "list_directory": {

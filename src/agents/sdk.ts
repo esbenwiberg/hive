@@ -48,6 +48,13 @@ export interface AgenticRequest {
   postCompletionNudge?: (context: { toolsCalled: string[]; turns: number }) => string | null;
   /** Max number of nudges before accepting Claude's stop (default: 1). */
   maxNudges?: number;
+  /**
+   * Called after tool results are processed each turn. If it returns a non-null
+   * string, that text is appended to the tool-results user message as guidance.
+   * Fires mid-loop (while Claude is still working), unlike postCompletionNudge
+   * which only fires after Claude stops.
+   */
+  midLoopNudge?: (context: { toolsCalled: string[]; turns: number }) => string | null;
 }
 
 export interface AgenticResponse {
@@ -346,6 +353,19 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
     }
 
     messages.push({ role: "user", content: toolResults });
+
+    // Mid-loop nudge: append guidance to the tool-results message while Claude
+    // is still in its tool-calling phase (before it decides to stop).
+    if (req.midLoopNudge) {
+      const nudge = req.midLoopNudge({ toolsCalled, turns });
+      if (nudge) {
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg.role === "user" && Array.isArray(lastMsg.content)) {
+          (lastMsg.content as unknown[]).push({ type: "text" as const, text: nudge });
+        }
+        logger.info({ turn: turns }, "Mid-loop nudge injected");
+      }
+    }
 
     // Proactive compaction: after 4+ turns, compact older tool results
     if (turns >= 4 && compactMessages(messages)) {
