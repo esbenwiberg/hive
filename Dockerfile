@@ -25,6 +25,7 @@ RUN apt-get update \
 
 ARG BUILD_SHA=dev
 ENV BUILD_SHA=$BUILD_SHA
+ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=builder /app/package.json /app/package-lock.json /app/.npmrc ./
 RUN npm ci --omit=dev
