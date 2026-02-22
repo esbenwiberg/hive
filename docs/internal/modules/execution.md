@@ -639,7 +639,7 @@ interface PreviewInfo {
 }
 ```
 
-`PreviewConfig` and `PreviewStatus` are re-exported from `../../hive-yaml.js` and `../../domain/types.js` respectively:
+`PreviewConfig` and `PreviewStatus` are re-exported from `src/hive-yaml.ts` and `src/domain/types.ts` respectively:
 
 ```ts
 // From hive-yaml.ts:
@@ -917,6 +917,5 @@ This prevents a prompt-injected path like `../../etc/passwd` from escaping the w
 - [`docs/internal/architecture.md`](../architecture.md) — full pipeline data flow and state machine
 - [`docs/internal/modules/daemon.md`](./daemon.md) — how the daemon schedules and dispatches execution
 - [`docs/internal/modules/agents.md`](./agents.md) — SDK, review gate, and agent lifecycle patterns
-- [`docs/internal/modules/enrichers.md`](./enrichers.md) — how the architect enricher produces the blueprint consumed here
 - `src/hive-yaml.ts` — `.hive.yaml` schema and `parseHiveYaml()` parser
 - `autonomous.config.yaml` — preview defaults, budget limits, model assignments
