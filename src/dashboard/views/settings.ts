@@ -311,6 +311,25 @@ export function globalSettingsPartial(
     padding: "compact",
   });
 
+  // Concurrency card
+  const concurrencyFields = [
+    input("maxConcurrent", "Max Concurrent Tasks", {
+      type: "number",
+      value: String(config.concurrency.maxConcurrent),
+      placeholder: "5",
+    }),
+    input("maxPerUser", "Default Per-User Max", {
+      type: "number",
+      value: String(config.concurrency.maxPerUser),
+      placeholder: "2",
+    }),
+  ].join("");
+
+  const concurrencyCard = card(concurrencyFields, {
+    title: "Concurrency",
+    padding: "compact",
+  });
+
   // Clarification card
   const clarificationFields = select("clarificationMode", "Mode", [
     { value: "human", label: "Human" },
@@ -403,6 +422,7 @@ export function globalSettingsPartial(
       ${classificationCard}
       ${gateCard}
       ${budgetCard}
+      ${concurrencyCard}
       ${clarificationCard}
       ${modelsCard}
       ${previewCard}

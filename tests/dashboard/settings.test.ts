@@ -48,6 +48,7 @@ const mockConfig: AutonomousConfig = {
     },
     port_range: [4001, 4099],
   },
+  concurrency: { maxConcurrent: 5, maxPerUser: 2 },
 };
 
 const mockRepos: RepoRow[] = [

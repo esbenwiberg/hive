@@ -46,7 +46,7 @@ export async function listAll() {
  */
 export async function listAllWithRole() {
   return db
-    .select({ id: users.id, displayName: users.displayName, role: users.role, dailyBudget: users.dailyBudget })
+    .select({ id: users.id, displayName: users.displayName, role: users.role, dailyBudget: users.dailyBudget, maxConcurrent: users.maxConcurrent })
     .from(users);
 }
 
@@ -58,4 +58,26 @@ export async function updateDailyBudget(userId: number, budget: string) {
     .update(users)
     .set({ dailyBudget: budget, updatedAt: new Date() })
     .where(eq(users.id, userId));
+}
+
+/**
+ * Updates a user's per-user max concurrent tasks.
+ * Pass null to clear (revert to global default).
+ */
+export async function updateMaxConcurrent(userId: number, value: number | null) {
+  await db
+    .update(users)
+    .set({ maxConcurrent: value, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
+/**
+ * Returns a single user's max_concurrent value (or null if using global default).
+ */
+export async function getMaxConcurrent(userId: number): Promise<number | null> {
+  const [row] = await db
+    .select({ maxConcurrent: users.maxConcurrent })
+    .from(users)
+    .where(eq(users.id, userId));
+  return row?.maxConcurrent ?? null;
 }

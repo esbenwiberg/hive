@@ -158,6 +158,25 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
       overrides.clarification = { mode: clarificationMode as ClarificationConfig["mode"] };
     }
 
+    // Concurrency
+    const maxConcurrentRaw = body.maxConcurrent?.trim();
+    if (maxConcurrentRaw !== undefined && maxConcurrentRaw !== "") {
+      const val = Number(maxConcurrentRaw);
+      if (!Number.isInteger(val) || val < 1 || val > 20) {
+        res.status(400).send("Max concurrent must be an integer between 1 and 20");
+        return;
+      }
+    }
+
+    const maxPerUserRaw = body.maxPerUser?.trim();
+    if (maxPerUserRaw !== undefined && maxPerUserRaw !== "") {
+      const val = Number(maxPerUserRaw);
+      if (!Number.isInteger(val) || val < 1 || val > 20) {
+        res.status(400).send("Max per user must be an integer between 1 and 20");
+        return;
+      }
+    }
+
     // Models
     const defaultModel = body.defaultModel?.trim();
     const inputCostRaw = body.inputCostPerM?.trim();
@@ -192,6 +211,18 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
       if (inputCostRaw && inputCostRaw !== "") overrides.models.inputCostPerM = Number(inputCostRaw);
       if (outputCostRaw && outputCostRaw !== "") overrides.models.outputCostPerM = Number(outputCostRaw);
       if (Object.keys(components).length > 0) overrides.models.components = components;
+    }
+
+    // Concurrency overrides
+    if ((maxConcurrentRaw !== undefined && maxConcurrentRaw !== "") ||
+        (maxPerUserRaw !== undefined && maxPerUserRaw !== "")) {
+      overrides.concurrency = {};
+      if (maxConcurrentRaw !== undefined && maxConcurrentRaw !== "") {
+        overrides.concurrency.maxConcurrent = Number(maxConcurrentRaw);
+      }
+      if (maxPerUserRaw !== undefined && maxPerUserRaw !== "") {
+        overrides.concurrency.maxPerUser = Number(maxPerUserRaw);
+      }
     }
 
     // Preview

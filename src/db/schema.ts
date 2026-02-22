@@ -25,6 +25,7 @@ export const users = pgTable("users", {
   dailyBudget: numeric("daily_budget", { precision: 10, scale: 2 }).default(
     "100.00",
   ),
+  maxConcurrent: integer("max_concurrent"),
   createdAt: timestamp("created_at", tz).defaultNow(),
   updatedAt: timestamp("updated_at", tz).defaultNow(),
 });

@@ -7,6 +7,7 @@ interface UserInfo {
   displayName: string;
   role: string;
   dailyBudget: string | null;
+  maxConcurrent: number | null;
 }
 
 interface RepoInfo {
@@ -22,6 +23,7 @@ export function permissionsPage(
   repos: RepoInfo[],
   grants: Set<string>,
   currentUser: SessionUser,
+  globalMaxPerUser?: number,
 ): string {
   if (users.length === 0 || repos.length === 0) {
     const msg = users.length === 0
@@ -45,7 +47,7 @@ export function permissionsPage(
     );
   }
 
-  const matrixHtml = permissionsMatrix(users, repos, grants);
+  const matrixHtml = permissionsMatrix(users, repos, grants, globalMaxPerUser);
 
   return layout(
     "Permissions",
@@ -71,6 +73,7 @@ export function permissionsMatrix(
   users: UserInfo[],
   repos: RepoInfo[],
   grants: Set<string>,
+  globalMaxPerUser?: number,
 ): string {
   const repoHeaders = repos
     .map((r) => {
@@ -112,6 +115,8 @@ export function permissionsMatrix(
             .join("");
 
       const budgetVal = u.dailyBudget ?? "100.00";
+      const maxTasksVal = u.maxConcurrent != null ? String(u.maxConcurrent) : "";
+      const maxTasksPlaceholder = globalMaxPerUser != null ? String(globalMaxPerUser) : "2";
       const nameLabel = isAdmin
         ? `${escapeHtml(u.displayName)} <span class="ml-1 text-xs text-amber-400/70">admin</span>`
         : escapeHtml(u.displayName);
@@ -128,6 +133,18 @@ export function permissionsMatrix(
             class="w-24 rounded-md border border-slate-600 bg-slate-700 px-2 py-1 text-sm text-slate-200 text-right focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
           />
         </td>
+        <td class="px-3 py-3">
+          <input type="number" min="1" max="20" step="1"
+            name="maxConcurrent" value="${escapeHtml(maxTasksVal)}"
+            placeholder="${escapeHtml(maxTasksPlaceholder)}"
+            hx-post="/api/permissions/max-concurrent"
+            hx-vals='${JSON.stringify({ userId: u.id })}'
+            hx-target="#permissions-matrix"
+            hx-swap="innerHTML"
+            hx-trigger="change, keydown[key=='Enter']"
+            class="w-20 rounded-md border border-slate-600 bg-slate-700 px-2 py-1 text-sm text-slate-200 text-right focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+          />
+        </td>
         ${cells}
       </tr>`;
     })
@@ -139,6 +156,7 @@ export function permissionsMatrix(
         <tr>
           <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">User</th>
           <th class="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400 whitespace-nowrap">Daily Budget</th>
+          <th class="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400 whitespace-nowrap">Max Tasks</th>
           ${repoHeaders}
         </tr>
       </thead>

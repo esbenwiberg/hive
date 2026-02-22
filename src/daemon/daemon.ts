@@ -24,6 +24,8 @@ import { runRetrospective } from "../agents/retrospective.js";
 import { applyMonthlyDecay, archiveStale } from "../db/queries/learnings.js";
 import { curateLearnings } from "../agents/keeper.js";
 import { getConfig, setConfig } from "../domain/config.js";
+import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getMaxConcurrent as getUserMaxConcurrent } from "../db/queries/users.js";
 import { cleanupExpiredPreviews } from "./preview-cleanup.js";
 import { cleanupClosedPRPreviews } from "./pr-close-cleanup.js";
 import type { Producer, ProducerContext } from "../producers/base.js";
@@ -58,8 +60,6 @@ const ALL_PRODUCERS: Producer[] = [
 
 export class Daemon {
   private readonly pollIntervalMs: number;
-  private readonly maxConcurrent: number;
-  private readonly maxPerUser: number;
   private readonly producerIntervalMs: number;
 
   private readonly activeTaskIds = new Set<string>();
@@ -76,8 +76,6 @@ export class Daemon {
 
   constructor(opts?: DaemonOptions) {
     this.pollIntervalMs = opts?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    this.maxConcurrent = opts?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
-    this.maxPerUser = opts?.maxPerUser ?? DEFAULT_MAX_PER_USER;
     this.producerIntervalMs =
       opts?.producerIntervalMs ??
       parseInt(process.env.HIVE_PRODUCER_INTERVAL_MS ?? String(DEFAULT_PRODUCER_INTERVAL_MS), 10);
@@ -174,11 +172,12 @@ export class Daemon {
     // Start PR-close cleanup scheduler (60s interval)
     this.prCloseCleanupScheduler.start();
 
+    const concurrency = getAutonomousConfig().concurrency;
     logger.info(
       {
-        maxConcurrent: this.maxConcurrent,
+        maxConcurrent: concurrency.maxConcurrent,
         pollIntervalMs: this.pollIntervalMs,
-        maxPerUser: this.maxPerUser,
+        maxPerUser: concurrency.maxPerUser,
         producerIntervalMs: this.producerIntervalMs,
         producers: ALL_PRODUCERS.map((p) => p.name),
       },
@@ -224,7 +223,11 @@ export class Daemon {
 
   private async _tick(): Promise<void> {
     if (this.stopping) return;
-    if (this.activeTaskIds.size >= this.maxConcurrent) return;
+
+    // Read limits dynamically from config (DB overrides take precedence)
+    const { maxConcurrent, maxPerUser: globalMaxPerUser } = getAutonomousConfig().concurrency;
+
+    if (this.activeTaskIds.size >= maxConcurrent) return;
 
     // Fetch candidate tasks: pending, approved (human-approved), and rework
     const [pendingResult, approvedResult, reworkResult] = await Promise.all([
@@ -242,21 +245,28 @@ export class Daemon {
       },
     );
 
-    // Cache budget lookups within a single tick to avoid redundant DB queries
+    // Cache budget and per-user max concurrent lookups within a single tick
     const budgetCache = new Map<number, number>();
+    const userMaxCache = new Map<number, number>();
 
     for (const task of candidates) {
       if (this.stopping) return;
-      if (this.activeTaskIds.size >= this.maxConcurrent) return;
+      if (this.activeTaskIds.size >= maxConcurrent) return;
 
       // Skip tasks already in flight
       if (this.activeTaskIds.has(task.id)) continue;
 
-      // Per-user concurrency guard
+      // Per-user concurrency guard (per-user DB override or global default)
       const userCount = this.userCounts.get(task.createdBy) ?? 0;
-      if (userCount >= this.maxPerUser) {
+      let effectiveMaxPerUser = userMaxCache.get(task.createdBy);
+      if (effectiveMaxPerUser === undefined) {
+        const userOverride = await getUserMaxConcurrent(task.createdBy);
+        effectiveMaxPerUser = userOverride ?? globalMaxPerUser;
+        userMaxCache.set(task.createdBy, effectiveMaxPerUser);
+      }
+      if (userCount >= effectiveMaxPerUser) {
         logger.debug(
-          { taskId: task.id, userId: task.createdBy, userCount },
+          { taskId: task.id, userId: task.createdBy, userCount, limit: effectiveMaxPerUser },
           "Daemon: per-user concurrency limit reached, skipping task",
         );
         continue;

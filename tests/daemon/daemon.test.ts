@@ -143,6 +143,19 @@ vi.mock("../../src/domain/config.js", () => ({
   setConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockConcurrencyConfig = { maxConcurrent: 5, maxPerUser: 2 };
+vi.mock("../../src/domain/autonomous-config.js", () => ({
+  getAutonomousConfig: () => ({
+    concurrency: mockConcurrencyConfig,
+    preview: { enabled: false, max_concurrent: 3, cleanup_timeout_minutes: 30, port_range: [4001, 4099] },
+  }),
+}));
+
+const mockGetMaxConcurrent = vi.fn().mockResolvedValue(null);
+vi.mock("../../src/db/queries/users.js", () => ({
+  getMaxConcurrent: mockGetMaxConcurrent,
+}));
+
 // Mock preview cleanup (imported by daemon)
 const mockCleanupExpiredPreviews = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../src/daemon/preview-cleanup.js", () => ({
@@ -198,6 +211,9 @@ function makeFakeTask(overrides: Record<string, unknown> = {}) {
 describe("Daemon", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConcurrencyConfig.maxConcurrent = 5;
+    mockConcurrencyConfig.maxPerUser = 2;
+    mockGetMaxConcurrent.mockResolvedValue(null);
     mockList.mockResolvedValue({ tasks: [], total: 0 });
     mockCheckBudget.mockResolvedValue(50);
     mockFindStaleTasks.mockResolvedValue([]);
@@ -316,7 +332,10 @@ describe("Daemon", () => {
       () => new Promise((r) => setTimeout(r, 500)),
     );
 
-    const daemon = new Daemon({ pollIntervalMs: 50, maxConcurrent: 3 });
+    // Set global concurrency limit to 3 via config
+    mockConcurrencyConfig.maxConcurrent = 3;
+
+    const daemon = new Daemon({ pollIntervalMs: 50 });
     await daemon.start();
 
     // Wait for tasks to be dispatched
@@ -351,11 +370,11 @@ describe("Daemon", () => {
       () => new Promise((r) => setTimeout(r, 500)),
     );
 
-    const daemon = new Daemon({
-      pollIntervalMs: 50,
-      maxConcurrent: 5,
-      maxPerUser: 2,
-    });
+    // Set per-user limit to 2 via config
+    mockConcurrencyConfig.maxConcurrent = 5;
+    mockConcurrencyConfig.maxPerUser = 2;
+
+    const daemon = new Daemon({ pollIntervalMs: 50 });
     await daemon.start();
 
     await new Promise((r) => setTimeout(r, 200));

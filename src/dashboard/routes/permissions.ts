@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireRole } from "../../auth/middleware.js";
+import { getAutonomousConfig } from "../../domain/autonomous-config.js";
 import * as repoAccessQueries from "../../db/queries/user-repo-access.js";
 import * as userQueries from "../../db/queries/users.js";
 import * as repoQueries from "../../db/queries/repos.js";
@@ -14,6 +15,17 @@ async function buildGrantSet(): Promise<Set<string>> {
   return new Set(rows.map((r) => `${r.userId}:${r.repoId}`));
 }
 
+/** Render updated matrix partial (shared by grant/revoke/budget/max-concurrent handlers). */
+async function renderMatrix(res: Response): Promise<void> {
+  const [users, repos, grants] = await Promise.all([
+    userQueries.listAllWithRole(),
+    repoQueries.listAll(),
+    buildGrantSet(),
+  ]);
+  const globalMaxPerUser = getAutonomousConfig().concurrency.maxPerUser;
+  res.send(permissionsMatrix(users, repos, grants, globalMaxPerUser));
+}
+
 // ── GET /permissions ─ Admin permissions page ────────────────────────────────
 
 router.get("/permissions", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
@@ -25,7 +37,8 @@ router.get("/permissions", requireRole("admin"), async (req: Request, res: Respo
       buildGrantSet(),
     ]);
 
-    res.send(permissionsPage(users, repos, grants, user));
+    const globalMaxPerUser = getAutonomousConfig().concurrency.maxPerUser;
+    res.send(permissionsPage(users, repos, grants, user, globalMaxPerUser));
   } catch (err) {
     next(err);
   }
@@ -45,14 +58,7 @@ router.post("/api/permissions/grant", requireRole("admin"), async (req: Request,
 
     await repoAccessQueries.grant(Number(userId), Number(repoId), admin.id);
 
-    // Return updated matrix
-    const [users, repos, grants] = await Promise.all([
-      userQueries.listAllWithRole(),
-      repoQueries.listAll(),
-      buildGrantSet(),
-    ]);
-
-    res.send(permissionsMatrix(users, repos, grants));
+    await renderMatrix(res);
   } catch (err) {
     next(err);
   }
@@ -71,14 +77,7 @@ router.post("/api/permissions/revoke", requireRole("admin"), async (req: Request
 
     await repoAccessQueries.revoke(Number(userId), Number(repoId));
 
-    // Return updated matrix
-    const [users, repos, grants] = await Promise.all([
-      userQueries.listAllWithRole(),
-      repoQueries.listAll(),
-      buildGrantSet(),
-    ]);
-
-    res.send(permissionsMatrix(users, repos, grants));
+    await renderMatrix(res);
   } catch (err) {
     next(err);
   }
@@ -103,14 +102,36 @@ router.post("/api/permissions/budget", requireRole("admin"), async (req: Request
 
     await userQueries.updateDailyBudget(Number(userId), budget.toFixed(2));
 
-    // Return updated matrix
-    const [users, repos, grants] = await Promise.all([
-      userQueries.listAllWithRole(),
-      repoQueries.listAll(),
-      buildGrantSet(),
-    ]);
+    await renderMatrix(res);
+  } catch (err) {
+    next(err);
+  }
+});
 
-    res.send(permissionsMatrix(users, repos, grants));
+// ── POST /api/permissions/max-concurrent ─ Update user max concurrent tasks ──
+
+router.post("/api/permissions/max-concurrent", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId, maxConcurrent } = req.body;
+
+    if (!userId) {
+      res.status(400).send("userId is required");
+      return;
+    }
+
+    // Empty string means "clear override, use global default"
+    if (maxConcurrent == null || maxConcurrent === "") {
+      await userQueries.updateMaxConcurrent(Number(userId), null);
+    } else {
+      const val = parseInt(maxConcurrent, 10);
+      if (isNaN(val) || val < 1 || val > 20) {
+        res.status(400).send("maxConcurrent must be an integer between 1 and 20");
+        return;
+      }
+      await userQueries.updateMaxConcurrent(Number(userId), val);
+    }
+
+    await renderMatrix(res);
   } catch (err) {
     next(err);
   }

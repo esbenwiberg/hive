@@ -61,6 +61,11 @@ export interface PreviewSettings {
   compose_up_timeout_seconds: number;
 }
 
+export interface ConcurrencyConfig {
+  maxConcurrent: number;
+  maxPerUser: number;
+}
+
 export interface AutonomousConfig {
   classification: ClassificationConfig;
   gate: GateConfig;
@@ -69,6 +74,7 @@ export interface AutonomousConfig {
   enrichers: EnricherEntry[];
   clarification: ClarificationConfig;
   preview: PreviewSettings;
+  concurrency: ConcurrencyConfig;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -101,6 +107,7 @@ const DEFAULTS: AutonomousConfig = {
     port_range: [4001, 4099],
     compose_up_timeout_seconds: 300,
   },
+  concurrency: { maxConcurrent: 5, maxPerUser: 2 },
 };
 
 // ── Model helpers ────────────────────────────────────────────────────────────
@@ -197,6 +204,10 @@ export function loadConfig(
         ? (rawPreview.port_range as [number, number])
         : DEFAULTS.preview.port_range,
     },
+    concurrency: {
+      ...DEFAULTS.concurrency,
+      ...(raw.concurrency as Partial<ConcurrencyConfig> | undefined),
+    },
   };
 
   return config;
@@ -212,6 +223,7 @@ export interface ConfigOverrides {
   clarification?: Partial<ClarificationConfig>;
   models?: { default?: string; inputCostPerM?: number; outputCostPerM?: number; components?: Record<string, string> };
   preview?: { compose_up_timeout_seconds?: number };
+  concurrency?: Partial<ConcurrencyConfig>;
 }
 
 const CONFIG_DB_KEY = "autonomous";
@@ -265,6 +277,7 @@ function mergeOverrides(
     preview: overrides.preview
       ? { ...base.preview, ...overrides.preview }
       : base.preview,
+    concurrency: { ...base.concurrency, ...overrides.concurrency },
   };
 }
 
