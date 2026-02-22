@@ -70,7 +70,7 @@ export function generateTaskId(): string {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
-  const hex = randomBytes(2).toString("hex"); // 4 hex chars
+  const hex = randomBytes(4).toString("hex"); // 8 hex chars – avoids collisions
   return `HIVE-${y}${m}${d}-${hex}`;
 }
 
