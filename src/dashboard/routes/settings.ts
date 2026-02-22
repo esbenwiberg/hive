@@ -194,6 +194,17 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
       if (Object.keys(components).length > 0) overrides.models.components = components;
     }
 
+    // Preview
+    const composeUpTimeout = body.composeUpTimeout?.trim();
+    if (composeUpTimeout !== undefined && composeUpTimeout !== "") {
+      const val = Number(composeUpTimeout);
+      if (Number.isNaN(val) || val < 30) {
+        res.status(400).send("Compose up timeout must be at least 30 seconds");
+        return;
+      }
+      overrides.preview = { compose_up_timeout_seconds: val };
+    }
+
     const updatedConfig = await saveConfigOverrides(overrides);
 
     res.setHeader(

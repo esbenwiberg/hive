@@ -57,6 +57,8 @@ export interface PreviewSettings {
   cleanup_timeout_minutes: number;
   docker_host: DockerHostConfig;
   port_range: [number, number];
+  /** Timeout in seconds for docker compose up (image pull + build). Default 300. */
+  compose_up_timeout_seconds: number;
 }
 
 export interface AutonomousConfig {
@@ -97,6 +99,7 @@ const DEFAULTS: AutonomousConfig = {
       ssh_user: "azureuser",
     },
     port_range: [4001, 4099],
+    compose_up_timeout_seconds: 300,
   },
 };
 
@@ -208,6 +211,7 @@ export interface ConfigOverrides {
   budget?: Partial<BudgetConfig>;
   clarification?: Partial<ClarificationConfig>;
   models?: { default?: string; inputCostPerM?: number; outputCostPerM?: number; components?: Record<string, string> };
+  preview?: { compose_up_timeout_seconds?: number };
 }
 
 const CONFIG_DB_KEY = "autonomous";
@@ -258,6 +262,9 @@ function mergeOverrides(
           components: { ...base.models.components, ...overrides.models.components },
         }
       : base.models,
+    preview: overrides.preview
+      ? { ...base.preview, ...overrides.preview }
+      : base.preview,
   };
 }
 

@@ -74,5 +74,7 @@ preview:
     tls_ca_vault_secret: docker-tls-ca
     ssh_key_vault_secret: docker-ssh-key
     ssh_user: hiveadmin
+  # Seconds to wait for docker compose up (image pull + build)
+  compose_up_timeout_seconds: 300
   # Port range for preview environments [start, end]
   port_range: [4001, 4099]

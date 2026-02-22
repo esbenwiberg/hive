@@ -280,6 +280,7 @@ export class PreviewManager {
         project,
         previewComposeFile,
         config.env,
+        this.settings.compose_up_timeout_seconds * 1000,
       );
 
       return {
