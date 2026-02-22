@@ -459,6 +459,26 @@ function recommendationBadge(rec: string): string {
   return badge(rec, colors[rec] ?? "slate");
 }
 
+/**
+ * Computes the total score from the four dimensions, accounting for polarity:
+ * - value and feasibility: high raw score = good (used as-is)
+ * - risk and complexity: low raw score = good (inverted via 11 - score)
+ *
+ * Returns the average of the four polarity-adjusted values on a 1–10 scale.
+ */
+export function computeTotalScore(scores: ScorerData["scores"]): number | null {
+  if (!scores) return null;
+  const { value, complexity, risk, feasibility } = scores;
+  const dims = [
+    value != null ? value.score : null,
+    complexity != null ? (11 - complexity.score) : null,
+    risk != null ? (11 - risk.score) : null,
+    feasibility != null ? feasibility.score : null,
+  ].filter((v): v is number => v !== null);
+  if (dims.length === 0) return null;
+  return dims.reduce((sum, v) => sum + v, 0) / dims.length;
+}
+
 /** Compact inline badges for the task list table row. */
 function scorerInlineBadges(task: TaskRow): string {
   const enrichment = task.enrichment as Record<string, unknown> | null;
@@ -472,11 +492,10 @@ function scorerInlineBadges(task: TaskRow): string {
     parts.push(recommendationBadge(scorer.recommendation));
   }
   if (scorer.scores) {
-    const dims = scorer.scores;
-    const avg = [dims.value, dims.complexity, dims.risk, dims.feasibility]
-      .filter((d): d is ScorerDimension => d != null)
-      .reduce((sum, d, _, arr) => sum + d.score / arr.length, 0);
-    parts.push(badge(`${avg.toFixed(1)}`, scoreColor(Math.round(avg))));
+    const total = computeTotalScore(scorer.scores);
+    if (total !== null) {
+      parts.push(badge(`${total.toFixed(1)}`, scoreColor(Math.round(total))));
+    }
   }
   return parts.join(" ");
 }
