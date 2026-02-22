@@ -6,6 +6,24 @@ const ROLE_LEVELS: Record<string, number> = {
   admin: 2,
 };
 
+/** True when Entra env vars are absent and we're not in production. */
+export function isDevAuth(): boolean {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    (!process.env.ENTRA_CLIENT_ID ||
+      !process.env.ENTRA_CLIENT_SECRET ||
+      !process.env.ENTRA_TENANT_ID)
+  );
+}
+
+const DEV_USER = {
+  id: 0,
+  entraOid: "dev",
+  email: "dev@localhost",
+  displayName: "Dev User",
+  role: "admin" as const,
+};
+
 /**
  * Middleware that requires an authenticated session.
  * Redirects to /auth/login if no user is in the session.
@@ -16,6 +34,12 @@ export function requireAuth(
   next: NextFunction,
 ): void {
   if (req.session.user) {
+    next();
+    return;
+  }
+  if (isDevAuth()) {
+    req.session.user = DEV_USER;
+    res.locals.user = DEV_USER;
     next();
     return;
   }
@@ -31,8 +55,13 @@ export function requireRole(role: string) {
 
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.session.user) {
-      res.redirect("/auth/login");
-      return;
+      if (isDevAuth()) {
+        req.session.user = DEV_USER;
+        res.locals.user = DEV_USER;
+      } else {
+        res.redirect("/auth/login");
+        return;
+      }
     }
 
     const userLevel = ROLE_LEVELS[req.session.user.role] ?? 0;

@@ -3,7 +3,7 @@ import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import sessionMiddleware from "../auth/session.js";
 import { getAuthUrl, handleCallback } from "../auth/entra.js";
-import { injectUser } from "../auth/middleware.js";
+import { injectUser, isDevAuth } from "../auth/middleware.js";
 import { findOrCreateByEntraOid } from "../db/queries/users.js";
 import logger from "../logger.js";
 import dashboardRouter from "./routes/dashboard.js";
@@ -86,6 +86,11 @@ function getRedirectUri(req: Request): string {
 }
 
 app.get("/auth/login", async (req, res, next) => {
+  if (isDevAuth()) {
+    // Dev mode: skip Entra, redirect straight to dashboard
+    res.redirect("/");
+    return;
+  }
   try {
     const redirectUri = getRedirectUri(req);
     const url = await getAuthUrl(redirectUri);
