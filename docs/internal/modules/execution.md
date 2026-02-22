@@ -15,12 +15,12 @@
 6. [Milestone Review — `milestone-review.ts`](#milestone-review--milestone-reviewts)
 7. [Worker Tools — `worker-tools.ts`](#worker-tools--worker-toolsts)
 8. [Browser Tools — `browser-tools.ts`](#browser-tools--browser-toolsts)
-9. [Preview System — `preview/`](#preview-system--preview)
-   - [Manager — `preview/manager.ts`](#manager--previewmanagerts)
-   - [Proxy — `preview/proxy.ts`](#proxy--previewproxysts)
-   - [Remote Docker — `preview/remote-docker.ts`](#remote-docker--previewremote-dockerts)
-   - [Validator — `preview/validator.ts`](#validator--previewvalidatorts)
-   - [Types — `preview/types.ts`](#types--previewtypests)
+9. [Preview System — `src/execution/preview/`](#preview-system--preview)
+   - [Manager — `src/execution/preview/manager.ts`](#manager--previewmanagerts)
+   - [Proxy — `src/execution/preview/proxy.ts`](#proxy--previewproxysts)
+   - [Remote Docker — `src/execution/preview/remote-docker.ts`](#remote-docker--previewremote-dockerts)
+   - [Validator — `src/execution/preview/validator.ts`](#validator--previewvalidatorts)
+   - [Types — `src/execution/preview/types.ts`](#types--previewtypests)
 10. [Execution Flow Walkthrough](#execution-flow-walkthrough)
 11. [Epic vs. Flow Execution](#epic-vs-flow-execution)
 12. [Rework and Retry Mechanics](#rework-and-retry-mechanics)
@@ -44,11 +44,11 @@ The `src/execution/` module is the "hands" of The Hive — where decisions made 
 | `milestone-review.ts` | Per-milestone lint/build/test loop + AI fix for epic tasks |
 | `worker-tools.ts` | Tool definitions (file I/O, shell) that Claude uses to write code |
 | `browser-tools.ts` | Playwright-backed browser tool definitions for UI validation |
-| `preview/manager.ts` | Lifecycle manager for Docker-based preview environments |
-| `preview/proxy.ts` | Express router that proxies HTTP traffic to running previews |
-| `preview/remote-docker.ts` | TLS-authenticated remote Docker client for preview container ops |
-| `preview/validator.ts` | Health-check polling for newly started preview containers |
-| `preview/types.ts` | Shared TypeScript interfaces for the preview subsystem |
+| `src/execution/preview/manager.ts` | Lifecycle manager for Docker-based preview environments |
+| `src/execution/preview/proxy.ts` | Express router that proxies HTTP traffic to running previews |
+| `src/execution/preview/remote-docker.ts` | TLS-authenticated remote Docker client for preview container ops |
+| `src/execution/preview/validator.ts` | Health-check polling for newly started preview containers |
+| `src/execution/preview/types.ts` | Shared TypeScript interfaces for the preview subsystem |
 
 ### Key Design Principles
 
@@ -475,11 +475,11 @@ The browser and page objects are created by the calling agent (`browser-validato
 
 ---
 
-## Preview System — `preview/`
+## Preview System — `src/execution/preview/`
 
 The preview subsystem manages ephemeral Docker-based environments that let developers (and the browser validator) interact with the application as built from the task's branch.
 
-### Manager — `preview/manager.ts`
+### Manager — `src/execution/preview/manager.ts`
 
 `previewManager` is a **singleton** exported as:
 
@@ -555,7 +555,7 @@ getPreviewInfo(taskId: string): PreviewInfo | undefined
 
 Used by the worker `finally` block to decide whether to defer worktree cleanup.
 
-### Proxy — `preview/proxy.ts`
+### Proxy — `src/execution/preview/proxy.ts`
 
 An Express router that proxies browser requests from the dashboard to running preview environments.
 
@@ -573,7 +573,7 @@ For each request:
 
 This allows the dashboard to display preview environments in an `<iframe>` without exposing the Docker container's port directly to the internet.
 
-### Remote Docker — `preview/remote-docker.ts`
+### Remote Docker — `src/execution/preview/remote-docker.ts`
 
 Manages TLS-authenticated connections to a remote Docker daemon used for spinning up preview containers.
 
@@ -595,7 +595,7 @@ Operations exposed:
 
 All operations are executed via `execFile` with the appropriate `DOCKER_HOST` and TLS environment variables set.
 
-### Validator — `preview/validator.ts`
+### Validator — `src/execution/preview/validator.ts`
 
 Polls a preview environment's health-check endpoint until it becomes ready or a timeout expires.
 
@@ -623,7 +623,7 @@ export async function addPreviewLog(
 
 Writes a row to the `preview_logs` table for audit and dashboard display.
 
-### Types — `preview/types.ts`
+### Types — `src/execution/preview/types.ts`
 
 Key types used across the preview subsystem:
 
