@@ -60,7 +60,7 @@ vi.mock("../../src/agents/feedback-loop.js", () => ({
   fireAndForgetFeedback: vi.fn(),
 }));
 vi.mock("../../src/agents/code-quality-analyst.js", () => ({
-  analyzeReviewPatterns: vi.fn(),
+  analyzeReviewPatterns: vi.fn().mockResolvedValue(undefined),
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
