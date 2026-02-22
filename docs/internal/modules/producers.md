@@ -39,7 +39,7 @@ Each producer:
 1. **Examines a signal** — source code, logs, monitoring data, or documentation.
 2. **Calls Claude** (most producers) to reason about what tasks would be valuable.
 3. **Checks for duplicates** before writing anything to the database.
-4. **Creates tasks** via `db/queries/tasks.ts` so they enter the standard pipeline.
+4. **Creates tasks** via `src/db/queries/tasks.ts` so they enter the standard pipeline.
 5. **Returns a `ProducerResult`** summarising what was created, skipped, and what errored.
 
 ### File Map
@@ -1008,7 +1008,7 @@ const threshold = (ctx.config?.someThreshold as number) ?? 10;
 
 ### Step 4 — Write tests
 
-Create `src/producers/my-producer.test.ts`:
+Create a test file alongside your producer (e.g. `src/producers/my-producer.test.ts`). Use the following pattern as a starting point:
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
@@ -1078,7 +1078,7 @@ describe("myProducer", () => {
 - [`docs/internal/architecture.md`](../architecture.md) — end-to-end system data flow and component relationships
 - [`docs/internal/modules/agents.md`](./agents.md) — the pipeline that processes tasks created by producers
 - [`docs/internal/modules/daemon.md`](./daemon.md) *(upcoming)* — how producers are scheduled and invoked
-- [`docs/internal/modules/db.md`](./db.md) *(upcoming)* — `producer_runs` table schema and task creation queries
+- [`docs/internal/modules/database.md`](./database.md) — `producer_runs` table schema and task creation queries
 - `src/producers/base.ts` — shared types, helpers, and guards
 - `autonomous.config.yaml` — enable/disable producers and tune thresholds
 - `src/integrations/azure-monitor.ts` — KQL execution layer used by `log-scanner`

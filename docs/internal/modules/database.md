@@ -865,6 +865,7 @@ GROUP BY category ORDER BY count DESC LIMIT 10;
 - [`docs/internal/modules/agents.md`](./agents.md) — agents that write to `learnings`, `costs`, `task_events`
 - [`docs/internal/modules/execution.md`](./execution.md) — pipeline that writes to `active_agents`, `code_reviews`, `costs`
 - [`docs/internal/modules/daemon.md`](./daemon.md) — daemon that reads `tasks` on every tick and manages `active_agents`
+- [`docs/internal/modules/producers.md`](./producers.md) — producers that create tasks via `src/db/queries/tasks.ts`
 - `src/db/schema.ts` — canonical table definitions
 - `src/db/queries/` — all query helpers
 - `drizzle/` — SQL migration history
