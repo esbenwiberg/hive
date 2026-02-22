@@ -42,9 +42,11 @@ vi.mock("../../src/execution/git-provider.js", () => ({
 // Mock node:fs/promises
 const mockMkdir = vi.fn();
 const mockRm = vi.fn();
+const mockAppendFile = vi.fn();
 vi.mock("node:fs/promises", () => ({
   mkdir: mockMkdir,
   rm: mockRm,
+  appendFile: mockAppendFile,
 }));
 
 // Mock node:child_process for git config calls in createWorktree
