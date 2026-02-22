@@ -38,10 +38,43 @@ export interface ProducersPageData {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+interface ProducerMeta {
+  label: string;
+  description: string;
+}
+
+const PRODUCER_META: Record<string, ProducerMeta> = {
+  "bug-hunter": {
+    label: "Bug Hunter",
+    description: "Scans repositories for crash sites, error patterns, and uncaught exceptions.",
+  },
+  "feature-scout": {
+    label: "Feature Scout",
+    description: "Identifies opportunities for new features based on codebase analysis.",
+  },
+  "log-scanner": {
+    label: "Log Scanner",
+    description: "Monitors application logs for recurring errors and anomalies.",
+  },
+  "maintenance": {
+    label: "Maintenance",
+    description: "Scans for technical debt, legacy code patterns, outdated dependencies, code duplication, and overly complex functions that need modern refactoring.",
+  },
+  "security-scanner": {
+    label: "Security Scanner",
+    description: "Detects potential security vulnerabilities and unsafe coding patterns.",
+  },
+  "self-monitor": {
+    label: "Self Monitor",
+    description: "Monitors the Hive system itself for performance issues and anomalies.",
+  },
+};
+
 const PRODUCER_NAMES = [
   "bug-hunter",
   "feature-scout",
   "log-scanner",
+  "maintenance",
   "security-scanner",
   "self-monitor",
 ];
@@ -96,15 +129,19 @@ export function producerCardPartial(producer: ProducerData): string {
       </div>`
     : `<div class="mb-4">${badge("No repos enabled", "slate")}</div>`;
 
-  // Header with name and health badge
+  // Header with name/label and health badge
+  const meta = PRODUCER_META[producer.name];
+  const displayLabel = meta ? meta.label : producer.name;
+  const displayDescription = meta ? meta.description : "";
   const headerHtml = `
-    <div class="flex items-center justify-between mb-4">
-      <h3 class="text-lg font-semibold text-slate-50">${escapeHtml(producer.name)}</h3>
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-lg font-semibold text-slate-50">${escapeHtml(displayLabel)}</h3>
       <div class="flex items-center gap-2">
         ${badge(health.label, health.color)}
         ${producer.schedule ? badge(producer.schedule, "emerald") : badge("No schedule", "slate")}
       </div>
     </div>
+    ${displayDescription ? `<p class="text-sm text-slate-400 mb-4">${escapeHtml(displayDescription)}</p>` : ""}
     ${repoBadgesHtml}`;
 
   // Last run stats

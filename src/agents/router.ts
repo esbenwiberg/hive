@@ -22,7 +22,7 @@ interface RouterResult {
 
 const ROUTER_AGENT = "router";
 
-const VALID_TYPES = new Set(["bug", "feature", "security", "refactor", "improvement"]);
+const VALID_TYPES = new Set(["bug", "feature", "security", "refactor", "improvement", "maintenance"]);
 const VALID_SIZES = new Set(["trivial", "small", "medium", "large"]);
 const VALID_WORKFLOWS = new Set(["flow", "epic"]);
 

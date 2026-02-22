@@ -14,6 +14,7 @@ import { logScanner } from "../producers/log-scanner.js";
 import { bugHunter } from "../producers/bug-hunter.js";
 import { securityScanner } from "../producers/security-scanner.js";
 import { featureScout } from "../producers/feature-scout.js";
+import { maintenanceProducer } from "../producers/maintenance.js";
 import { selfMonitor } from "../producers/self-monitor.js";
 import { docAuditor } from "../producers/doc-auditor.js";
 import { recordRun } from "../db/queries/producer-runs.js";
@@ -50,6 +51,7 @@ const ALL_PRODUCERS: Producer[] = [
   bugHunter,
   securityScanner,
   featureScout,
+  maintenanceProducer,
   selfMonitor,
   docAuditor,
 ];
