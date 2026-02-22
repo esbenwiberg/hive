@@ -9,7 +9,7 @@ import type { GitCredentials, WorktreeInfo } from "../domain/types.js";
 
 const execFileAsync = promisify(execFile);
 
-const WORKTREE_BASE = process.env.HIVE_WORKTREE_DIR ?? "/tmp/hive-worktrees";
+const WORKTREE_BASE = "/tmp/hive-worktrees";
 
 /**
  * Resolves git credentials for a user by looking up their stored token.
