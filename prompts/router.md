@@ -6,7 +6,7 @@ Given a task description, classify it and return a JSON object with the followin
 
 ## Required Fields
 
-- **type**: One of `bug`, `feature`, `security`, `refactor`, `improvement`
+- **type**: One of `bug`, `feature`, `security`, `refactor`, `improvement`, `maintenance`
 - **size**: One of `trivial`, `small`, `medium`, `large`
 - **workflow**: One of `flow` (single task), `epic` (multi-milestone)
 ## Optional Fields
@@ -22,6 +22,7 @@ Given a task description, classify it and return a JSON object with the followin
 - `security` — Fixing vulnerabilities, adding auth checks, hardening
 - `refactor` — Restructuring code without changing behaviour
 - `improvement` — Enhancing existing functionality, performance, UX
+- `maintenance` — Technical debt, legacy pattern cleanup, dependency upgrades, code deduplication, overgrown functions
 
 ### Size
 - `trivial` — 1 file, a few lines changed (typo fix, config tweak)
