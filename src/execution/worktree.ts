@@ -59,13 +59,22 @@ export async function createWorktree(
   const { stdout: baseShaRaw } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
   const baseSha = baseShaRaw.trim();
 
-  await gitProvider.createBranch(worktreePath, branch);
+  // Try to recover an existing remote branch (e.g. from a previous run that pushed milestones)
+  let recovered = false;
+  const hasBranch = await gitProvider.fetchBranch(worktreePath, branch, creds);
+  if (hasBranch) {
+    await execFileAsync("git", ["checkout", branch], { cwd: worktreePath });
+    recovered = true;
+    logger.info({ repoFullName, branch, path: worktreePath }, "Recovered existing remote branch");
+  } else {
+    await gitProvider.createBranch(worktreePath, branch);
+  }
 
   // Set git identity so commits are attributed to The Hive
   await execFileAsync("git", ["config", "user.name", "The Hive"], { cwd: worktreePath });
   await execFileAsync("git", ["config", "user.email", "hive@thehive.ai"], { cwd: worktreePath });
 
-  logger.info({ repoFullName, branch, path: worktreePath, baseSha }, "Worktree created");
+  logger.info({ repoFullName, branch, path: worktreePath, baseSha, recovered }, "Worktree created");
 
   return {
     path: worktreePath,
@@ -74,6 +83,7 @@ export async function createWorktree(
     provider,
     createdAt: new Date(),
     baseSha,
+    recovered,
   };
 }
 

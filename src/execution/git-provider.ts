@@ -90,6 +90,7 @@ export interface GitProvider {
     prUrl: string,
     creds: GitCredentials,
   ): Promise<"open" | "closed" | "merged">;
+  fetchBranch(repoDir: string, branch: string, creds: GitCredentials): Promise<boolean>;
 }
 
 // ── GitHubProvider ──────────────────────────────────────────────────────────
@@ -253,6 +254,26 @@ export class GitHubProvider implements GitProvider {
     if (data.state === "closed") return "closed";
     return "open";
   }
+
+  async fetchBranch(
+    repoDir: string,
+    branch: string,
+    creds: GitCredentials,
+  ): Promise<boolean> {
+    const remoteUrl = await execGit(["remote", "get-url", "origin"], repoDir);
+    const authedUrl = remoteUrl.includes("@")
+      ? remoteUrl.replace(/https:\/\/[^@]*@/, `https://x-access-token:${creds.token}@`)
+      : remoteUrl.replace(/https:\/\//, `https://x-access-token:${creds.token}@`);
+    await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
+    try {
+      await execGit(["fetch", "origin", branch], repoDir);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await execGit(["remote", "set-url", "origin", remoteUrl], repoDir);
+    }
+  }
 }
 
 // ── AzureDevOpsProvider ─────────────────────────────────────────────────────
@@ -350,6 +371,29 @@ export class AzureDevOpsProvider implements GitProvider {
     if (pr.status === "completed") return "merged";
     if (pr.status === "abandoned") return "closed";
     return "open";
+  }
+
+  async fetchBranch(
+    repoDir: string,
+    branch: string,
+    creds: GitCredentials,
+  ): Promise<boolean> {
+    const remoteUrl = await execGit(["remote", "get-url", "origin"], repoDir);
+    const parts = remoteUrl
+      .replace(/^https:\/\/[^@]*@dev\.azure\.com\//, "")
+      .replace(/\/_git\//, "/")
+      .split("/");
+    const [org, project, repo] = parts;
+    const authedUrl = `https://${creds.token}@dev.azure.com/${org}/${project}/_git/${repo}`;
+    await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
+    try {
+      await execGit(["fetch", "origin", branch], repoDir);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await execGit(["remote", "set-url", "origin", remoteUrl], repoDir);
+    }
   }
 }
 

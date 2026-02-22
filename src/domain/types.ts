@@ -124,6 +124,8 @@ export interface WorktreeInfo {
   createdAt: Date;
   /** SHA of the commit the feature branch was created from (used for diffing). */
   baseSha: string;
+  /** True when createWorktree checked out an existing remote branch instead of creating a new one. */
+  recovered?: boolean;
 }
 
 export interface ReviewFinding {

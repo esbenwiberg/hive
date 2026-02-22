@@ -202,6 +202,7 @@ async function executeMilestones(
   model: string,
   learningsStr: string,
   startFrom: number = 0,
+  pushFn?: () => Promise<void>,
 ): Promise<{ totalCostUsd: number }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
@@ -321,6 +322,15 @@ async function executeMilestones(
       .set({ completedMilestones: i + 1, updatedAt: new Date() })
       .where(eq(tasks.id, task.id));
 
+    // ── 5b. Push milestone to remote for recovery after worktree loss ──
+    if (pushFn) {
+      try {
+        await pushFn();
+      } catch (pushErr) {
+        logger.warn({ taskId: task.id, milestone: i + 1, err: pushErr }, "Milestone push failed — will retry on next milestone");
+      }
+    }
+
     // ── 6. Accumulate summary ─────────────────────────────────────────────
     priorSummaries.push(`${ms.title} — completed (review ${review.passed ? "passed" : "had issues"})`);
 
@@ -423,7 +433,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         .where(eq(tasks.id, taskId));
 
       // Reset stale milestone progress when creating a fresh worktree
-      if ((task.completedMilestones ?? 0) > 0) {
+      // (but not when we recovered the branch from remote — commits are there)
+      if ((task.completedMilestones ?? 0) > 0 && !worktree.recovered) {
         await db
           .update(tasks)
           .set({ completedMilestones: 0, updatedAt: new Date() })
@@ -530,8 +541,16 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
     let implCostUsd: number;
     if (hasMilestones) {
-      const startFrom = (reusedWorktree && task.completedMilestones) ? task.completedMilestones : 0;
-      const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom);
+      const startFrom = ((reusedWorktree || worktree?.recovered) && task.completedMilestones) ? task.completedMilestones : 0;
+
+      // Resolve credentials early so milestones can push incrementally
+      const milestoneCreds = await resolveGitCredentials(task.createdBy, repo.provider);
+      const milestoneGitProvider = getGitProvider(repo.provider);
+      const pushFn = async () => {
+        await milestoneGitProvider.push(worktree!.path, branchName, milestoneCreds);
+      };
+
+      const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn);
       implCostUsd = totalCostUsd;
     } else {
       // Single-call path (original behavior for tasks without milestones)

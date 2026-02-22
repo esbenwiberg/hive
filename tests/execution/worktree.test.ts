@@ -27,10 +27,12 @@ vi.mock("../../src/vault/keyvault.js", () => ({
 // Mock git-provider
 const mockClone = vi.fn();
 const mockCreateBranch = vi.fn();
+const mockFetchBranch = vi.fn();
 vi.mock("../../src/execution/git-provider.js", () => ({
   getGitProvider: vi.fn(() => ({
     clone: mockClone,
     createBranch: mockCreateBranch,
+    fetchBranch: mockFetchBranch,
     commitAll: vi.fn(),
     push: vi.fn(),
     createPR: vi.fn(),
@@ -128,6 +130,7 @@ describe("createWorktree", () => {
     mockMkdir.mockResolvedValue(undefined);
     mockClone.mockResolvedValue(undefined);
     mockCreateBranch.mockResolvedValue(undefined);
+    mockFetchBranch.mockResolvedValue(false);
 
     // Mock execFile for git config calls (promisified pattern)
     mockExecFile.mockImplementation(
