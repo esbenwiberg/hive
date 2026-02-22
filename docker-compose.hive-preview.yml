@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_DB: hive
+    ports:
+      - 5432:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U hive
+      interval: 5s
+      timeout: 3s
+      retries: 5
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - 4001:3000
+    volumes:
+      - repos:/repos
+    environment:
+      DATABASE_URL: postgresql://hive:hive@postgres:5432/hive
+      SESSION_SECRET: dev-secret-change-me
+      NODE_ENV: development
+      ENTRA_CLIENT_ID: null
+      ENTRA_CLIENT_SECRET: null
+      ENTRA_TENANT_ID: null
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PORT: 3000
+      LOG_LEVEL: debug
+      HIVE_MAX_WORKERS: 2
+      HIVE_POLL_MS: 5000
+      HIVE_PRODUCER_INTERVAL_MS: 60000
+      HIVE_DAEMON_USER_ID: null
+      HIVE_WORKTREE_DIR: /repos
+      HIVE_DEFAULT_REPO_ID: null
+      REDIRECT_URI: http://localhost:3000/auth/callback
+volumes:
+  pgdata: null
+  repos: null
