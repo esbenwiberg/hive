@@ -669,7 +669,7 @@ This table is the primary source for the dashboard's producer health view and co
 
 ## Task Creation Workflow
 
-When a producer decides to create a task, it calls `create()` from [`src/db/queries/tasks.ts`](../../../src/db/queries/tasks.ts) — see also [`docs/internal/modules/database.md`](./database.md). The call signature accepted by producers is:
+When a producer decides to create a task, it calls `create()` from `src/db/queries/tasks.ts` — see also [`docs/internal/modules/database.md`](./database.md). The call signature accepted by producers is:
 
 ```ts
 await create({
@@ -909,7 +909,7 @@ Follow these steps to add a new producer to The Hive.
 
 ```ts
 // src/producers/my-producer.ts
-import { create } from "../db/queries/tasks.js";
+import { create } from "../db/queries/tasks.js"; // src/db/queries/tasks.ts
 import { isDuplicate } from "./base.js";
 import logger from "../logger.js";
 import type { Producer, ProducerContext, ProducerResult } from "./base.js";
@@ -1008,68 +1008,7 @@ const threshold = (ctx.config?.someThreshold as number) ?? 10;
 
 ### Step 4 — Write tests
 
-Create a test file alongside your producer (e.g. `src/producers/<your-producer-name>.test.ts`):
-
-```ts
-import { describe, it, expect, vi } from "vitest";
-import { myProducer } from "./my-producer.js";
-
-vi.mock("../db/queries/tasks.js", () => ({
-  create: vi.fn().mockResolvedValue({ id: "TASK-001" }),
-}));
-
-vi.mock("./base.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./base.js")>();
-  return {
-    ...actual,
-    isDuplicate: vi.fn().mockResolvedValue(false),
-  };
-});
-
-describe("myProducer", () => {
-  it("creates tasks from discovered candidates", async () => {
-    const ctx = {
-      repoId: 1,
-      repoFullName: "acme/test-repo",
-      createdBy: 1,
-      dryRun: false,
-    };
-
-    const result = await myProducer.run(ctx);
-
-    expect(result.tasksCreated).toBeGreaterThan(0);
-    expect(result.errors).toHaveLength(0);
-  });
-
-  it("skips duplicate tasks", async () => {
-    const { isDuplicate } = await import("./base.js");
-    vi.mocked(isDuplicate).mockResolvedValue(true);
-
-    const result = await myProducer.run({
-      repoId: 1,
-      repoFullName: "acme/test-repo",
-      createdBy: 1,
-    });
-
-    expect(result.tasksCreated).toBe(0);
-    expect(result.duplicatesSkipped).toBeGreaterThan(0);
-  });
-
-  it("respects dry-run mode", async () => {
-    const { create } = await import("../db/queries/tasks.js");
-
-    const result = await myProducer.run({
-      repoId: 1,
-      repoFullName: "acme/test-repo",
-      createdBy: 1,
-      dryRun: true,
-    });
-
-    expect(create).not.toHaveBeenCalled();
-    expect(result.tasksCreated).toBeGreaterThanOrEqual(0);
-  });
-});
-```
+Create a test file alongside your producer and cover the core behaviours: task creation, duplicate skipping, and dry-run mode. Follow the patterns established in existing producer test files under `src/producers/`.
 
 ---
 
