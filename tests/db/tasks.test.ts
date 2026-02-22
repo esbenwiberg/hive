@@ -57,7 +57,7 @@ describe("tasks queries", () => {
       });
 
       expect(task).toBeDefined();
-      expect(task.id).toMatch(/^HIVE-\d{8}-[0-9a-f]{4}$/);
+      expect(task.id).toMatch(/^HIVE-\d{8}-[0-9a-f]{8}$/);
       expect(task.title).toBe("Fix login bug");
       expect(task.body).toBe("The login form crashes on submit");
       expect(task.source).toBe("manual");

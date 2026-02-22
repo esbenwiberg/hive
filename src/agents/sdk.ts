@@ -238,6 +238,7 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
       ...(system ? { system } : {}),
       tools,
       messages,
+      cache_control: { type: "ephemeral" as const },
     };
 
     let message;

@@ -112,11 +112,25 @@ interface AgenticResponse {
 }
 ```
 
+### Prompt Caching Strategy
+
+We use a combination of **explicit breakpoints** and **automatic caching** to minimise input token costs:
+
+| Layer | Mechanism | What it caches |
+|---|---|---|
+| System prompt | Explicit `cache_control` on the text block | Stable system instructions — shared across all calls with the same prompt |
+| Tools (agentic only) | Explicit `cache_control` on the last tool definition | Entire tools + system prefix — avoids re-encoding tool schemas every turn |
+| Conversation history (agentic only) | Top-level `cache_control` on the request body (automatic caching) | Growing message history — breakpoint moves forward each turn automatically |
+
+**How the three layers interact:** Anthropic allows up to 4 cache breakpoints per request. We use 3 (system, last tool, automatic), leaving 1 slot free. On each agentic turn the automatic breakpoint advances to the last message, so previous turns are read from cache at 10% of the base input price. Cache writes cost 25% more than base but pay for themselves after ~2 cache reads.
+
+**Cache lifetime:** 5 minutes (default). Each cache hit refreshes the TTL, so the cache stays warm throughout a multi-turn agentic session. For single-turn calls (`callClaude`), the system prompt cache is shared across rapid-fire pipeline calls (router, gate, refiner, etc.) hitting the same prompt within the TTL window.
+
 ### `callClaude(req: SdkRequest): Promise<SdkResponse>`
 
 Simple single-turn wrapper. Used by every non-agentic agent.
 
-- The system prompt is sent using Anthropic's `cache_control: "ephemeral"` so the prompt prefix is cached across repeated calls with the same system prompt.
+- The system prompt is sent with an explicit `cache_control: "ephemeral"` breakpoint.
 - When `dryRun: true`, the API is never called. This is used by the pipeline for smoke-testing wiring.
 - Handles `BadRequestError` context-limit errors automatically: if the model rejects the request because `max_tokens` would exceed the context window, the SDK recalculates a reduced `max_tokens` and retries once.
 
@@ -131,11 +145,12 @@ Multi-turn agentic loop. Used by `browser-validator`.
 4. Execute each `tool_use` block via `executeTool`; collect results.
 5. Push tool results as a new user message; go to step 1.
 
+**Caching:** Uses all three caching layers (see above). The top-level `cache_control` enables automatic caching so conversation history is incrementally cached each turn.
+
 **Context management** (critical for long-running browser sessions):
 - After 4+ turns, older tool-result blocks are proactively **compacted** to 200 characters (keeping the most recent 3 turn-pairs verbatim).
 - Before each turn the SDK estimates next-turn token usage and reduces `max_tokens` to stay within the 200k context limit.
 - Emergency compaction (200 chars → 100 chars, preserve 1 turn-pair) triggers if even `MIN_OUTPUT_TOKENS = 4096` won't fit.
-- The last tool in the tools list is marked `cache_control: "ephemeral"` so the entire system + tools prefix is cached.
 
 ### Lazy Client Singleton
 
