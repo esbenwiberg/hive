@@ -238,7 +238,6 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
       ...(system ? { system } : {}),
       tools,
       messages,
-      cache_control: { type: "ephemeral" as const },
     };
 
     let message;
@@ -289,8 +288,18 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
 
     req.onTurnComplete?.(turns);
 
-    // If stop reason is not tool_use, check for nudge or finish
+    // If stop reason is not tool_use, check for nudge or finish.
+    // Guard: if the response contains tool_use blocks despite non-tool_use stop reason
+    // (e.g. max_tokens truncation), strip them to avoid orphaned tool_use without tool_result.
     if (message.stop_reason !== "tool_use") {
+      const hasToolUse = message.content.some((b) => b.type === "tool_use");
+      if (hasToolUse) {
+        logger.warn({ turn: turns, stopReason: message.stop_reason }, "Stripping orphaned tool_use blocks (stop_reason was not tool_use)");
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg.role === "assistant" && Array.isArray(lastMsg.content)) {
+          lastMsg.content = lastMsg.content.filter((b) => b.type !== "tool_use");
+        }
+      }
       if (req.postCompletionNudge && nudgesUsed < maxNudges) {
         const nudge = req.postCompletionNudge({ toolsCalled, turns });
         if (nudge) {
