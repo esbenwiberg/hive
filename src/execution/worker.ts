@@ -720,6 +720,20 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
               if ((task.reworkCount ?? 0) < maxCycles) {
                 // Send for rework with browser findings
                 await updateStatus(taskId, "rework");
+
+                // Reset completedMilestones so rework re-executes all milestones
+                if (hasMilestones) {
+                  await db.update(tasks)
+                    .set({ completedMilestones: 0, updatedAt: new Date() })
+                    .where(eq(tasks.id, taskId));
+                }
+
+                // Get changed files from the worktree for scope-aware refinement
+                const browserChangedFiles = await execFileAsync(
+                  "git", ["diff", "--name-only", worktree!.baseSha],
+                  { cwd: worktree!.path },
+                ).then(r => r.stdout.trim().split("\n").filter(Boolean)).catch(() => [] as string[]);
+
                 const browserReviewResult: ReviewGateResult = {
                   verdict: "rework",
                   findings: validation.findings.map((f) => ({
@@ -731,6 +745,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
                   securityFindings: [],
                   verification: { testsRun: false, testsPassed: false, lintClean: false, buildSucceeded: false, notes: [] },
                   costUsd: validation.costUsd,
+                  changedFiles: browserChangedFiles,
                 };
                 await refineTask(taskId, browserReviewResult);
 
@@ -819,6 +834,14 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     if ((task.reworkCount ?? 0) < maxCyclesReview) {
       // Always rework if under max cycles — no terminal "fail" verdict
       await updateStatus(taskId, "rework");
+
+      // Reset completedMilestones so rework re-executes all milestones
+      if (hasMilestones) {
+        await db.update(tasks)
+          .set({ completedMilestones: 0, updatedAt: new Date() })
+          .where(eq(tasks.id, taskId));
+      }
+
       await refineTask(taskId, reviewResult);
 
       logger.info({ taskId, reworkCount: (task.reworkCount ?? 0) + 1 }, "Task sent for rework");

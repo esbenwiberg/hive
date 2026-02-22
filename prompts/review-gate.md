@@ -59,3 +59,7 @@ Respond with a JSON object:
 7. When changes affect APIs, architecture, configuration, or user-facing behavior,
    missing or outdated documentation updates in `docs/internal/` or `docs/external/`
    are grounds for "rework" (severity: minor or major depending on scope)
+8. When "Expected File Scope" is provided, apply extra scrutiny to changes
+   outside that scope. Necessary auxiliary changes (imports, type updates,
+   index re-exports) are acceptable. Substantive modifications to out-of-scope
+   files that introduce regressions or unnecessary changes are "major" findings.

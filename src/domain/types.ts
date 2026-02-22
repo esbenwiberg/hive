@@ -157,6 +157,8 @@ export interface ReviewGateResult {
   securityFindings: SecurityFinding[];
   verification: VerificationResult;
   costUsd: number;
+  /** Files actually changed in the worktree (relative paths from git diff). */
+  changedFiles?: string[];
 }
 
 export interface GitCredentials {

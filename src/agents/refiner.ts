@@ -10,6 +10,7 @@ import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import type { ReviewGateResult } from "../domain/types.js";
+import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
 /**
  * Refines a task for rework based on review feedback.
@@ -37,6 +38,35 @@ export async function refineTask(
       .map(f => `- [${f.severity}] ${f.type}: ${f.description}${f.file ? ` (${f.file})` : ""}`)
       .join("\n");
 
+    // Extract scope context from architect blueprint + review result
+    const enrichment = task.enrichment as Record<string, unknown> | null;
+    const architect = enrichment?.architect as ArchitectBlueprint | undefined;
+    let expectedFiles: string[] = [];
+    if (architect && !architect.skipped) {
+      if (architect.milestones?.length) {
+        const set = new Set<string>();
+        for (const ms of architect.milestones) {
+          for (const f of ms.filesToModify) set.add(f);
+        }
+        expectedFiles = [...set];
+      } else if (architect.keyFiles?.length) {
+        expectedFiles = architect.keyFiles;
+      }
+    }
+    const changedFiles = reviewResult.changedFiles ?? [];
+    const outOfScope = changedFiles.filter(f => !expectedFiles.includes(f));
+
+    const scopeSections: string[] = [];
+    if (changedFiles.length > 0) {
+      scopeSections.push(`## Changed Files`, changedFiles.map(f => `- ${f}`).join("\n"), ``);
+    }
+    if (expectedFiles.length > 0) {
+      scopeSections.push(`## Expected File Scope`, expectedFiles.map(f => `- ${f}`).join("\n"), ``);
+    }
+    if (outOfScope.length > 0) {
+      scopeSections.push(`## Out-of-scope Files`, outOfScope.map(f => `- ${f}`).join("\n"), ``);
+    }
+
     const userPrompt = [
       `## Task: ${task.title}`,
       ``,
@@ -48,6 +78,7 @@ export async function refineTask(
       `## Security Findings`,
       securitySummary || "(none)",
       ``,
+      ...scopeSections,
       task.retryInstructions ? `## Previous Retry Instructions\n${task.retryInstructions}` : "",
       ``,
       `## Rework Cycle: ${(task.reworkCount ?? 0) + 1}`,

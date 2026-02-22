@@ -13,6 +13,7 @@ import { fireAndForgetFeedback } from "../agents/feedback-loop.js";
 import { analyzeReviewPatterns } from "../agents/code-quality-analyst.js";
 import { loadPrompt } from "../prompt-cache.js";
 import type { ReviewGateResult, WorktreeInfo } from "../domain/types.js";
+import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -113,11 +114,43 @@ export async function reviewChanges(
     const diff = await getGitDiff(worktreeInfo.path, worktreeInfo.baseSha);
     const changedFiles = await getChangedFiles(worktreeInfo.path, worktreeInfo.baseSha);
 
-    const userPrompt = [
+    // Extract expected file scope from architect blueprint
+    const enrichment = task.enrichment as Record<string, unknown> | null;
+    const architect = enrichment?.architect as ArchitectBlueprint | undefined;
+    let expectedFiles: string[] = [];
+    if (architect && !architect.skipped) {
+      if (architect.milestones?.length) {
+        const set = new Set<string>();
+        for (const ms of architect.milestones) {
+          for (const f of ms.filesToModify) set.add(f);
+        }
+        expectedFiles = [...set];
+      } else if (architect.keyFiles?.length) {
+        expectedFiles = architect.keyFiles;
+      }
+    }
+
+    const promptSections = [
       `## Task: ${task.title}`,
       ``,
       task.body,
       ``,
+    ];
+
+    if (expectedFiles.length > 0) {
+      const outOfScope = changedFiles.filter(f => !expectedFiles.includes(f));
+      promptSections.push(
+        `## Expected File Scope`,
+        `Expected: ${expectedFiles.map(f => `\`${f}\``).join(", ")}`,
+        `Actually changed: ${changedFiles.map(f => `\`${f}\``).join(", ")}`,
+        ...(outOfScope.length > 0
+          ? [`Out-of-scope changes: ${outOfScope.map(f => `\`${f}\``).join(", ")}`]
+          : [`All changes are within expected scope.`]),
+        ``,
+      );
+    }
+
+    promptSections.push(
       `## Changed Files`,
       changedFiles.map(f => `- ${f}`).join("\n"),
       ``,
@@ -125,7 +158,9 @@ export async function reviewChanges(
       "```",
       diff.substring(0, 50000), // Truncate very large diffs
       "```",
-    ].join("\n");
+    );
+
+    const userPrompt = promptSections.join("\n");
 
     const response = await callClaude({
       prompt: userPrompt,
@@ -138,6 +173,7 @@ export async function reviewChanges(
 
     const result = parseReviewResult(response.text);
     result.costUsd = costUsd;
+    result.changedFiles = changedFiles;
 
     await recordReview(
       taskId,
