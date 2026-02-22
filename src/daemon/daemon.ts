@@ -16,6 +16,7 @@ import { securityScanner } from "../producers/security-scanner.js";
 import { featureScout } from "../producers/feature-scout.js";
 import { selfMonitor } from "../producers/self-monitor.js";
 import { docAuditor } from "../producers/doc-auditor.js";
+import { maintenanceProducer } from "../producers/maintenance.js";
 import { recordRun } from "../db/queries/producer-runs.js";
 import { notifyTasksCreated } from "../notifications.js";
 import { listAll } from "../db/queries/repos.js";
@@ -52,6 +53,7 @@ const ALL_PRODUCERS: Producer[] = [
   featureScout,
   selfMonitor,
   docAuditor,
+  maintenanceProducer,
 ];
 
 export class Daemon {

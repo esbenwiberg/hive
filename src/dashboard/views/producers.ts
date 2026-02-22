@@ -42,6 +42,7 @@ const PRODUCER_NAMES = [
   "bug-hunter",
   "feature-scout",
   "log-scanner",
+  "maintenance",
   "security-scanner",
   "self-monitor",
 ];
