@@ -16,9 +16,9 @@ interface CertPaths {
   sshKey: string;
 }
 
-function exec(cmd: string, args: string[]): Promise<string> {
+function exec(cmd: string, args: string[], timeoutMs = 60_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 60_000 }, (error, stdout, stderr) => {
+    execFile(cmd, args, { timeout: timeoutMs }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(`${cmd} ${args.join(" ")} failed: ${stderr || error.message}`));
         return;
@@ -146,7 +146,7 @@ export async function remoteComposeUp(
     ...sshArgs(config, sshKeyPath),
     sshTarget(config),
     cmd,
-  ]);
+  ], 5 * 60_000); // 5 min — image pull + build can be slow
 
   logger.info({ project, remotePath }, "Remote docker compose up succeeded");
 }
