@@ -204,8 +204,8 @@ describe("GitHubProvider", () => {
       // Third: fetch to refresh tracking refs
       expect(mockExecFile.mock.calls[2][1]).toEqual(["fetch", "origin", "feature/my-branch"]);
 
-      // Fourth: rev-parse to get fetched SHA
-      expect(mockExecFile.mock.calls[3][1]).toEqual(["rev-parse", "refs/remotes/origin/feature/my-branch"]);
+      // Fourth: rev-parse FETCH_HEAD (single-branch clones lack tracking refs)
+      expect(mockExecFile.mock.calls[3][1]).toEqual(["rev-parse", "FETCH_HEAD"]);
 
       // Fifth: push with explicit lease
       expect(mockExecFile.mock.calls[4][1]).toEqual([

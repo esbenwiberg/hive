@@ -63,7 +63,10 @@ export async function createWorktree(
   let recovered = false;
   const hasBranch = await gitProvider.fetchBranch(worktreePath, branch, creds);
   if (hasBranch) {
-    await execFileAsync("git", ["checkout", branch], { cwd: worktreePath });
+    // Use FETCH_HEAD explicitly — single-branch clones don't create
+    // remote tracking refs for other branches, so `git checkout <branch>`
+    // would fail with "pathspec did not match".
+    await execFileAsync("git", ["checkout", "-b", branch, "FETCH_HEAD"], { cwd: worktreePath });
     recovered = true;
     logger.info({ repoFullName, branch, path: worktreePath }, "Recovered existing remote branch");
   } else {

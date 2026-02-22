@@ -147,12 +147,12 @@ export class GitHubProvider implements GitProvider {
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
 
     // Fetch before push so --force-with-lease has current tracking refs.
-    // Use the fetched SHA explicitly to avoid stale tracking ref issues
-    // when worktrees are reused across retries with different credentials.
+    // Use FETCH_HEAD instead of refs/remotes/origin/<branch> because
+    // single-branch clones don't create tracking refs for other branches.
     let leaseFlag = "--force-with-lease";
     try {
       await execGit(["fetch", "origin", branch], repoDir);
-      const remoteSha = await execGit(["rev-parse", `refs/remotes/origin/${branch}`], repoDir);
+      const remoteSha = await execGit(["rev-parse", "FETCH_HEAD"], repoDir);
       leaseFlag = `--force-with-lease=${branch}:${remoteSha}`;
     } catch { /* branch may not exist yet — use bare --force-with-lease */ }
 
@@ -341,12 +341,12 @@ export class AzureDevOpsProvider implements GitProvider {
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
 
     // Fetch before push so --force-with-lease has current tracking refs.
-    // Use the fetched SHA explicitly to avoid stale tracking ref issues
-    // when worktrees are reused across retries with different credentials.
+    // Use FETCH_HEAD instead of refs/remotes/origin/<branch> because
+    // single-branch clones don't create tracking refs for other branches.
     let leaseFlag = "--force-with-lease";
     try {
       await execGit(["fetch", "origin", branch], repoDir);
-      const remoteSha = await execGit(["rev-parse", `refs/remotes/origin/${branch}`], repoDir);
+      const remoteSha = await execGit(["rev-parse", "FETCH_HEAD"], repoDir);
       leaseFlag = `--force-with-lease=${branch}:${remoteSha}`;
     } catch { /* branch may not exist yet — use bare --force-with-lease */ }
 
