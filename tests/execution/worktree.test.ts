@@ -194,6 +194,88 @@ describe("createWorktree", () => {
     expect(result.provider).toBe("github");
     expect(result.createdAt).toBeInstanceOf(Date);
   });
+
+  it("uses merge-base for baseSha when recovering a remote branch", async () => {
+    const mainHead = "aaa1111111111111111111111111111111111111";
+    const forkPoint = "bbb2222222222222222222222222222222222222";
+
+    // fetchBranch returns true → branch is recovered
+    mockFetchBranch.mockResolvedValue(true);
+
+    mockExecFile.mockImplementation(
+      (_cmd: string, args: string[], _opts: unknown, callback?: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+        const cb = callback ?? (_opts as (err: Error | null, result: { stdout: string; stderr: string }) => void);
+
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          cb(null, { stdout: `${mainHead}\n`, stderr: "" });
+        } else if (args[0] === "merge-base") {
+          cb(null, { stdout: `${forkPoint}\n`, stderr: "" });
+        } else {
+          // checkout, config, etc.
+          cb(null, { stdout: "", stderr: "" });
+        }
+      },
+    );
+
+    const result = await createWorktree("acme/widget", "github", "hive/TASK-1", "main", 10);
+
+    expect(result.baseSha).toBe(forkPoint);
+    expect(result.recovered).toBe(true);
+    // createBranch should NOT be called — branch was recovered
+    expect(mockCreateBranch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to default-branch HEAD when merge-base fails on recovery", async () => {
+    const mainHead = "aaa1111111111111111111111111111111111111";
+
+    mockFetchBranch.mockResolvedValue(true);
+
+    mockExecFile.mockImplementation(
+      (_cmd: string, args: string[], _opts: unknown, callback?: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+        const cb = callback ?? (_opts as (err: Error | null, result: { stdout: string; stderr: string }) => void);
+
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          cb(null, { stdout: `${mainHead}\n`, stderr: "" });
+        } else if (args[0] === "merge-base") {
+          // Simulate merge-base failure (disjoint histories)
+          cb(new Error("fatal: no merge base found"), { stdout: "", stderr: "" });
+        } else {
+          cb(null, { stdout: "", stderr: "" });
+        }
+      },
+    );
+
+    const result = await createWorktree("acme/widget", "github", "hive/TASK-2", "main", 10);
+
+    // Should fall back to the default-branch HEAD
+    expect(result.baseSha).toBe(mainHead);
+    expect(result.recovered).toBe(true);
+  });
+
+  it("uses default-branch HEAD as baseSha when no branch recovery (new branch)", async () => {
+    const mainHead = "ccc3333333333333333333333333333333333333";
+
+    // fetchBranch returns false → new branch
+    mockFetchBranch.mockResolvedValue(false);
+
+    mockExecFile.mockImplementation(
+      (_cmd: string, args: string[], _opts: unknown, callback?: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+        const cb = callback ?? (_opts as (err: Error | null, result: { stdout: string; stderr: string }) => void);
+
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          cb(null, { stdout: `${mainHead}\n`, stderr: "" });
+        } else {
+          cb(null, { stdout: "", stderr: "" });
+        }
+      },
+    );
+
+    const result = await createWorktree("acme/widget", "github", "hive/TASK-3", "main", 10);
+
+    // New branch: baseSha = default branch HEAD, no merge-base needed
+    expect(result.baseSha).toBe(mainHead);
+    expect(result.recovered).toBeFalsy();
+  });
 });
 
 describe("cleanupWorktree", () => {

@@ -15,7 +15,7 @@ import { estimateCostUsd } from "../agents/cost-utils.js";
 import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
 import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktree.js";
 import { getGitProvider } from "./git-provider.js";
-import { reviewChanges } from "./review-gate.js";
+import { reviewChanges, validateBaseSha } from "./review-gate.js";
 import { reviewFix } from "./milestone-review.js";
 import { refineTask } from "../agents/refiner.js";
 import { parseHiveYaml } from "../hive-yaml.js";
@@ -629,8 +629,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       .where(eq(tasks.id, taskId));
 
     // Empty-diff detection: catch cases where Claude produced no code changes
+    const validatedSha = await validateBaseSha(worktree.path, worktree.baseSha);
     const { stdout: diffOutput } = await execFileAsync(
-      "git", ["diff", "--name-only", worktree.baseSha],
+      "git", ["diff", "--name-only", validatedSha],
       { cwd: worktree.path },
     );
     if (!diffOutput.trim()) {
@@ -729,8 +730,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
                 }
 
                 // Get changed files from the worktree for scope-aware refinement
+                const browserSha = await validateBaseSha(worktree!.path, worktree!.baseSha);
                 const browserChangedFiles = await execFileAsync(
-                  "git", ["diff", "--name-only", worktree!.baseSha],
+                  "git", ["diff", "--name-only", browserSha],
                   { cwd: worktree!.path },
                 ).then(r => r.stdout.trim().split("\n").filter(Boolean)).catch(() => [] as string[]);
 

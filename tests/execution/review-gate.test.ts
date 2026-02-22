@@ -66,7 +66,7 @@ vi.mock("../../src/agents/code-quality-analyst.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 const { callClaude } = await import("../../src/agents/sdk.js");
-const { reviewChanges, parseReviewResult } = await import(
+const { reviewChanges, parseReviewResult, validateBaseSha } = await import(
   "../../src/execution/review-gate.js"
 );
 const { findOrCreateByEntraOid } = await import(
@@ -458,5 +458,60 @@ describe("parseReviewResult", () => {
     expect(result.verdict).toBe("pass");
     expect(result.findings).toEqual([]);
     expect(result.securityFindings).toEqual([]);
+  });
+});
+
+describe("validateBaseSha", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns baseSha unchanged when it is a valid ancestor", async () => {
+    // --is-ancestor exits 0 → baseSha is valid
+    mockExecFile.mockImplementation(
+      (_cmd: string, args: string[], _opts: unknown, callback?: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+        const cb = callback ?? (_opts as (err: Error | null, result: { stdout: string; stderr: string }) => void);
+        cb(null, { stdout: "", stderr: "" });
+      },
+    );
+
+    const result = await validateBaseSha("/tmp/worktree", "abc123");
+    expect(result).toBe("abc123");
+  });
+
+  it("recomputes merge-base when baseSha is not an ancestor", async () => {
+    const correctedSha = "fff999";
+
+    mockExecFile.mockImplementation(
+      (_cmd: string, args: string[], _opts: unknown, callback?: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+        const cb = callback ?? (_opts as (err: Error | null, result: { stdout: string; stderr: string }) => void);
+
+        if (args.includes("--is-ancestor")) {
+          // Not an ancestor → exit code 1
+          cb(new Error("exit code 1"), { stdout: "", stderr: "" });
+        } else if (args[0] === "merge-base") {
+          // merge-base succeeds with corrected SHA
+          cb(null, { stdout: `${correctedSha}\n`, stderr: "" });
+        } else {
+          cb(null, { stdout: "", stderr: "" });
+        }
+      },
+    );
+
+    const result = await validateBaseSha("/tmp/worktree", "stale-sha");
+    expect(result).toBe(correctedSha);
+  });
+
+  it("falls back to original baseSha when both ancestor check and merge-base fail", async () => {
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], _opts: unknown, callback?: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
+        const cb = callback ?? (_opts as (err: Error | null, result: { stdout: string; stderr: string }) => void);
+        // Both calls fail
+        cb(new Error("git error"), { stdout: "", stderr: "" });
+      },
+    );
+
+    const result = await validateBaseSha("/tmp/worktree", "original-sha");
+    expect(result).toBe("original-sha");
   });
 });

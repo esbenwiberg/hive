@@ -22,6 +22,33 @@ function getReviewPrompt(): string {
 }
 
 /**
+ * Validates that baseSha is an ancestor of the current HEAD and returns a
+ * corrected baseSha if not.  When the worktree was recovered from a remote
+ * branch but baseSha wasn't updated (e.g. loaded from the database), the diff
+ * would include unrelated changes from main.  This safety check prevents that.
+ */
+export async function validateBaseSha(worktreePath: string, baseSha: string): Promise<string> {
+  try {
+    // `merge-base --is-ancestor A B` exits 0 if A is an ancestor of B, 1 otherwise
+    await execFileAsync("git", ["merge-base", "--is-ancestor", baseSha, "HEAD"], { cwd: worktreePath });
+    return baseSha; // baseSha is a valid ancestor — no correction needed
+  } catch {
+    // baseSha is NOT an ancestor of HEAD — likely stale (main advanced past the branch fork)
+    logger.warn({ worktreePath, baseSha }, "baseSha is not an ancestor of HEAD — recomputing merge-base");
+    try {
+      const { stdout } = await execFileAsync("git", ["merge-base", baseSha, "HEAD"], { cwd: worktreePath });
+      const corrected = stdout.trim();
+      logger.info({ worktreePath, original: baseSha, corrected }, "baseSha corrected via merge-base");
+      return corrected;
+    } catch {
+      // Last resort: fall back to original baseSha so the review still runs
+      logger.warn({ worktreePath, baseSha }, "merge-base also failed — using original baseSha");
+      return baseSha;
+    }
+  }
+}
+
+/**
  * Gets the git diff of all changes in the worktree (committed + uncommitted)
  * relative to the base SHA the feature branch was created from.
  */
@@ -111,8 +138,9 @@ export async function reviewChanges(
     const task = await getById(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
 
-    const diff = await getGitDiff(worktreeInfo.path, worktreeInfo.baseSha);
-    const changedFiles = await getChangedFiles(worktreeInfo.path, worktreeInfo.baseSha);
+    const safeSha = await validateBaseSha(worktreeInfo.path, worktreeInfo.baseSha);
+    const diff = await getGitDiff(worktreeInfo.path, safeSha);
+    const changedFiles = await getChangedFiles(worktreeInfo.path, safeSha);
 
     // Extract expected file scope from architect blueprint
     const enrichment = task.enrichment as Record<string, unknown> | null;

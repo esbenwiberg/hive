@@ -56,8 +56,8 @@ export async function createWorktree(
   await gitProvider.clone(repoFullName, worktreePath, defaultBranch, creds);
 
   // Record the base SHA before creating the feature branch (used for diffing)
-  const { stdout: baseShaRaw } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
-  const baseSha = baseShaRaw.trim();
+  const { stdout: defaultHeadRaw } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+  let baseSha = defaultHeadRaw.trim();
 
   // Try to recover an existing remote branch (e.g. from a previous run that pushed milestones)
   let recovered = false;
@@ -68,6 +68,25 @@ export async function createWorktree(
     // would fail with "pathspec did not match".
     await execFileAsync("git", ["checkout", "-b", branch, "FETCH_HEAD"], { cwd: worktreePath });
     recovered = true;
+
+    // The recovered branch may have been forked from an older commit on the
+    // default branch.  If main has advanced since then, `baseSha` (current
+    // main HEAD) would cause the diff to include unrelated changes from main.
+    // Use merge-base to find the true fork point.
+    try {
+      const { stdout: mergeBaseRaw } = await execFileAsync(
+        "git", ["merge-base", defaultHeadRaw.trim(), "HEAD"], { cwd: worktreePath },
+      );
+      baseSha = mergeBaseRaw.trim();
+      logger.info({ repoFullName, branch, baseSha, defaultHead: defaultHeadRaw.trim() },
+        "Recovered branch: baseSha set to merge-base");
+    } catch (mbErr) {
+      // If merge-base fails (e.g. disjoint histories), keep the default-branch HEAD.
+      // The diff may include extra changes but at least won't crash.
+      logger.warn({ repoFullName, branch, err: mbErr },
+        "merge-base failed for recovered branch — falling back to default branch HEAD");
+    }
+
     logger.info({ repoFullName, branch, path: worktreePath }, "Recovered existing remote branch");
   } else {
     await gitProvider.createBranch(worktreePath, branch);
