@@ -160,16 +160,17 @@ describe("GitHubProvider", () => {
   // ── push ───────────────────────────────────────────────────────────────────
 
   describe("push", () => {
-    it("sets remote URL with token, fetches, and pushes", async () => {
-      // First call: remote get-url -> returns existing URL
-      // Second call: remote set-url -> succeeds
-      // Third call: fetch (refresh tracking refs) -> succeeds
-      // Fourth call: push -> succeeds
+    it("sets remote URL with token, fetches, resolves SHA, and pushes with explicit lease", async () => {
+      // 1: remote get-url -> returns existing URL
+      // 2: remote set-url -> succeeds
+      // 3: fetch (refresh tracking refs) -> succeeds
+      // 4: rev-parse (get fetched SHA) -> returns SHA
+      // 5: push with explicit --force-with-lease=branch:sha
       let callCount = 0;
       mockExecFile.mockImplementation(
         (
           _cmd: string,
-          _args: string[],
+          args: string[],
           _opts: Record<string, unknown>,
           cb: (err: Error | null, stdout: string, stderr: string) => void,
         ) => {
@@ -177,6 +178,8 @@ describe("GitHubProvider", () => {
           if (callCount === 1) {
             // remote get-url
             cb(null, "https://x-access-token:old-token@github.com/acme/widget.git", "");
+          } else if (args[0] === "rev-parse") {
+            cb(null, "abc1234", "");
           } else {
             cb(null, "", "");
           }
@@ -185,7 +188,7 @@ describe("GitHubProvider", () => {
 
       await provider.push("/tmp/repo", "feature/my-branch", githubCreds);
 
-      expect(mockExecFile).toHaveBeenCalledTimes(4);
+      expect(mockExecFile).toHaveBeenCalledTimes(5);
 
       // First: get-url
       expect(mockExecFile.mock.calls[0][1]).toEqual(["remote", "get-url", "origin"]);
@@ -201,8 +204,16 @@ describe("GitHubProvider", () => {
       // Third: fetch to refresh tracking refs
       expect(mockExecFile.mock.calls[2][1]).toEqual(["fetch", "origin", "feature/my-branch"]);
 
-      // Fourth: push
-      expect(mockExecFile.mock.calls[3][1]).toEqual(["push", "--force-with-lease", "origin", "feature/my-branch"]);
+      // Fourth: rev-parse to get fetched SHA
+      expect(mockExecFile.mock.calls[3][1]).toEqual(["rev-parse", "refs/remotes/origin/feature/my-branch"]);
+
+      // Fifth: push with explicit lease
+      expect(mockExecFile.mock.calls[4][1]).toEqual([
+        "push",
+        "--force-with-lease=feature/my-branch:abc1234",
+        "origin",
+        "feature/my-branch",
+      ]);
     });
   });
 
