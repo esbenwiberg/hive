@@ -27,6 +27,7 @@ vi.mock("../../src/logger.js", () => ({
 
 import { callClaude } from "../../src/agents/sdk.js";
 import { scorerEnricher, parseScorerResult } from "../../src/enrichers/scorer.js";
+import { computeTotalScore } from "../../src/dashboard/views/tasks.js";
 import type { TaskRow } from "../../src/db/schema.js";
 import type { EnricherConfig } from "../../src/enrichers/base.js";
 
@@ -424,5 +425,90 @@ describe("parseScorerResult", () => {
     expect(result.scores.value.score).toBe(5);       // "not a number" → NaN → not finite → 5
     expect(result.scores.complexity.score).toBe(1);   // null → Number(null)=0 → finite → clamp(0)=1
     expect(result.scores.feasibility.score).toBe(7);
+  });
+});
+
+// ── computeTotalScore polarity tests ─────────────────────────────────────────
+
+describe("computeTotalScore", () => {
+  /**
+   * Helper to build a ScorerData-like scores object from raw dimension values.
+   * value & feasibility: high = good (used as-is)
+   * risk & complexity:   low  = good (inverted via 11 - score)
+   */
+  function makeScores(value: number, complexity: number, risk: number, feasibility: number) {
+    return {
+      value:       { score: value,       reasoning: "" },
+      complexity:  { score: complexity,  reasoning: "" },
+      risk:        { score: risk,        reasoning: "" },
+      feasibility: { score: feasibility, reasoning: "" },
+    };
+  }
+
+  it("yields the maximum total when value=10, feasibility=10, risk=1, complexity=1", () => {
+    // Adjusted: value=10 (as-is), feasibility=10 (as-is), risk inverted: 11-1=10, complexity inverted: 11-1=10
+    // Average = (10 + 10 + 10 + 10) / 4 = 10
+    const total = computeTotalScore(makeScores(10, 1, 1, 10));
+    expect(total).toBe(10);
+  });
+
+  it("yields the minimum total when value=1, feasibility=1, risk=10, complexity=10", () => {
+    // value=1 (as-is), feasibility=1 (as-is), risk inverted: 11-10=1, complexity inverted: 11-10=1
+    // Average = (1 + 1 + 1 + 1) / 4 = 1
+    const total = computeTotalScore(makeScores(1, 10, 10, 1));
+    expect(total).toBe(1);
+  });
+
+  it("inverts risk and complexity but keeps value and feasibility as-is", () => {
+    // value=8 (as-is=8), complexity=6 → inverted=5, risk=3 → inverted=8, feasibility=7 (as-is=7)
+    // Average = (8 + 5 + 8 + 7) / 4 = 28 / 4 = 7
+    const total = computeTotalScore(makeScores(8, 6, 3, 7));
+    expect(total).toBeCloseTo(7, 5);
+  });
+
+  it("treats mid-range scores symmetrically (all 5 or 6)", () => {
+    // value=5 (as-is=5), complexity=6 → inverted=5, risk=6 → inverted=5, feasibility=5 (as-is=5)
+    // Average = (5 + 5 + 5 + 5) / 4 = 5
+    const total = computeTotalScore(makeScores(5, 6, 6, 5));
+    expect(total).toBe(5);
+  });
+
+  it("handles a null scores object by returning null", () => {
+    expect(computeTotalScore(null)).toBeNull();
+    expect(computeTotalScore(undefined)).toBeNull();
+  });
+
+  it("handles partially missing dimensions by averaging only present ones", () => {
+    // Only value=10 and risk=1 present; risk inverted = 10
+    // Average = (10 + 10) / 2 = 10
+    const total = computeTotalScore({
+      value:       { score: 10, reasoning: "" },
+      risk:        { score: 1,  reasoning: "" },
+    } as Parameters<typeof computeTotalScore>[0]);
+    expect(total).toBe(10);
+  });
+
+  it("high raw risk score lowers total (polarity check)", () => {
+    const highRisk  = computeTotalScore(makeScores(5, 5, 10, 5));
+    const lowRisk   = computeTotalScore(makeScores(5, 5, 1,  5));
+    expect(lowRisk!).toBeGreaterThan(highRisk!);
+  });
+
+  it("high raw complexity score lowers total (polarity check)", () => {
+    const highComplexity = computeTotalScore(makeScores(5, 10, 5, 5));
+    const lowComplexity  = computeTotalScore(makeScores(5, 1,  5, 5));
+    expect(lowComplexity!).toBeGreaterThan(highComplexity!);
+  });
+
+  it("high raw value score raises total (polarity check)", () => {
+    const highValue = computeTotalScore(makeScores(10, 5, 5, 5));
+    const lowValue  = computeTotalScore(makeScores(1,  5, 5, 5));
+    expect(highValue!).toBeGreaterThan(lowValue!);
+  });
+
+  it("high raw feasibility score raises total (polarity check)", () => {
+    const highFeas = computeTotalScore(makeScores(5, 5, 5, 10));
+    const lowFeas  = computeTotalScore(makeScores(5, 5, 5, 1));
+    expect(highFeas!).toBeGreaterThan(lowFeas!);
   });
 });
