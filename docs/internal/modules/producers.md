@@ -669,7 +669,7 @@ This table is the primary source for the dashboard's producer health view and co
 
 ## Task Creation Workflow
 
-When a producer decides to create a task, it calls `create()` from [`src/db/queries/tasks.ts`](../../../src/db/queries/tasks.ts). The call signature accepted by producers is:
+When a producer decides to create a task, it calls `create()` from [`src/db/queries/tasks.ts`](../../../src/db/queries/tasks.ts) — see also [`docs/internal/modules/database.md`](./database.md#tasksts). The call signature accepted by producers is:
 
 ```ts
 await create({
@@ -1008,7 +1008,7 @@ const threshold = (ctx.config?.someThreshold as number) ?? 10;
 
 ### Step 4 — Write tests
 
-Create a test file alongside your producer (e.g. `src/producers/my-producer.test.ts`):
+Create a test file alongside your producer (e.g. `src/producers/<your-producer-name>.test.ts`):
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
