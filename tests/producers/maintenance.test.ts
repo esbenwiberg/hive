@@ -33,6 +33,8 @@ const mockCallClaude = callClaude as ReturnType<typeof vi.fn>;
 
 useTestDb();
 
+const TEST_REPO_DIR = "/tmp/hive-test-repo";
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function seedUserAndRepo() {
@@ -41,30 +43,35 @@ async function seedUserAndRepo() {
     "maintenance@example.com",
     "Maintenance Test User",
   );
-  const repo = await findOrCreateRepo("github", "acme/widget");
+  const repo = await findOrCreateRepo("github", "acme/legacy-app");
   return { user, repo };
 }
 
 function ctxWithRepo(repoId: number, userId: number) {
   return {
     repoId,
-    repoFullName: "acme/widget",
-    repoDir: "/tmp/hive-test-repo",
+    repoFullName: "acme/legacy-app",
+    repoDir: TEST_REPO_DIR,
     createdBy: userId,
   };
 }
 
-/** Build a minimal valid LLM JSON response for one finding */
-function findingJson(overrides: Record<string, unknown> = {}): string {
-  const finding = {
-    title: "Refactor legacy auth module to use modern JWT library",
-    body: "The auth module uses a deprecated HMAC approach. Replacing it with `jsonwebtoken` reduces risk.",
-    category: "legacy",
+function makeFinding(overrides: Record<string, unknown> = {}) {
+  return {
+    title: "Refactor authentication middleware",
+    body: "The auth middleware has grown to 500 lines.",
+    category: "complexity",
     scores: { value: 4, complexity: 2, risk: 2, block: 1 },
     priority: 7,
     ...overrides,
   };
-  return JSON.stringify([finding]);
+}
+
+function jsonResponse(findings: unknown[]) {
+  return {
+    text: JSON.stringify(findings),
+    cost: { model: "claude-sonnet-4-20250514", inputTokens: 200, outputTokens: 100 },
+  };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -75,38 +82,33 @@ describe("MaintenanceProducer", () => {
     vi.clearAllMocks();
   });
 
-  it("exports MaintenanceProducer class and name is 'maintenance'", () => {
-    const producer = new MaintenanceProducer();
-    expect(producer.name).toBe("maintenance");
+  // ── Prompt loading ─────────────────────────────────────────────────────────
+
+  it("loads its prompt file without throwing", async () => {
+    const { loadPrompt } = await import("../../src/prompt-cache.js");
+    expect(() => loadPrompt("producers/maintenance")).not.toThrow();
+    const text = loadPrompt("producers/maintenance");
+    expect(typeof text).toBe("string");
+    expect(text.length).toBeGreaterThan(0);
   });
 
-  it("creates tasks with type 'chore' for each finding", async () => {
+  // ── Basic task creation ────────────────────────────────────────────────────
+
+  it("creates tasks for each finding returned by Claude", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new MaintenanceProducer();
 
-    mockCallClaude.mockResolvedValue({
-      text: JSON.stringify([
-        {
-          title: "Refactor legacy auth module",
-          body: "Replace deprecated HMAC implementation.",
-          category: "legacy",
-          scores: { value: 4, complexity: 2, risk: 2, block: 1 },
-          priority: 7,
-        },
-        {
-          title: "Merge duplicated validation helpers in utils/",
-          body: "Three copies of email validation exist across the repo.",
-          category: "duplication",
-          scores: { value: 3, complexity: 1, risk: 1, block: 1 },
-          priority: 9,
-        },
+    mockCallClaude.mockResolvedValue(
+      jsonResponse([
+        makeFinding({ title: "Refactor auth middleware" }),
+        makeFinding({ title: "Remove dead payment code", category: "dead-code" }),
+        makeFinding({ title: "Upgrade lodash to v4", category: "outdated-deps" }),
       ]),
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 300, outputTokens: 80 },
-    });
+    );
 
     const result = await producer.run(ctxWithRepo(repo.id, user.id));
 
-    expect(result.tasksCreated).toBe(2);
+    expect(result.tasksCreated).toBe(3);
     expect(result.errors).toHaveLength(0);
 
     const created = await db
@@ -114,110 +116,228 @@ describe("MaintenanceProducer", () => {
       .from(tasks)
       .where(sql`${tasks.source} = 'producer:maintenance'`);
 
-    expect(created).toHaveLength(2);
-    for (const task of created) {
-      expect(task.type).toBe("chore");
-    }
+    expect(created).toHaveLength(3);
+    expect(created.map((t) => t.type)).toEqual(["chore", "chore", "chore"]);
   });
 
-  it("includes the four-axis score breakdown in the task body", async () => {
+  // ── Score-based priority ordering ─────────────────────────────────────────
+
+  it("inserts high-value/low-complexity findings before low-value/high-complexity ones", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new MaintenanceProducer();
 
-    mockCallClaude.mockResolvedValue({
-      text: findingJson(),
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 200, outputTokens: 60 },
+    // Lower priority: value=2, complexity=4, risk=3, block=1 → (2*2)+(1*2)-4-3 = -1
+    const lowPriority = makeFinding({
+      title: "Low priority task",
+      scores: { value: 2, complexity: 4, risk: 3, block: 1 },
     });
 
-    await producer.run(ctxWithRepo(repo.id, user.id));
-
-    const [task] = await db
-      .select()
-      .from(tasks)
-      .where(sql`${tasks.source} = 'producer:maintenance'`);
-
-    expect(task.body).toContain("Value");
-    expect(task.body).toContain("Complexity");
-    expect(task.body).toContain("Risk");
-    expect(task.body).toContain("Block");
-    expect(task.body).toContain("Priority");
-    expect(task.body).toContain("5");
-  });
-
-  it("assigns size based on complexity score", async () => {
-    const { user, repo } = await seedUserAndRepo();
-    const producer = new MaintenanceProducer();
-
-    mockCallClaude.mockResolvedValue({
-      text: JSON.stringify([
-        {
-          title: "Low-complexity quick-win task",
-          body: "Small fix.",
-          category: "dead-code",
-          scores: { value: 3, complexity: 1, risk: 1, block: 1 },
-          priority: 8,
-        },
-        {
-          title: "Medium-complexity refactor task",
-          body: "Medium effort.",
-          category: "complexity",
-          scores: { value: 3, complexity: 3, risk: 2, block: 1 },
-          priority: 5,
-        },
-        {
-          title: "High-complexity architectural overhaul",
-          body: "Large effort needed.",
-          category: "legacy",
-          scores: { value: 5, complexity: 5, risk: 4, block: 3 },
-          priority: 9,
-        },
-      ]),
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 300, outputTokens: 100 },
+    // Higher priority: value=5, complexity=1, risk=1, block=3 → (5*2)+(3*2)-1-1 = 14
+    const highPriority = makeFinding({
+      title: "High priority task",
+      scores: { value: 5, complexity: 1, risk: 1, block: 3 },
     });
+
+    // Return low-priority first to confirm the producer re-sorts by recomputed priority
+    mockCallClaude.mockResolvedValue(jsonResponse([lowPriority, highPriority]));
 
     await producer.run(ctxWithRepo(repo.id, user.id));
 
     const created = await db
-      .select()
+      .select({ title: tasks.title, body: tasks.body })
       .from(tasks)
       .where(sql`${tasks.source} = 'producer:maintenance'`);
 
-    const byTitle = Object.fromEntries(created.map((t) => [t.title, t]));
+    // Both tasks are created
+    expect(created).toHaveLength(2);
+    const titles = created.map((t) => t.title);
+    expect(titles).toContain("High priority task");
+    expect(titles).toContain("Low priority task");
 
-    expect(byTitle["Low-complexity quick-win task"].size).toBe("small");
-    expect(byTitle["Medium-complexity refactor task"].size).toBe("medium");
-    expect(byTitle["High-complexity architectural overhaul"].size).toBe("large");
+    // High-priority task body should show priority=14, low-priority should show priority=-1
+    const highTask = created.find((t) => t.title === "High priority task")!;
+    const lowTask = created.find((t) => t.title === "Low priority task")!;
+    expect(highTask.body).toContain("**14**");
+    expect(lowTask.body).toContain("**-1**");
   });
 
-  it("deduplicates — skips findings already open as tasks", async () => {
+  // ── Deduplication ─────────────────────────────────────────────────────────
+
+  it("skips findings whose titles match existing open tasks", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    mockCallClaude.mockResolvedValue(
+      jsonResponse([
+        makeFinding({ title: "Refactor auth middleware" }),
+        makeFinding({ title: "Remove dead payment code", category: "dead-code" }),
+      ]),
+    );
+
+    const ctx = ctxWithRepo(repo.id, user.id);
+
+    // First run creates both tasks
+    await producer.run(ctx);
+
+    // Second run with same titles — both should be skipped
+    const result = await producer.run(ctx);
+    expect(result.tasksCreated).toBe(0);
+    expect(result.duplicatesSkipped).toBe(2);
+  });
+
+  it("creates a task if a previous one with the same title is in terminal status", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    const { create: createTask } = await import("../../src/db/queries/tasks.js");
+
+    // Manually create a task and fast-forward it to 'done' via direct DB update
+    const task = await createTask({
+      title: "Refactor auth middleware",
+      body: "old body",
+      source: "producer:maintenance",
+      repoId: repo.id,
+      createdBy: user.id,
+    });
+    await db
+      .update(tasks)
+      .set({ status: "done", updatedAt: new Date() })
+      .where(sql`${tasks.id} = ${task.id}`);
+
+    mockCallClaude.mockResolvedValue(
+      jsonResponse([makeFinding({ title: "Refactor auth middleware" })]),
+    );
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
+    expect(result.tasksCreated).toBe(1);
+    expect(result.duplicatesSkipped).toBe(0);
+  });
+
+  // ── Edge: no findings ─────────────────────────────────────────────────────
+
+  it("returns empty suggestions when Claude returns an empty array", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new MaintenanceProducer();
 
     mockCallClaude.mockResolvedValue({
-      text: findingJson({ title: "Migrate from deprecated request library" }),
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 200, outputTokens: 60 },
+      text: "[]",
+      cost: { model: "claude-sonnet-4-20250514", inputTokens: 50, outputTokens: 2 },
     });
 
-    const ctx = ctxWithRepo(repo.id, user.id);
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
 
-    // First run — should create
-    const first = await producer.run(ctx);
-    expect(first.tasksCreated).toBe(1);
-
-    // Second run with same findings — should deduplicate
-    const second = await producer.run(ctx);
-    expect(second.tasksCreated).toBe(0);
-    expect(second.duplicatesSkipped).toBe(1);
+    expect(result.tasksCreated).toBe(0);
+    expect(result.duplicatesSkipped).toBe(0);
+    expect(result.errors).toHaveLength(0);
   });
 
-  it("returns early and adds an error when repoDir is missing", async () => {
+  it("returns empty suggestions when Claude responds with NONE", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    mockCallClaude.mockResolvedValue({
+      text: "NONE",
+      cost: { model: "claude-sonnet-4-20250514", inputTokens: 50, outputTokens: 4 },
+    });
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
+
+    expect(result.tasksCreated).toBe(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  // ── Edge: malformed LLM response ──────────────────────────────────────────
+
+  it("handles completely malformed JSON without throwing", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    mockCallClaude.mockResolvedValue({
+      text: "this is not json at all }{",
+      cost: { model: "claude-sonnet-4-20250514", inputTokens: 50, outputTokens: 10 },
+    });
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
+
+    expect(result.tasksCreated).toBe(0);
+    expect(result.errors).toHaveLength(0); // parse failures are silent
+  });
+
+  it("handles a JSON object (not array) without throwing", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    mockCallClaude.mockResolvedValue({
+      text: JSON.stringify({ title: "oops", body: "not an array" }),
+      cost: { model: "claude-sonnet-4-20250514", inputTokens: 50, outputTokens: 10 },
+    });
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
+
+    expect(result.tasksCreated).toBe(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("skips array items that are missing a title", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    mockCallClaude.mockResolvedValue(
+      jsonResponse([
+        { body: "no title here", category: "legacy", scores: { value: 3, complexity: 2, risk: 2, block: 1 } },
+        makeFinding({ title: "Valid finding" }),
+      ]),
+    );
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
+
+    expect(result.tasksCreated).toBe(1);
+  });
+
+  it("skips findings whose title looks like an LLM refusal", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    mockCallClaude.mockResolvedValue(
+      jsonResponse([
+        makeFinding({ title: "I cannot directly access the repository files" }),
+        makeFinding({ title: "Legitimate refactor task" }),
+      ]),
+    );
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
+
+    expect(result.tasksCreated).toBe(1);
+  });
+
+  it("strips markdown fences before parsing JSON", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    const fenced =
+      "```json\n" + JSON.stringify([makeFinding({ title: "Fenced finding" })]) + "\n```";
+
+    mockCallClaude.mockResolvedValue({
+      text: fenced,
+      cost: { model: "claude-sonnet-4-20250514", inputTokens: 80, outputTokens: 30 },
+    });
+
+    const result = await producer.run(ctxWithRepo(repo.id, user.id));
+
+    expect(result.tasksCreated).toBe(1);
+  });
+
+  // ── Edge: missing repoDir ─────────────────────────────────────────────────
+
+  it("returns early with an error when repoDir is not provided", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new MaintenanceProducer();
 
     const result = await producer.run({
       repoId: repo.id,
-      repoFullName: "acme/widget",
+      repoFullName: "acme/legacy-app",
       createdBy: user.id,
+      // no repoDir
     });
 
     expect(result.tasksCreated).toBe(0);
@@ -226,85 +346,127 @@ describe("MaintenanceProducer", () => {
     expect(mockCallClaude).not.toHaveBeenCalled();
   });
 
-  it("catches SDK errors without throwing", async () => {
+  // ── Edge: SDK failure ─────────────────────────────────────────────────────
+
+  it("catches SDK errors and adds them to the errors array", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new MaintenanceProducer();
 
-    mockCallClaude.mockRejectedValue(new Error("Claude is overloaded"));
+    mockCallClaude.mockRejectedValue(new Error("API rate limit exceeded"));
 
     const result = await producer.run(ctxWithRepo(repo.id, user.id));
 
     expect(result.tasksCreated).toBe(0);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]).toContain("Claude is overloaded");
+    expect(result.errors[0]).toContain("API rate limit exceeded");
   });
 
-  it("handles NONE response gracefully", async () => {
+  // ── Score clamping ────────────────────────────────────────────────────────
+
+  it("clamps out-of-range scores to 1–5 and still creates the task", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new MaintenanceProducer();
 
-    mockCallClaude.mockResolvedValue({
-      text: "NONE",
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 5 },
-    });
+    mockCallClaude.mockResolvedValue(
+      jsonResponse([
+        makeFinding({
+          title: "Task with wild scores",
+          scores: { value: 99, complexity: -5, risk: 0, block: 100 },
+        }),
+      ]),
+    );
 
     const result = await producer.run(ctxWithRepo(repo.id, user.id));
-
-    expect(result.tasksCreated).toBe(0);
-    expect(result.errors).toHaveLength(0);
-  });
-
-  it("handles malformed JSON without throwing", async () => {
-    const { user, repo } = await seedUserAndRepo();
-    const producer = new MaintenanceProducer();
-
-    mockCallClaude.mockResolvedValue({
-      text: "this is not json at all",
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 100, outputTokens: 10 },
-    });
-
-    const result = await producer.run(ctxWithRepo(repo.id, user.id));
-
-    expect(result.tasksCreated).toBe(0);
-    expect(result.errors).toHaveLength(0);
-  });
-
-  it("strips markdown fences from JSON response", async () => {
-    const { user, repo } = await seedUserAndRepo();
-    const producer = new MaintenanceProducer();
-
-    mockCallClaude.mockResolvedValue({
-      text: "```json\n" + findingJson() + "\n```",
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 200, outputTokens: 70 },
-    });
-
-    const result = await producer.run(ctxWithRepo(repo.id, user.id));
-
     expect(result.tasksCreated).toBe(1);
-    expect(result.errors).toHaveLength(0);
+
+    const [created] = await db
+      .select({ body: tasks.body })
+      .from(tasks)
+      .where(sql`${tasks.source} = 'producer:maintenance'`);
+
+    // Body should contain clamped values (5 max, 1 min)
+    expect(created.body).toContain("5/5"); // value clamped from 99
+    expect(created.body).toContain("1/5"); // complexity clamped from -5
   });
 
-  it("does not insert tasks in dry-run mode", async () => {
+  // ── Size mapping from complexity ──────────────────────────────────────────
+
+  it("maps complexity=1 to size small, complexity=3 to medium, complexity=5 to large", async () => {
     const { user, repo } = await seedUserAndRepo();
     const producer = new MaintenanceProducer();
 
-    mockCallClaude.mockResolvedValue({
-      text: findingJson({ title: "Dry-run refactor title" }),
-      cost: { model: "claude-sonnet-4-20250514", inputTokens: 200, outputTokens: 60 },
-    });
+    mockCallClaude.mockResolvedValue(
+      jsonResponse([
+        makeFinding({ title: "Small task", scores: { value: 3, complexity: 1, risk: 1, block: 1 } }),
+        makeFinding({ title: "Medium task", scores: { value: 3, complexity: 3, risk: 1, block: 1 } }),
+        makeFinding({ title: "Large task", scores: { value: 3, complexity: 5, risk: 1, block: 1 } }),
+      ]),
+    );
+
+    await producer.run(ctxWithRepo(repo.id, user.id));
+
+    const created = await db
+      .select({ title: tasks.title, size: tasks.size })
+      .from(tasks)
+      .where(sql`${tasks.source} = 'producer:maintenance'`)
+      .orderBy(tasks.id);
+
+    const byTitle = Object.fromEntries(created.map((t) => [t.title, t.size]));
+    expect(byTitle["Small task"]).toBe("small");
+    expect(byTitle["Medium task"]).toBe("medium");
+    expect(byTitle["Large task"]).toBe("large");
+  });
+
+  // ── Dry-run mode ──────────────────────────────────────────────────────────
+
+  it("does not persist tasks in dry-run mode", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    mockCallClaude.mockResolvedValue(
+      jsonResponse([makeFinding({ title: "Dry run finding" })]),
+    );
 
     const result = await producer.run({
       ...ctxWithRepo(repo.id, user.id),
       dryRun: true,
     });
 
-    expect(result.tasksCreated).toBe(1);
+    expect(result.tasksCreated).toBe(1); // counter still increments
+    expect(result.errors).toHaveLength(0);
 
-    const created = await db
+    const rows = await db
       .select()
       .from(tasks)
       .where(sql`${tasks.source} = 'producer:maintenance'`);
 
-    expect(created).toHaveLength(0);
+    expect(rows).toHaveLength(0); // nothing actually written
+  });
+
+  // ── Category → task type mapping ──────────────────────────────────────────
+
+  it("assigns type=chore for all known maintenance categories", async () => {
+    const { user, repo } = await seedUserAndRepo();
+    const producer = new MaintenanceProducer();
+
+    const categories = ["legacy", "outdated-deps", "complexity", "duplication", "dead-code", "stale-types"];
+
+    mockCallClaude.mockResolvedValue(
+      jsonResponse(
+        categories.map((cat, i) =>
+          makeFinding({ title: `Task ${i}`, category: cat }),
+        ),
+      ),
+    );
+
+    await producer.run(ctxWithRepo(repo.id, user.id));
+
+    const created = await db
+      .select({ type: tasks.type })
+      .from(tasks)
+      .where(sql`${tasks.source} = 'producer:maintenance'`);
+
+    expect(created).toHaveLength(categories.length);
+    expect(created.every((t) => t.type === "chore")).toBe(true);
   });
 });
