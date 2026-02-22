@@ -1,7 +1,35 @@
 # Changelog
 
 ## 2026-02-22
+- fix: clean up preview compose artifact from worktree
+- feat: surface concurrency limits in dashboard
+- fix: parse "pass (nothing to validate)" verdict as pass
+- fix: log browser validation findings and pass on nothing-to-validate
+- Merge pull request #14 from esbenwiberg/hive/HIVE-20260222-119c4eed
+- fix: add validateBaseSha mock to worker and integration tests
+- fix: use merge-base for baseSha when recovering remote branches
+- feat: Add documentation for the maintenance producer
+- feat: Add unit tests for the maintenance producer
+- feat: Register the producer in the daemon and router
+- feat: Implement the MaintenanceProducer class
+- feat: Create the maintenance producer prompt
+- fix: set NODE_ENV=production in requireAuth redirect test
+- fix: set NODE_ENV=production in Dockerfile for defense in depth
+- Merge pull request #13 from esbenwiberg/hive/HIVE-20260222-4023c12a
+- feat: bypass auth in dev mode when Entra env vars are absent
+- Broken references in docs/internal/modules/execution.md
+- fix: mock fetch in preview manager tests to prevent health-check timeouts
+- fix: handle nothing-to-commit in commitAll gracefully
+- feat: add time range filter (today/week/month/all) to cost breakdown
+- feat: add reset prompt button to restore git-committed version
+- fix: scope-aware review/rework + reset milestones on rework
+- fix: always wait for preview reachability before browser validation
+- Merge pull request #11 from esbenwiberg/hive/HIVE-20260222-217f8332
+- Merge pull request #12 from esbenwiberg/hive/HIVE-20260222-6c4615a3
+- Broken references in docs/internal/modules/execution.md
+- fix: resetTask cascade + regenerate changelog
 - fix: use FETCH_HEAD for single-branch clone compatibility
+- Broken references in docs/internal/modules/producers.md
 - test: update git-provider push test for explicit lease SHA
 - fix: browser validation parser and git push stale ref rejection
 - Merge pull request #9 from esbenwiberg/hive/HIVE-20260220-6e1f
