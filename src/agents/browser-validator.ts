@@ -19,19 +19,39 @@ export interface BrowserValidationResult {
 // ── Parser ───────────────────────────────────────────────────────────────────
 
 function parseValidationResult(text: string): { verdict: "pass" | "fail"; findings: string[] } {
-  const cleaned = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+  // Strip all markdown code fences (```json ... ```)
+  const cleaned = text.replace(/```(?:json)?\s*\n?/g, "").trim();
 
-  // Try to extract JSON from the text
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    return { verdict: "fail", findings: ["Failed to parse validation output"] };
+  // Try to find the last JSON object (Claude often emits text before the final JSON)
+  const jsonBlocks: string[] = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < cleaned.length; i++) {
+    if (cleaned[i] === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (cleaned[i] === "}") {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        jsonBlocks.push(cleaned.slice(start, i + 1));
+        start = -1;
+      }
+    }
   }
 
-  const parsed = JSON.parse(jsonMatch[0]);
-  const verdict = parsed.verdict === "pass" ? "pass" : "fail";
-  const findings = Array.isArray(parsed.findings) ? parsed.findings.map(String) : [];
+  // Try each JSON block (last first — Claude's final answer is usually last)
+  for (let i = jsonBlocks.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(jsonBlocks[i]);
+      if (parsed && typeof parsed === "object" && "verdict" in parsed) {
+        const verdict = parsed.verdict === "pass" ? "pass" : "fail";
+        const findings = Array.isArray(parsed.findings) ? parsed.findings.map(String) : [];
+        return { verdict, findings };
+      }
+    } catch { /* try next block */ }
+  }
 
-  return { verdict, findings };
+  return { verdict: "fail", findings: ["Failed to parse validation output"] };
 }
 
 // ── Agent ────────────────────────────────────────────────────────────────────

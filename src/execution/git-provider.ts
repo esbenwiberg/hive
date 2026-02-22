@@ -146,12 +146,18 @@ export class GitHubProvider implements GitProvider {
     }
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
 
-    // Fetch before push so --force-with-lease has current tracking refs
-    // (prevents "stale info" rejection when reusing worktrees across retries)
-    try { await execGit(["fetch", "origin", branch], repoDir); } catch { /* branch may not exist yet */ }
+    // Fetch before push so --force-with-lease has current tracking refs.
+    // Use the fetched SHA explicitly to avoid stale tracking ref issues
+    // when worktrees are reused across retries with different credentials.
+    let leaseFlag = "--force-with-lease";
+    try {
+      await execGit(["fetch", "origin", branch], repoDir);
+      const remoteSha = await execGit(["rev-parse", `refs/remotes/origin/${branch}`], repoDir);
+      leaseFlag = `--force-with-lease=${branch}:${remoteSha}`;
+    } catch { /* branch may not exist yet — use bare --force-with-lease */ }
 
     logger.info({ repoDir, branch }, "Pushing branch");
-    await execGit(["push", "--force-with-lease", "origin", branch], repoDir);
+    await execGit(["push", leaseFlag, "origin", branch], repoDir);
   }
 
   async createPR(
@@ -334,12 +340,18 @@ export class AzureDevOpsProvider implements GitProvider {
     const authedUrl = `https://${creds.token}@dev.azure.com/${org}/${project}/_git/${repo}`;
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
 
-    // Fetch before push so --force-with-lease has current tracking refs
-    // (prevents "stale info" rejection when reusing worktrees across retries)
-    try { await execGit(["fetch", "origin", branch], repoDir); } catch { /* branch may not exist yet */ }
+    // Fetch before push so --force-with-lease has current tracking refs.
+    // Use the fetched SHA explicitly to avoid stale tracking ref issues
+    // when worktrees are reused across retries with different credentials.
+    let leaseFlag = "--force-with-lease";
+    try {
+      await execGit(["fetch", "origin", branch], repoDir);
+      const remoteSha = await execGit(["rev-parse", `refs/remotes/origin/${branch}`], repoDir);
+      leaseFlag = `--force-with-lease=${branch}:${remoteSha}`;
+    } catch { /* branch may not exist yet — use bare --force-with-lease */ }
 
     logger.info({ repoDir, branch }, "Pushing branch");
-    await execGit(["push", "--force-with-lease", "origin", branch], repoDir);
+    await execGit(["push", leaseFlag, "origin", branch], repoDir);
   }
 
   async createPR(
