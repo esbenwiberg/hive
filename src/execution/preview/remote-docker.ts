@@ -135,6 +135,7 @@ export async function remoteComposeUp(
   project: string,
   composeFile: string,
   env?: Record<string, string>,
+  timeoutMs?: number,
 ): Promise<void> {
   const envPrefix = env
     ? Object.entries(env).map(([k, v]) => `${k}=${shellEscape(v)}`).join(" ") + " "
@@ -146,7 +147,7 @@ export async function remoteComposeUp(
     ...sshArgs(config, sshKeyPath),
     sshTarget(config),
     cmd,
-  ], 5 * 60_000); // 5 min — image pull + build can be slow
+  ], timeoutMs ?? 5 * 60_000);
 
   logger.info({ project, remotePath }, "Remote docker compose up succeeded");
 }
@@ -187,6 +188,24 @@ export async function cleanupRemoteWorktree(
   ]);
 
   logger.info({ taskId, remotePath }, "Remote worktree cleaned up");
+}
+
+/**
+ * Fetch docker compose logs from the remote host via SSH.
+ */
+export async function getComposeLogs(
+  config: DockerHostConfig,
+  sshKeyPath: string,
+  project: string,
+  tail = 50,
+): Promise<string> {
+  const cmd = `docker compose -p ${project} logs --tail ${tail} --no-color 2>&1 || true`;
+
+  return exec("ssh", [
+    ...sshArgs(config, sshKeyPath),
+    sshTarget(config),
+    cmd,
+  ], 15_000);
 }
 
 function shellEscape(s: string): string {

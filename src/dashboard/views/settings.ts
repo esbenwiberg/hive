@@ -119,6 +119,135 @@ export function settingsPanel(active: SettingsTab, tabContent: string): string {
 </div>`;
 }
 
+// ── Preview Test Dialog ─────────────────────────────────────────────────────
+
+function previewTestDialog(): string {
+  return `<div id="preview-test-modal" class="fixed inset-0 z-50 hidden">
+  <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" onclick="window.__previewTest?.close()"></div>
+  <div class="fixed inset-0 flex items-center justify-center p-4">
+    <div class="relative w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-800 shadow-xl">
+      <div class="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+        <h3 class="text-lg font-semibold text-slate-50">Test Preview Setup</h3>
+        <button onclick="window.__previewTest?.close()"
+                class="rounded-lg p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-50">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div class="px-6 py-4">
+        <p class="text-sm text-slate-400 mb-4">Deploys a minimal nginx:alpine container to verify certs, SSH, and Docker Compose on the preview host.</p>
+        <div id="pt-log" class="rounded-lg bg-slate-900 p-4 font-mono text-xs text-slate-300 max-h-96 overflow-y-auto whitespace-pre-wrap mb-4"></div>
+        <div class="flex justify-end gap-2">
+          <button id="pt-start" type="button" onclick="window.__previewTest?.start()"
+            class="inline-flex items-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400 transition-colors">
+            Start Test
+          </button>
+          <button id="pt-stop" type="button" onclick="window.__previewTest?.stop()" style="display:none"
+            class="inline-flex items-center rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 transition-colors">
+            Stop Test
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  var es = null;
+  var status = 'idle';
+
+  function log(msg, cls) {
+    var el = document.getElementById('pt-log');
+    if (!el) return;
+    var line = document.createElement('div');
+    line.textContent = msg;
+    if (cls) line.className = cls;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function updateButtons() {
+    var startBtn = document.getElementById('pt-start');
+    var stopBtn = document.getElementById('pt-stop');
+    if (!startBtn || !stopBtn) return;
+    if (status === 'idle' || status === 'failed') {
+      startBtn.style.display = '';
+      stopBtn.style.display = 'none';
+    } else {
+      startBtn.style.display = 'none';
+      stopBtn.style.display = '';
+    }
+  }
+
+  function connect() {
+    if (es) return;
+    es = new EventSource('/settings/preview/test/stream');
+    es.onmessage = function(e) {
+      try { log(JSON.parse(e.data)); } catch(err) { log(e.data); }
+    };
+    es.addEventListener('step', function(e) {
+      log(JSON.parse(e.data), 'text-slate-400');
+    });
+    es.addEventListener('pass', function(e) {
+      log('\\u2713 ' + JSON.parse(e.data), 'text-emerald-400');
+    });
+    es.addEventListener('fail', function(e) {
+      log('\\u2717 ' + JSON.parse(e.data), 'text-red-400');
+    });
+    es.addEventListener('logs', function(e) {
+      var logEl = document.getElementById('pt-log');
+      // Replace last docker log block if present
+      var existing = logEl?.querySelector('[data-docker-logs]');
+      var block = document.createElement('pre');
+      block.setAttribute('data-docker-logs', '1');
+      block.className = 'text-slate-500 mt-1 border-t border-slate-800 pt-1';
+      block.textContent = JSON.parse(e.data);
+      if (existing) existing.replaceWith(block);
+      else logEl?.appendChild(block);
+      if (logEl) logEl.scrollTop = logEl.scrollHeight;
+    });
+    es.addEventListener('status', function(e) {
+      status = e.data;
+      updateButtons();
+    });
+    es.addEventListener('done', function(e) {
+      log(JSON.parse(e.data), 'text-slate-400');
+    });
+    es.onerror = function() {
+      // Reconnect is automatic with EventSource
+    };
+  }
+
+  function disconnect() {
+    if (es) { es.close(); es = null; }
+  }
+
+  window.__previewTest = {
+    connect: connect,
+    start: function() {
+      document.getElementById('pt-log').innerHTML = '';
+      fetch('/settings/preview/test/start', { method: 'POST', headers: { 'Origin': location.origin } })
+        .then(function() { status = 'running'; updateButtons(); })
+        .catch(function(err) { log('Request failed: ' + err.message, 'text-red-400'); });
+    },
+    stop: function() {
+      fetch('/settings/preview/test/stop', { method: 'POST', headers: { 'Origin': location.origin } })
+        .then(function() { status = 'stopping'; updateButtons(); })
+        .catch(function(err) { log('Stop failed: ' + err.message, 'text-red-400'); });
+    },
+    close: function() {
+      if (status === 'running' || status === 'up') {
+        window.__previewTest.stop();
+      }
+      disconnect();
+      document.getElementById('preview-test-modal')?.classList.add('hidden');
+    }
+  };
+})();
+</script>`;
+}
+
 // ── Global Settings Partial ─────────────────────────────────────────────────
 
 /**
@@ -244,6 +373,29 @@ export function globalSettingsPartial(
     padding: "compact",
   });
 
+  // Preview card
+  const previewFields = [
+    input("composeUpTimeout", "Compose Up Timeout (seconds)", {
+      type: "number",
+      value: String(config.preview.compose_up_timeout_seconds),
+      placeholder: "300",
+    }),
+    `<div class="mt-3 border-t border-slate-700 pt-3">
+      ${button("Test Preview Setup", {
+        variant: "secondary",
+        attrs: `type="button" onclick="document.getElementById('preview-test-modal').classList.remove('hidden'); window.__previewTest?.connect()"`,
+      })}
+    </div>`,
+  ].join("");
+
+  const previewCard = card(previewFields, {
+    title: "Preview",
+    padding: "compact",
+  });
+
+  // Preview test dialog
+  const previewTestModal = previewTestDialog();
+
   return `<form hx-post="/settings/global" hx-target="#settings-content" hx-swap="innerHTML">
   <div class="space-y-4">
     <p class="text-sm text-slate-400">Overrides saved to database. <code class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">autonomous.config.yaml</code> provides defaults.</p>
@@ -253,12 +405,14 @@ export function globalSettingsPartial(
       ${budgetCard}
       ${clarificationCard}
       ${modelsCard}
+      ${previewCard}
     </div>
     <div class="flex justify-end">
       ${button("Save Global Settings", { variant: "primary", attrs: `type="submit"` })}
     </div>
   </div>
-</form>`;
+</form>
+${previewTestModal}`;
 }
 
 // ── Repo Card ───────────────────────────────────────────────────────────────
