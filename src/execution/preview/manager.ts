@@ -250,7 +250,7 @@ export class PreviewManager {
     port: number,
     host: string,
   ): Promise<PreviewInfo> {
-    const project = `hive-${taskId}`;
+    const project = `hive-${taskId}`.toLowerCase();
     const isRemote = !!this.settings.docker_host.ip;
 
     // Generate a patched compose file that maps the allocated port → internal port
