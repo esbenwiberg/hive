@@ -83,6 +83,10 @@ vi.mock("node:child_process", () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
 }));
 
+// Mock fetch so waitForHealthCheck resolves immediately
+const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+vi.stubGlobal("fetch", mockFetch);
+
 // ── Import (after mocks) ─────────────────────────────────────────────────────
 
 const { PreviewManager } = await import(
