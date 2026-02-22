@@ -155,6 +155,54 @@ describe("GitHubProvider", () => {
       expect(args2).toEqual(["commit", "-m", "fix: resolve login bug"]);
       expect(opts2.cwd).toBe("/tmp/repo");
     });
+
+    it("swallows exit code 1 (nothing to commit)", async () => {
+      let callCount = 0;
+      mockExecFile.mockImplementation(
+        (
+          _cmd: string,
+          _args: string[],
+          _opts: Record<string, unknown>,
+          cb: (err: Error | null, stdout: string, stderr: string) => void,
+        ) => {
+          callCount++;
+          if (callCount === 1) {
+            // git add -A succeeds
+            cb(null, "", "");
+          } else {
+            // git commit fails with code 1
+            const err = new Error("nothing to commit") as Error & { code: number };
+            err.code = 1;
+            cb(err, "", "nothing to commit, working tree clean");
+          }
+        },
+      );
+
+      await expect(provider.commitAll("/tmp/repo", "msg")).resolves.toBeUndefined();
+    });
+
+    it("re-throws non-1 exit codes", async () => {
+      let callCount = 0;
+      mockExecFile.mockImplementation(
+        (
+          _cmd: string,
+          _args: string[],
+          _opts: Record<string, unknown>,
+          cb: (err: Error | null, stdout: string, stderr: string) => void,
+        ) => {
+          callCount++;
+          if (callCount === 1) {
+            cb(null, "", "");
+          } else {
+            const err = new Error("fatal error") as Error & { code: number };
+            err.code = 128;
+            cb(err, "", "fatal error");
+          }
+        },
+      );
+
+      await expect(provider.commitAll("/tmp/repo", "msg")).rejects.toThrow("fatal error");
+    });
   });
 
   // ── push ───────────────────────────────────────────────────────────────────
@@ -348,6 +396,52 @@ describe("AzureDevOpsProvider", () => {
       expect(mockExecFile).toHaveBeenCalledTimes(2);
       expect(mockExecFile.mock.calls[0][1]).toEqual(["add", "-A"]);
       expect(mockExecFile.mock.calls[1][1]).toEqual(["commit", "-m", "chore: update config"]);
+    });
+
+    it("swallows exit code 1 (nothing to commit)", async () => {
+      let callCount = 0;
+      mockExecFile.mockImplementation(
+        (
+          _cmd: string,
+          _args: string[],
+          _opts: Record<string, unknown>,
+          cb: (err: Error | null, stdout: string, stderr: string) => void,
+        ) => {
+          callCount++;
+          if (callCount === 1) {
+            cb(null, "", "");
+          } else {
+            const err = new Error("nothing to commit") as Error & { code: number };
+            err.code = 1;
+            cb(err, "", "nothing to commit, working tree clean");
+          }
+        },
+      );
+
+      await expect(provider.commitAll("/tmp/repo", "msg")).resolves.toBeUndefined();
+    });
+
+    it("re-throws non-1 exit codes", async () => {
+      let callCount = 0;
+      mockExecFile.mockImplementation(
+        (
+          _cmd: string,
+          _args: string[],
+          _opts: Record<string, unknown>,
+          cb: (err: Error | null, stdout: string, stderr: string) => void,
+        ) => {
+          callCount++;
+          if (callCount === 1) {
+            cb(null, "", "");
+          } else {
+            const err = new Error("fatal error") as Error & { code: number };
+            err.code = 128;
+            cb(err, "", "fatal error");
+          }
+        },
+      );
+
+      await expect(provider.commitAll("/tmp/repo", "msg")).rejects.toThrow("fatal error");
     });
   });
 

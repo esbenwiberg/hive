@@ -122,7 +122,13 @@ export class GitHubProvider implements GitProvider {
   async commitAll(repoDir: string, message: string): Promise<void> {
     logger.info({ repoDir, message }, "Committing all changes");
     await execGit(["add", "-A"], repoDir);
-    await execGit(["commit", "-m", message], repoDir);
+    try {
+      await execGit(["commit", "-m", message], repoDir);
+    } catch (err: unknown) {
+      const code = (err as { code?: number }).code;
+      if (code !== 1) throw err;
+      logger.debug({ repoDir }, "commitAll: nothing to commit");
+    }
   }
 
   async push(
@@ -323,7 +329,13 @@ export class AzureDevOpsProvider implements GitProvider {
   async commitAll(repoDir: string, message: string): Promise<void> {
     logger.info({ repoDir, message }, "Committing all changes");
     await execGit(["add", "-A"], repoDir);
-    await execGit(["commit", "-m", message], repoDir);
+    try {
+      await execGit(["commit", "-m", message], repoDir);
+    } catch (err: unknown) {
+      const code = (err as { code?: number }).code;
+      if (code !== 1) throw err;
+      logger.debug({ repoDir }, "commitAll: nothing to commit");
+    }
   }
 
   async push(
