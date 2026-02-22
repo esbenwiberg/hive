@@ -38,14 +38,20 @@ describe("requireAuth", () => {
   });
 
   it("redirects to /auth/login when session is empty", () => {
-    const req = mockReq();
-    const res = mockRes();
-    const next = vi.fn();
+    const orig = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const req = mockReq();
+      const res = mockRes();
+      const next = vi.fn();
 
-    requireAuth(req, res, next);
+      requireAuth(req, res, next);
 
-    expect(res.redirect).toHaveBeenCalledWith("/auth/login");
-    expect(next).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith("/auth/login");
+      expect(next).not.toHaveBeenCalled();
+    } finally {
+      process.env.NODE_ENV = orig;
+    }
   });
 });
 
