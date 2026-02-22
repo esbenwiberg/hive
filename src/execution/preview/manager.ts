@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { parse, stringify } from "yaml";
@@ -153,6 +153,14 @@ export class PreviewManager {
       const reason = err instanceof Error ? err.message : String(err);
       logger.warn({ taskId, err: reason }, "Error stopping preview");
       await addPreviewLog(taskId, "manager", `Error stopping preview: ${reason}`);
+    }
+
+    // Clean up generated preview compose file so it doesn't get committed
+    // by `git add -A` on subsequent rework cycles.
+    if (info.worktreePath) {
+      try {
+        unlinkSync(join(info.worktreePath, "docker-compose.hive-preview.yml"));
+      } catch { /* already gone or never created — fine */ }
     }
 
     this.freePort(info.port);

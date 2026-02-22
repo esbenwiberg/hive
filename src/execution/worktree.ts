@@ -1,4 +1,4 @@
-import { rm, mkdir } from "node:fs/promises";
+import { rm, mkdir, appendFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import logger from "../logger.js";
@@ -95,6 +95,9 @@ export async function createWorktree(
   // Set git identity so commits are attributed to The Hive
   await execFileAsync("git", ["config", "user.name", "The Hive"], { cwd: worktreePath });
   await execFileAsync("git", ["config", "user.email", "hive@thehive.ai"], { cwd: worktreePath });
+
+  // Exclude preview artifacts from git tracking so `git add -A` never picks them up
+  await appendFile(`${worktreePath}/.git/info/exclude`, "\ndocker-compose.hive-preview.yml\n");
 
   logger.info({ repoFullName, branch, path: worktreePath, baseSha, recovered }, "Worktree created");
 
