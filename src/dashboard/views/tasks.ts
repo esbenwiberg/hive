@@ -192,6 +192,74 @@ function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNa
 
 // ── Enrichment display ──────────────────────────────────────────────────────
 
+/** Checks if a value looks like a doc-file entry ({ path: string, summary: string }). */
+function isDocEntry(item: unknown): item is { path: string; summary: string } {
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    "path" in item &&
+    typeof (item as Record<string, unknown>).path === "string"
+  );
+}
+
+/**
+ * Renders an array of doc-file entries (objects with `path` and `summary`)
+ * as a readable list of file paths with optional summary tooltips.
+ */
+function docFileList(files: unknown[]): string {
+  if (files.length === 0) return `<span class="text-slate-500 italic">none</span>`;
+  const items = files.map((f) => {
+    if (isDocEntry(f)) {
+      const tooltip = f.summary ? ` title="${escapeHtml(f.summary.slice(0, 200))}"` : "";
+      return `<li class="py-0.5">
+        <code class="text-xs text-slate-300 break-all"${tooltip}>${escapeHtml(f.path)}</code>
+      </li>`;
+    }
+    // Fallback: render as plain string (shouldn't happen with well-formed data)
+    return `<li class="py-0.5"><code class="text-xs text-slate-300">${escapeHtml(String(f))}</code></li>`;
+  }).join("");
+  return `<ul class="list-none space-y-0.5">${items}</ul>`;
+}
+
+/**
+ * Dedicated renderer for the `docs` enricher result, which contains categorised
+ * arrays of `{ path, summary }` objects.
+ */
+function docsEnrichmentContent(docs: Record<string, unknown>): string {
+  const categories: Array<{ key: string; label: string }> = [
+    { key: "internal", label: "Internal" },
+    { key: "external", label: "External" },
+    { key: "other", label: "Other" },
+  ];
+
+  const count = typeof docs.count === "number" ? docs.count : null;
+  const countBadge = count !== null
+    ? `<span class="ml-2 rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">${count}</span>`
+    : "";
+
+  const catSections = categories.map(({ key, label }) => {
+    const arr = Array.isArray(docs[key]) ? (docs[key] as unknown[]) : [];
+    if (arr.length === 0) return "";
+    return `<div class="mb-3">
+      <p class="text-xs font-medium text-slate-400 mb-1">${escapeHtml(label)}</p>
+      ${docFileList(arr)}
+    </div>`;
+  }).filter(Boolean).join("");
+
+  // Fall back to `files` if no categorised content rendered
+  const hasCategories = categories.some(({ key }) => {
+    const arr = docs[key];
+    return Array.isArray(arr) && arr.length > 0;
+  });
+
+  if (!hasCategories) {
+    const files = Array.isArray(docs.files) ? (docs.files as unknown[]) : [];
+    return `<div>${countBadge ? `<p class="text-xs text-slate-400 mb-1">Files${countBadge}</p>` : ""}${docFileList(files)}</div>`;
+  }
+
+  return `<div>${countBadge ? `<p class="text-xs text-slate-400 mb-2">Total${countBadge}</p>` : ""}${catSections}</div>`;
+}
+
 function enrichmentSection(task: TaskRow): string {
   const enrichment = task.enrichment as Record<string, unknown> | null;
 
@@ -202,7 +270,11 @@ function enrichmentSection(task: TaskRow): string {
   const sections = Object.entries(enrichment)
     .filter(([key]) => key !== "scorer" && key !== "architect")
     .map(([key, value]) => {
-      const content = formatEnrichmentValue(value);
+      // Use a dedicated renderer for the docs enricher to display file paths properly
+      const isDocs = key === "docs" && typeof value === "object" && value !== null && !Array.isArray(value);
+      const content = isDocs
+        ? docsEnrichmentContent(value as Record<string, unknown>)
+        : formatEnrichmentValue(value);
       return `<details class="group">
         <summary class="flex cursor-pointer items-center justify-between rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800">
           ${escapeHtml(key)}
@@ -232,12 +304,19 @@ function formatEnrichmentValue(value: unknown): string {
     const obj = value as Record<string, unknown>;
     const rows = Object.entries(obj)
       .map(([k, v]) => {
-        const display =
-          Array.isArray(v)
-            ? v.map((item) => escapeHtml(String(item))).join(", ")
-            : typeof v === "object" && v !== null
-              ? `<pre class="whitespace-pre-wrap text-xs text-slate-400">${escapeHtml(JSON.stringify(v, null, 2))}</pre>`
-              : escapeHtml(String(v));
+        let display: string;
+        if (Array.isArray(v)) {
+          // Render arrays of doc-like objects by extracting their `path` field
+          if (v.length > 0 && isDocEntry(v[0])) {
+            display = v.map((item) => isDocEntry(item) ? escapeHtml(item.path) : escapeHtml(String(item))).join(", ");
+          } else {
+            display = v.map((item) => escapeHtml(String(item))).join(", ");
+          }
+        } else if (typeof v === "object" && v !== null) {
+          display = `<pre class="whitespace-pre-wrap text-xs text-slate-400">${escapeHtml(JSON.stringify(v, null, 2))}</pre>`;
+        } else {
+          display = escapeHtml(String(v));
+        }
         return `<div class="flex justify-between gap-4 py-1">
           <span class="text-slate-400 shrink-0">${escapeHtml(k)}</span>
           <span class="text-slate-200 text-right">${display}</span>
@@ -248,6 +327,9 @@ function formatEnrichmentValue(value: unknown): string {
   }
 
   if (Array.isArray(value)) {
+    if (value.length > 0 && isDocEntry(value[0])) {
+      return docFileList(value);
+    }
     return value.map((item) => escapeHtml(String(item))).join(", ");
   }
 
