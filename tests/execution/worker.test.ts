@@ -110,8 +110,10 @@ vi.mock("../../src/execution/git-provider.js", () => ({
 
 // Mock review gate
 const mockReviewChanges = vi.fn();
+const mockValidateBaseSha = vi.fn((_path: string, sha: string) => Promise.resolve(sha));
 vi.mock("../../src/execution/review-gate.js", () => ({
   reviewChanges: mockReviewChanges,
+  validateBaseSha: mockValidateBaseSha,
 }));
 
 // Mock refiner
