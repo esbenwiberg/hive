@@ -20,6 +20,7 @@
    - [Doc Auditor — `doc-auditor.ts`](#doc-auditor--doc-auditorts)
    - [Log Scanner — `log-scanner.ts`](#log-scanner--log-scannerts)
    - [Self Monitor — `self-monitor.ts`](#self-monitor--self-monitorts)
+   - [Maintenance Producer — `maintenance.ts`](#maintenance-producer--maintenancets)
 4. [Producer Registration and Scheduling](#producer-registration-and-scheduling)
 5. [Task Creation Workflow](#task-creation-workflow)
 6. [Deduplication and Safety Guards](#deduplication-and-safety-guards)
@@ -53,6 +54,7 @@ Each producer:
 | `doc-auditor.ts` | Repository documentation files | No | Yes | No |
 | `log-scanner.ts` | Azure Monitor (KQL) | No | No | Yes |
 | `self-monitor.ts` | In-process log buffer | No | No | Yes |
+| `maintenance.ts` | Repository source code | Yes | Yes | No |
 
 ### Relationship to the Pipeline
 
@@ -614,6 +616,186 @@ The task body includes a sample of the raw log entries (with full structured fie
 | `repoId` | from `ctx.repoId` (the self-repo) |
 | `createdBy` | from `ctx.createdBy` |
 | `costUsd` | always `0` (no LLM call) |
+
+---
+
+### Maintenance Producer — `maintenance.ts`
+
+Scans repository source code for technical debt signals — legacy patterns, outdated dependencies, overgrown functions, duplicated logic, dead code, and stale type definitions — and creates prioritised maintenance (`chore`) tasks. Unlike the other LLM producers, every finding is scored on a four-axis matrix so the daemon can rank work by concrete value rather than discovery order.
+
+#### Signal Source
+
+Repository file tree and README (`needsRepo: true`). The producer builds context via `gatherRepoSummary()` and passes it to Claude with a dedicated system prompt loaded from `src/prompts/producers/maintenance.md` via `loadPrompt()`.
+
+#### Scan Categories
+
+The LLM is instructed to look for findings across exactly six categories:
+
+| Category | What it flags |
+|---|---|
+| `legacy` | Deprecated APIs, old framework patterns, archaic language constructs that should be modernised (e.g. `var`, CommonJS `require` in an ESM codebase, callback-style code where async/await is standard) |
+| `outdated-deps` | Package dependencies that are significantly behind their latest stable release, especially those with known issues or breaking changes in newer versions |
+| `complexity` | Functions or modules that have grown too large or too deeply nested — high cyclomatic complexity, god objects, or files that violate the single-responsibility principle |
+| `duplication` | Similar or identical code blocks scattered across multiple files that could be extracted into a shared utility or module |
+| `dead-code` | Exported symbols, entire modules, feature flags, or commented-out blocks that are no longer referenced anywhere in the codebase |
+| `stale-types` | TypeScript type definitions, interfaces, or enums that have drifted from the shapes they describe — missing fields, wrong types, or types that reference removed properties |
+
+The LLM returns **up to 8 findings** per run, sorted by priority. The prompt instructs Claude to prefer concrete, actionable items over vague "clean this up" suggestions.
+
+#### Four-Axis Scoring System
+
+Each finding carries four scores on a **1–5 scale**, which the producer uses to compute a composite priority:
+
+| Axis | Scale | Meaning |
+|---|---|---|
+| `value` | 1 (trivial) → 5 (high) | How much does fixing this improve correctness, performance, or developer experience? |
+| `complexity` | 1 (trivial) → 5 (very hard) | How much effort is required to implement the fix? |
+| `risk` | 1 (safe) → 5 (dangerous) | How likely is the change to introduce regressions or require careful coordination? |
+| `block` | 1 (not blocking) → 5 (actively blocking) | Is this debt actively preventing other work from progressing? |
+
+##### Priority Formula
+
+```
+priority = (value × 2) + (block × 2) − complexity − risk
+```
+
+The formula is evaluated **server-side** after parsing the LLM response — this guards against arithmetic errors in the model's output. The resulting priority is an integer that ranges roughly from −8 (very costly/risky with little payoff) to +16 (high value, blocking, low effort and risk).
+
+Findings are sorted **descending by priority** before task creation, so the most impactful maintenance work lands at the top of the queue.
+
+##### Size Mapping
+
+Task size (`small` / `medium` / `large`) is derived from the `complexity` score:
+
+| Complexity score | Task size |
+|---|---|
+| 1 | `small` |
+| 2–3 | `medium` |
+| 4–5 | `large` |
+
+#### How It Works
+
+```
+ctx.repoDir → gatherRepoSummary()
+  └─ Claude prompt (system: maintenance.md prompt):
+       "Analyse this repository for technical debt across 6 categories.
+        Return up to 8 findings as a JSON array with title, body,
+        category, scores (value/complexity/risk/block), and priority."
+       └─ JSON response: MaintenanceFinding[]
+            └─ server-side: recompute priority, sort descending
+            └─ for each finding:
+                 ├─ isRefusalTitle(title)?  → skip
+                 ├─ isDuplicate("producer:maintenance", title)?  → skip
+                 └─ create({ title, body + score table,
+                              source: "producer:maintenance",
+                              type: "chore", size, ... })
+```
+
+#### Deduplication
+
+The maintenance producer uses the source key `"producer:maintenance"` for deduplication (not just `"maintenance"`). `isDuplicate("producer:maintenance", title)` is called before every task creation. Any finding whose title matches an existing, non-terminal task (i.e. not `done`, `failed`, `cancelled`, or `merged`) is skipped and counted in `duplicatesSkipped`.
+
+This means the producer is safe to run on a daily schedule — previously created maintenance tasks that are still being worked on will not be duplicated.
+
+#### Score Table in Task Body
+
+To give agents and reviewers full context, the score breakdown is appended to every task body as a Markdown table:
+
+```markdown
+---
+**Maintenance analysis scores**
+
+| Axis       | Score |
+|------------|-------|
+| Value      | 4/5   |
+| Complexity | 2/5   |
+| Risk       | 1/5   |
+| Block      | 3/5   |
+| **Priority** | **12** |
+
+_Category: legacy_
+```
+
+This makes scoring decisions visible and auditable without needing to inspect producer logs.
+
+#### LLM Response Schema
+
+Claude is instructed to return a JSON array conforming to this shape:
+
+```jsonc
+[
+  {
+    "title": "Replace callback-style fs.readFile with fs/promises throughout",
+    "body": "12 files still use the callback form of fs.readFile/fs.writeFile…",
+    "category": "legacy",
+    "scores": {
+      "value": 3,
+      "complexity": 2,
+      "risk": 1,
+      "block": 1
+    },
+    "priority": 8
+  }
+]
+```
+
+The parser in `parseFindings()` is defensive: it strips markdown fences, handles `NONE` and `[]` gracefully, clamps all scores to `[1, 5]`, re-derives `priority` from the formula, and drops any entry with an empty or refusal title.
+
+#### Configuration (`autonomous.config.yaml`)
+
+```yaml
+producers:
+  maintenance:
+    enabled: true
+    model: claude-sonnet-4-6   # inherits getModelFor("producer") if omitted
+```
+
+No `maxTasksPerRun` knob is exposed — the prompt hard-caps Claude at 8 findings, which is the practical maximum for a single LLM context without diluting quality.
+
+#### Output Shape (from Claude)
+
+```json
+[
+  {
+    "title": "Extract duplicated pagination logic into a shared usePagination hook",
+    "body": "Substantially similar pagination state management appears in 6 different list components. Extracting it into a shared hook would reduce ~200 lines of duplication and make future pagination changes apply consistently.",
+    "category": "duplication",
+    "scores": { "value": 4, "complexity": 2, "risk": 1, "block": 1 },
+    "priority": 11
+  },
+  {
+    "title": "Remove dead feature-flag code for the deprecated beta dashboard",
+    "body": "FEATURE_BETA_DASHBOARD is always false in every environment config and the flag was sunset 6 months ago. The guarded code branches (~300 lines) are unreachable and should be removed.",
+    "category": "dead-code",
+    "scores": { "value": 3, "complexity": 1, "risk": 2, "block": 1 },
+    "priority": 7
+  }
+]
+```
+
+#### Created Task Fields
+
+| Field | Value |
+|---|---|
+| `source` | `"producer:maintenance"` |
+| `type` | `"chore"` (all categories map to `chore`) |
+| `size` | `"small"` / `"medium"` / `"large"` (derived from `complexity` score) |
+| `status` | `"pending"` |
+| `repoId` | from `ctx.repoId` |
+| `createdBy` | from `ctx.createdBy` |
+
+#### Example `ProducerResult`
+
+```json
+{
+  "tasksCreated": 5,
+  "duplicatesSkipped": 2,
+  "errors": [],
+  "costUsd": 0.004621
+}
+```
+
+Interpretation: Claude returned 7 findings. 2 were duplicates of in-flight tasks. 5 new maintenance tasks were created, ordered by priority.
 
 ---
 
