@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
 import logger from "../logger.js";
+
+/** Directory-name prefix used for preview artefact directories on disk. */
+export const PREVIEW_DIR_PREFIX = "hive-preview-";
 import { previewManager } from "../execution/preview/manager.js";
 import { cleanupWorktree } from "../execution/worktree.js";
 import { addPreviewLog } from "../db/queries/preview-logs.js";
