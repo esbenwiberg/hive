@@ -460,31 +460,46 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       learningsStr = `\n## Relevant Learnings\n\nThese learnings come from past tasks. Apply them where relevant:\n\n${items}`;
     }
 
-    // Build prompt for Claude — trim enrichment if it would blow the context window.
-    // Rough estimate: 1 token ≈ 4 chars; reserve 30k tokens for output + tool defs.
-    const INPUT_CHAR_BUDGET = 170_000 * 4;
-    let enrichmentStr = task.enrichment
-      ? `\n## Enrichment Context\n${JSON.stringify(task.enrichment, null, 2)}`
-      : "";
+    // Build enrichment string for the worker prompt.
+    // For trivial/small tasks the architect blueprint already digests all enricher
+    // data, so passing raw codebase/docs/git-history/dependencies is redundant noise.
+    const taskSize = task.size ?? "medium";
+    let enrichmentStr = "";
 
-    if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
-      // Step 1: drop pretty-printing
-      enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(task.enrichment)}`;
-      logger.info({ taskId, chars: enrichmentStr.length }, "Compacted enrichment JSON (removed pretty-print)");
-    }
-    if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
-      // Step 2: keep only architect + scorer (drop large codebase/docs blobs)
-      const slim: Record<string, unknown> = {};
+    if (task.enrichment) {
       const enrichObj = task.enrichment as Record<string, unknown>;
-      for (const key of ["architect", "scorer"]) {
-        if (enrichObj[key]) slim[key] = enrichObj[key];
+
+      if (taskSize === "trivial" || taskSize === "small") {
+        // Architect already distilled everything — only pass the blueprint
+        const slim: Record<string, unknown> = {};
+        if (enrichObj.architect) slim.architect = enrichObj.architect;
+        if (enrichObj.scorer) slim.scorer = enrichObj.scorer;
+        enrichmentStr = Object.keys(slim).length > 0
+          ? `\n## Enrichment Context\n${JSON.stringify(slim, null, 2)}`
+          : "";
+      } else {
+        // Medium/large: full enrichment helps Claude navigate unfamiliar code
+        enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(task.enrichment, null, 2)}`;
       }
-      enrichmentStr = `\n## Enrichment Context (trimmed)\n${JSON.stringify(slim)}`;
-      logger.info({ taskId, chars: enrichmentStr.length }, "Trimmed enrichment to architect+scorer only");
-    }
-    if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
-      enrichmentStr = "";
-      logger.warn({ taskId }, "Dropped enrichment entirely — too large for context window");
+
+      // Guard against context overflow regardless of task size
+      const INPUT_CHAR_BUDGET = 170_000 * 4;
+      if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
+        enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(task.enrichment)}`;
+        logger.info({ taskId, chars: enrichmentStr.length }, "Compacted enrichment JSON (removed pretty-print)");
+      }
+      if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
+        const slim: Record<string, unknown> = {};
+        for (const key of ["architect", "scorer"]) {
+          if (enrichObj[key]) slim[key] = enrichObj[key];
+        }
+        enrichmentStr = `\n## Enrichment Context (trimmed)\n${JSON.stringify(slim)}`;
+        logger.info({ taskId, chars: enrichmentStr.length }, "Trimmed enrichment to architect+scorer only");
+      }
+      if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
+        enrichmentStr = "";
+        logger.warn({ taskId }, "Dropped enrichment entirely — too large for context window");
+      }
     }
 
     const retryStr = task.retryInstructions
