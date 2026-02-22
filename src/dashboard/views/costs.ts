@@ -18,6 +18,7 @@ import { layout } from "./layout.js";
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export type BreakdownDimension = "user" | "repo" | "agent" | "model";
+export type BreakdownRange = "today" | "week" | "month" | "all";
 
 export interface CostsPageData {
   todayTotal: number;
@@ -77,7 +78,14 @@ const DIMENSION_LABELS: Record<BreakdownDimension, string> = {
   model: "By Model",
 };
 
-function dimensionTabs(active: BreakdownDimension, isAdmin: boolean): string {
+const RANGE_LABELS: Record<BreakdownRange, string> = {
+  today: "Today",
+  week: "This Week",
+  month: "This Month",
+  all: "All Time",
+};
+
+function dimensionTabs(active: BreakdownDimension, activeRange: BreakdownRange, isAdmin: boolean): string {
   const tabs = (Object.keys(DIMENSION_LABELS) as BreakdownDimension[])
     .filter((dim) => isAdmin || dim !== "user")
     .map((dim) => {
@@ -89,8 +97,8 @@ function dimensionTabs(active: BreakdownDimension, isAdmin: boolean): string {
 
       return `<button
         class="border-b-2 px-4 py-2 text-sm font-medium transition-colors ${isActive ? activeClasses : inactiveClasses}"
-        hx-get="/costs/breakdown?dimension=${dim}"
-        hx-target="#breakdown-table"
+        hx-get="/costs/breakdown?dimension=${dim}&range=${activeRange}"
+        hx-target="#breakdown-content"
         hx-swap="innerHTML">${escapeHtml(DIMENSION_LABELS[dim])}</button>`;
     })
     .join("");
@@ -98,13 +106,27 @@ function dimensionTabs(active: BreakdownDimension, isAdmin: boolean): string {
   return `<div class="flex gap-1 border-b border-slate-700">${tabs}</div>`;
 }
 
+function rangePills(active: BreakdownRange, activeDimension: BreakdownDimension): string {
+  const pills = (Object.keys(RANGE_LABELS) as BreakdownRange[])
+    .map((range) => {
+      const isActive = range === active;
+      const activeClasses = "bg-amber-400/15 text-amber-400 border-amber-400/30";
+      const inactiveClasses = "bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300 hover:border-slate-600";
+
+      return `<button
+        class="rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isActive ? activeClasses : inactiveClasses}"
+        hx-get="/costs/breakdown?dimension=${activeDimension}&range=${range}"
+        hx-target="#breakdown-content"
+        hx-swap="innerHTML">${escapeHtml(RANGE_LABELS[range])}</button>`;
+    })
+    .join("");
+
+  return `<div class="flex gap-2">${pills}</div>`;
+}
+
 // ── Breakdown table (partial) ───────────────────────────────────────────────
 
-/**
- * Renders just the breakdown table body. Exported so the HTMX partial
- * endpoint can return this fragment when switching dimensions.
- */
-export function costsBreakdownPartial(
+function breakdownTable(
   rows: BreakdownRow[],
   dimension: BreakdownDimension,
 ): string {
@@ -124,6 +146,25 @@ export function costsBreakdownPartial(
   return table(headers, tableRows);
 }
 
+/**
+ * Renders tabs + range pills + breakdown table. Exported so the HTMX partial
+ * endpoint can return this fragment when switching dimensions/ranges.
+ */
+export function costsBreakdownPartial(
+  rows: BreakdownRow[],
+  dimension: BreakdownDimension,
+  range: BreakdownRange,
+  isAdmin: boolean,
+): string {
+  return `${dimensionTabs(dimension, range, isAdmin)}
+    <div class="mt-3">
+      ${rangePills(range, dimension)}
+    </div>
+    <div class="mt-4">
+      ${breakdownTable(rows, dimension)}
+    </div>`;
+}
+
 // ── Breakdown section (full card with tabs) ─────────────────────────────────
 
 function breakdownSection(
@@ -132,9 +173,8 @@ function breakdownSection(
   isAdmin: boolean,
 ): string {
   const inner = `
-    ${dimensionTabs(dimension, isAdmin)}
-    <div id="breakdown-table" class="mt-4">
-      ${costsBreakdownPartial(rows, dimension)}
+    <div id="breakdown-content">
+      ${costsBreakdownPartial(rows, dimension, "all", isAdmin)}
     </div>`;
 
   return card(inner, { title: "Cost Breakdown", padding: "compact" });
