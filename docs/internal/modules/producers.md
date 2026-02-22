@@ -669,7 +669,7 @@ This table is the primary source for the dashboard's producer health view and co
 
 ## Task Creation Workflow
 
-When a producer decides to create a task, it calls `create()` from [`src/db/queries/tasks.ts`](../../../src/db/queries/tasks.ts) — see also [`docs/internal/modules/database.md`](./database.md#tasksts). The call signature accepted by producers is:
+When a producer decides to create a task, it calls `create()` from [`src/db/queries/tasks.ts`](../../../src/db/queries/tasks.ts) — see also [`docs/internal/modules/database.md`](./database.md). The call signature accepted by producers is:
 
 ```ts
 await create({
