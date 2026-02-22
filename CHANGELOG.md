@@ -1,6 +1,22 @@
 # Changelog
 
 ## 2026-02-22
+- fix: use FETCH_HEAD for single-branch clone compatibility
+- test: update git-provider push test for explicit lease SHA
+- fix: browser validation parser and git push stale ref rejection
+- Merge pull request #9 from esbenwiberg/hive/HIVE-20260220-6e1f
+- feat: make compose_up_timeout_seconds configurable
+- feat: add Test Preview Setup dialog to settings
+- fix: increase remote docker compose up timeout to 5 minutes
+- Merge pull request #10 from esbenwiberg/hive/HIVE-20260221-7cca
+- fix: fetch before --force-with-lease push to prevent stale ref rejection
+- Task total score
+- Docs enricher
+- fix: small tasks never producing code changes
+- fix: push milestone commits incrementally for worktree loss recovery
+- fix: remove invalid request-level cache_control and guard orphaned tool_use blocks
+- fix: update task ID regex for widened entropy + add agentic prompt caching
+- chore: regenerate changelog
 - fix: widen task ID entropy to avoid duplicate key collisions
 - fix: mock fire-and-forget agents in review-gate test
 - fix: mock fire-and-forget agents in review-gate test

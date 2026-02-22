@@ -340,7 +340,9 @@ export async function deleteByIds(ids: string[]): Promise<number> {
 
 /**
  * Resets a task to initial pending state, clearing all enrichment, gate,
- * execution, and review state. Also deletes related rows from dependent tables.
+ * execution, and review state. Cascades through all dependent tables
+ * (task_events, enrichment_runs, gate_decisions, code_reviews, active_agents,
+ * costs, preview_logs, learning_events).
  */
 export async function resetTask(id: string) {
   const existing = await getById(id);
@@ -348,13 +350,17 @@ export async function resetTask(id: string) {
     throw new Error(`Task ${id} not found`);
   }
 
-  // Delete related rows
+  // Delete related rows (mirrors cascades in deleteByIds)
   await db.execute(sql`
     WITH target AS (SELECT ${id}::text AS tid)
-    , d1 AS (DELETE FROM enrichment_runs WHERE task_id = (SELECT tid FROM target))
-    , d2 AS (DELETE FROM gate_decisions WHERE task_id = (SELECT tid FROM target))
-    , d3 AS (DELETE FROM code_reviews WHERE task_id = (SELECT tid FROM target))
-    , d4 AS (DELETE FROM active_agents WHERE task_id = (SELECT tid FROM target))
+    , d1 AS (DELETE FROM task_events WHERE task_id = (SELECT tid FROM target))
+    , d2 AS (DELETE FROM enrichment_runs WHERE task_id = (SELECT tid FROM target))
+    , d3 AS (DELETE FROM gate_decisions WHERE task_id = (SELECT tid FROM target))
+    , d4 AS (DELETE FROM code_reviews WHERE task_id = (SELECT tid FROM target))
+    , d5 AS (DELETE FROM active_agents WHERE task_id = (SELECT tid FROM target))
+    , d6 AS (DELETE FROM costs WHERE task_id = (SELECT tid FROM target))
+    , d7 AS (DELETE FROM preview_logs WHERE task_id = (SELECT tid FROM target))
+    , d8 AS (DELETE FROM learning_events WHERE task_id = (SELECT tid FROM target))
     SELECT 1
   `);
 
