@@ -44,7 +44,7 @@ function parseValidationResult(text: string): { verdict: "pass" | "fail"; findin
     try {
       const parsed = JSON.parse(jsonBlocks[i]);
       if (parsed && typeof parsed === "object" && "verdict" in parsed) {
-        const verdict = parsed.verdict === "pass" ? "pass" : "fail";
+        const verdict = typeof parsed.verdict === "string" && parsed.verdict.startsWith("pass") ? "pass" : "fail";
         const findings = Array.isArray(parsed.findings) ? parsed.findings.map(String) : [];
         return { verdict, findings };
       }
