@@ -117,11 +117,14 @@ export async function validateWithBrowser(
       result = { verdict: "fail", findings: ["Failed to parse validation result"] };
     }
 
+    const findingsSummary = result.findings.length > 0
+      ? `\n${result.findings.map((f, i) => `  ${i + 1}. ${f}`).join("\n")}`
+      : "";
     await addEvent(
       taskId,
       "browser_validation_complete",
       "browser-validator",
-      `Browser validation: ${result.verdict} (${result.findings.length} findings, $${costUsd.toFixed(2)})`,
+      `Browser validation: ${result.verdict} (${result.findings.length} findings, $${costUsd.toFixed(2)})${findingsSummary}`,
       { verdict: result.verdict, findings: result.findings },
     );
 

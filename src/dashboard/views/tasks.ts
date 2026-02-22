@@ -929,7 +929,7 @@ export function activityEventList(events: TaskEventRow[]): string {
       return `<div class="flex items-start gap-3 py-2">
         <span class="shrink-0 w-16 text-right text-xs text-slate-500 pt-0.5">${escapeHtml(time)}</span>
         <span class="shrink-0">${agentBadge(e.agent)}</span>
-        <span class="text-sm text-slate-300">${escapeHtml(e.message)}</span>
+        <span class="text-sm text-slate-300">${escapeHtml(e.message).replace(/\n/g, "<br>")}</span>
       </div>`;
     })
     .join("");

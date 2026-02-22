@@ -31,6 +31,7 @@ After completing your validation, respond with a JSON object:
 ## Verdict Guidelines
 
 - **pass**: All task requirements are visually and functionally verified in the preview
+- **pass (nothing to validate)**: If the task is purely backend, docs-only, config, or otherwise has no visible UI changes, verdict is "pass" with a finding like "No UI changes to validate — task is backend/docs only"
 - **fail**: One or more requirements are not met, or critical errors are present
 
 ## Rules
