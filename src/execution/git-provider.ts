@@ -146,6 +146,10 @@ export class GitHubProvider implements GitProvider {
     }
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
 
+    // Fetch before push so --force-with-lease has current tracking refs
+    // (prevents "stale info" rejection when reusing worktrees across retries)
+    try { await execGit(["fetch", "origin", branch], repoDir); } catch { /* branch may not exist yet */ }
+
     logger.info({ repoDir, branch }, "Pushing branch");
     await execGit(["push", "--force-with-lease", "origin", branch], repoDir);
   }
@@ -329,6 +333,10 @@ export class AzureDevOpsProvider implements GitProvider {
       .split("/");
     const authedUrl = `https://${creds.token}@dev.azure.com/${org}/${project}/_git/${repo}`;
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
+
+    // Fetch before push so --force-with-lease has current tracking refs
+    // (prevents "stale info" rejection when reusing worktrees across retries)
+    try { await execGit(["fetch", "origin", branch], repoDir); } catch { /* branch may not exist yet */ }
 
     logger.info({ repoDir, branch }, "Pushing branch");
     await execGit(["push", "--force-with-lease", "origin", branch], repoDir);

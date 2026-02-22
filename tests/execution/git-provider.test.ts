@@ -160,10 +160,11 @@ describe("GitHubProvider", () => {
   // ── push ───────────────────────────────────────────────────────────────────
 
   describe("push", () => {
-    it("sets remote URL with token and pushes", async () => {
+    it("sets remote URL with token, fetches, and pushes", async () => {
       // First call: remote get-url -> returns existing URL
       // Second call: remote set-url -> succeeds
-      // Third call: push -> succeeds
+      // Third call: fetch (refresh tracking refs) -> succeeds
+      // Fourth call: push -> succeeds
       let callCount = 0;
       mockExecFile.mockImplementation(
         (
@@ -184,7 +185,7 @@ describe("GitHubProvider", () => {
 
       await provider.push("/tmp/repo", "feature/my-branch", githubCreds);
 
-      expect(mockExecFile).toHaveBeenCalledTimes(3);
+      expect(mockExecFile).toHaveBeenCalledTimes(4);
 
       // First: get-url
       expect(mockExecFile.mock.calls[0][1]).toEqual(["remote", "get-url", "origin"]);
@@ -197,8 +198,11 @@ describe("GitHubProvider", () => {
         "https://x-access-token:ghp_test-token-123@github.com/acme/widget.git",
       ]);
 
-      // Third: push
-      expect(mockExecFile.mock.calls[2][1]).toEqual(["push", "--force-with-lease", "origin", "feature/my-branch"]);
+      // Third: fetch to refresh tracking refs
+      expect(mockExecFile.mock.calls[2][1]).toEqual(["fetch", "origin", "feature/my-branch"]);
+
+      // Fourth: push
+      expect(mockExecFile.mock.calls[3][1]).toEqual(["push", "--force-with-lease", "origin", "feature/my-branch"]);
     });
   });
 
