@@ -55,6 +55,14 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(() => "You are a code reviewer. Return JSON with verdict, findings, securityFindings, verification."),
 }));
 
+// Mock fire-and-forget side effects so they don't re-register active agents
+vi.mock("../../src/agents/feedback-loop.js", () => ({
+  fireAndForgetFeedback: vi.fn(),
+}));
+vi.mock("../../src/agents/code-quality-analyst.js", () => ({
+  analyzeReviewPatterns: vi.fn(),
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 const { callClaude } = await import("../../src/agents/sdk.js");
