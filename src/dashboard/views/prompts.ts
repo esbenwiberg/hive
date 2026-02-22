@@ -82,7 +82,15 @@ export function promptEditorPartial(relativePath: string, content: string): stri
       rows="24"
       class="block w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-3 font-mono text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
     >${safeContent}</textarea>
-    <div class="mt-4 flex justify-end">
+    <div class="mt-4 flex justify-end gap-2">
+      <button type="button"
+        hx-post="/api/prompts/${safePath}/reset"
+        hx-target="#prompt-editor"
+        hx-swap="innerHTML"
+        hx-confirm="Reset this prompt to the original committed version?"
+        class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-slate-500">
+        Reset
+      </button>
       <button type="submit"
         class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium bg-amber-400 text-slate-900 hover:bg-amber-300 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-amber-400">
         Save

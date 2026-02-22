@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireRole } from "../../auth/middleware.js";
-import { listPromptFiles, readPrompt, writePrompt, validatePromptPath } from "../../prompts.js";
+import { listPromptFiles, readPrompt, writePrompt, readOriginalPrompt, validatePromptPath } from "../../prompts.js";
 import { invalidatePrompt } from "../../prompt-cache.js";
 import { promptsPage, promptEditorPartial } from "../views/prompts.js";
 
@@ -63,6 +63,38 @@ router.post("/api/prompts/:path(*)", requireRole("admin"), async (req: Request, 
       JSON.stringify({ showToast: { message: "Prompt saved", type: "success" } }),
     );
     res.send(promptEditorPartial(relativePath, content));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/prompts/:path(*)/reset ─ Reset prompt to git-committed version ─
+
+router.post("/api/prompts/:path(*)/reset", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const relativePath = req.params.path as string;
+
+    try {
+      validatePromptPath(relativePath);
+    } catch (err) {
+      res.status(400).send((err as Error).message);
+      return;
+    }
+
+    const original = await readOriginalPrompt(relativePath);
+    if (original === null) {
+      res.status(404).send("No committed version found");
+      return;
+    }
+
+    await writePrompt(relativePath, original);
+    invalidatePrompt(relativePath);
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: "Prompt reset to original", type: "success" } }),
+    );
+    res.send(promptEditorPartial(relativePath, original));
   } catch (err) {
     next(err);
   }

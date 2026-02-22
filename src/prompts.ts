@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
+import { execFile } from "node:child_process";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,4 +129,27 @@ export async function writePrompt(relativePath: string, content: string): Promis
   }
 
   await fs.writeFile(resolved, content, "utf-8");
+}
+
+/**
+ * Reads the original (git-committed) version of a prompt file.
+ * Returns null if the file has no committed version.
+ */
+export async function readOriginalPrompt(relativePath: string): Promise<string | null> {
+  validatePromptPath(relativePath);
+
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      ["show", `HEAD:prompts/${relativePath}`],
+      { cwd: path.resolve(PROMPTS_DIR, "..") },
+      (err, stdout) => {
+        if (err) {
+          resolve(null);
+          return;
+        }
+        resolve(stdout);
+      },
+    );
+  });
 }
