@@ -1008,7 +1008,7 @@ const threshold = (ctx.config?.someThreshold as number) ?? 10;
 
 ### Step 4 — Write tests
 
-Create a test file alongside your producer (e.g. `src/producers/my-producer.test.ts`). Use the following pattern as a starting point:
+Create a test file alongside your producer, following the naming convention `<producer-name>.test.ts` inside `src/producers/`. Use the following pattern as a starting point:
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
