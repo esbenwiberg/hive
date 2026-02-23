@@ -64,6 +64,85 @@ const LATEST_MODELS: ModelConfig = {
   },
 };
 
+/**
+ * Cost tiers for quick model configuration.
+ * Low  — Haiku everywhere except worker (Sonnet); cheapest option.
+ * Medium — Sonnet for critical reasoning, Haiku for lightweight steps; no Opus.
+ * High — Opus for worker, Sonnet for reasoning; best quality (= LATEST_MODELS).
+ */
+const MODEL_TIERS: Record<"low" | "medium" | "high", { label: string; title: string; config: ModelConfig }> = {
+  low: {
+    label: "Low",
+    title: "Haiku everywhere · Sonnet for worker",
+    config: {
+      default: "claude-haiku-4-5-20251001",
+      inputCostPerM: 0.8,
+      outputCostPerM: 4,
+      components: {
+        router: "claude-haiku-4-5-20251001",
+        scorer: "claude-haiku-4-5-20251001",
+        gate: "claude-haiku-4-5-20251001",
+        worker: "claude-sonnet-4-6",
+        decomposer: "claude-sonnet-4-6",
+        refiner: "claude-haiku-4-5-20251001",
+        clarification: "claude-haiku-4-5-20251001",
+        keeper: "claude-haiku-4-5-20251001",
+        retrospective: "claude-haiku-4-5-20251001",
+        "feedback-loop": "claude-haiku-4-5-20251001",
+        "code-quality-analyst": "claude-haiku-4-5-20251001",
+        "gate-analyst": "claude-haiku-4-5-20251001",
+        "browser-validator": "claude-haiku-4-5-20251001",
+        "review-gate": "claude-haiku-4-5-20251001",
+        architect: "claude-sonnet-4-6",
+        producer: "claude-haiku-4-5-20251001",
+      },
+    },
+  },
+  medium: {
+    label: "Medium",
+    title: "Sonnet for reasoning · Haiku for lightweight steps · no Opus",
+    config: {
+      default: "claude-sonnet-4-6",
+      inputCostPerM: 3,
+      outputCostPerM: 15,
+      components: {
+        router: "claude-haiku-4-5-20251001",
+        scorer: "claude-haiku-4-5-20251001",
+        gate: "claude-sonnet-4-6",
+        worker: "claude-sonnet-4-6",
+        decomposer: "claude-sonnet-4-6",
+        refiner: "claude-sonnet-4-6",
+        clarification: "claude-haiku-4-5-20251001",
+        keeper: "claude-haiku-4-5-20251001",
+        retrospective: "claude-haiku-4-5-20251001",
+        "feedback-loop": "claude-haiku-4-5-20251001",
+        "code-quality-analyst": "claude-sonnet-4-6",
+        "gate-analyst": "claude-haiku-4-5-20251001",
+        "browser-validator": "claude-haiku-4-5-20251001",
+        "review-gate": "claude-sonnet-4-6",
+        architect: "claude-sonnet-4-6",
+        producer: "claude-haiku-4-5-20251001",
+      },
+    },
+  },
+  high: {
+    label: "High",
+    title: "Opus for worker · Sonnet for reasoning · best quality",
+    config: LATEST_MODELS,
+  },
+};
+
+function buildTierAssignments(cfg: ModelConfig): string {
+  return [
+    `document.getElementById('defaultModel').value=${JSON.stringify(cfg.default)};`,
+    `document.getElementById('inputCostPerM').value=${JSON.stringify(String(cfg.inputCostPerM))};`,
+    `document.getElementById('outputCostPerM').value=${JSON.stringify(String(cfg.outputCostPerM))};`,
+    ...ALL_COMPONENT_NAMES.map((name) =>
+      `document.getElementById('component_${name}').value=${JSON.stringify(cfg.components[name] ?? "")};`,
+    ),
+  ].join("");
+}
+
 const ALL_ENRICHER_NAMES = [
   "codebase",
   "docs",
@@ -350,20 +429,13 @@ export function globalSettingsPartial(
     }),
   ).join("");
 
-  // Build the inline JS for the "Update to Latest" button
-  const latestAssignments = [
-    `document.getElementById('defaultModel').value=${JSON.stringify(LATEST_MODELS.default)};`,
-    `document.getElementById('inputCostPerM').value=${JSON.stringify(String(LATEST_MODELS.inputCostPerM))};`,
-    `document.getElementById('outputCostPerM').value=${JSON.stringify(String(LATEST_MODELS.outputCostPerM))};`,
-    ...ALL_COMPONENT_NAMES.map((name) =>
-      `document.getElementById('component_${name}').value=${JSON.stringify(LATEST_MODELS.components[name] ?? "")};`,
-    ),
-  ].join("");
-
-  const updateToLatestBtn = button("Update to Latest", {
-    variant: "secondary",
-    attrs: `type="button" onclick="${escapeHtml(latestAssignments)}"`,
-  });
+  const tierButtons = (["low", "medium", "high"] as const).map((tier) => {
+    const { label, title, config } = MODEL_TIERS[tier];
+    return button(label, {
+      variant: "secondary",
+      attrs: `type="button" title="${escapeHtml(title)}" onclick="${escapeHtml(buildTierAssignments(config))}"`,
+    });
+  }).join("");
 
   const modelsFields = [
     input("defaultModel", "Default Model", {
@@ -380,7 +452,7 @@ export function globalSettingsPartial(
       value: String(config.models.outputCostPerM),
       placeholder: "15",
     }),
-    `<div class="mt-2">${updateToLatestBtn}</div>`,
+    `<div class="mt-2 flex flex-wrap gap-2">${tierButtons}</div>`,
     `<details class="mt-2">
       <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-400">Per-component overrides</summary>
       <div class="mt-2 space-y-2">${componentInputs}</div>
