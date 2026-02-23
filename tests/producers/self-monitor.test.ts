@@ -11,9 +11,15 @@ vi.mock("../../src/db/connection.js", async () => {
 
 // Mock the log buffer so we can inject entries
 const mockGetRecent = vi.fn().mockReturnValue([]);
-vi.mock("../../src/log-buffer.js", () => ({
-  logBuffer: { getRecent: mockGetRecent },
-}));
+vi.mock("../../src/log-buffer.js", () => {
+  const { Writable } = require("node:stream");
+  return {
+    logBuffer: {
+      getRecent: mockGetRecent,
+      getStream: () => new Writable({ write(_c: unknown, _e: unknown, cb: () => void) { cb(); } }),
+    },
+  };
+});
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 

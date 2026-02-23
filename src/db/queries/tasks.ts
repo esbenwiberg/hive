@@ -1,4 +1,4 @@
-import { eq, ilike, and, or, sql, count, desc, inArray } from "drizzle-orm";
+import { eq, ilike, and, or, sql, count, desc, inArray, notInArray } from "drizzle-orm";
 import { db } from "../connection.js";
 import { tasks } from "../schema.js";
 import { generateTaskId } from "../../domain/types.js";
@@ -460,4 +460,42 @@ export async function findSuspended() {
     .select()
     .from(tasks)
     .where(eq(tasks.status, "suspended"));
+}
+
+/** Terminal statuses excluded from duplicate-detection candidates. */
+const TERMINAL_STATUSES = ["completed", "cancelled", "failed", "merged", "rejected"] as const;
+
+/**
+ * Returns recent non-terminal tasks for duplicate detection.
+ * Excludes tasks in terminal statuses (completed, cancelled, failed, merged, rejected).
+ * Optionally filters by producer/source type and limits the result set.
+ *
+ * @param options.producerType - If provided, only returns tasks whose `source` matches this value
+ * @param options.limit        - Maximum number of candidate tasks to return (default 100)
+ */
+export async function getOpenTasksForDedup(options: {
+  producerType?: string;
+  limit?: number;
+} = {}) {
+  const { producerType, limit = 100 } = options;
+
+  const conditions = [
+    notInArray(tasks.status, [...TERMINAL_STATUSES]),
+    ...(producerType !== undefined ? [eq(tasks.source, producerType)] : []),
+  ];
+
+  const where = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+  return db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      body: tasks.body,
+      status: tasks.status,
+      producerType: tasks.source,
+    })
+    .from(tasks)
+    .where(where)
+    .orderBy(desc(tasks.createdAt))
+    .limit(limit);
 }
