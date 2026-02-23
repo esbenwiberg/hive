@@ -648,6 +648,136 @@ describe("Milestone 3 acceptance criteria", () => {
   });
 });
 
+// ── Large-task: edge cases and additional coverage ────────────────────────────
+
+describe("large-task clarification — edge cases", () => {
+  it("large task first call: prompt includes 'Size: large' so the LLM can apply the 5-question rule", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Need info",
+        clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+      }),
+      cost: makeCostMeta(),
+    });
+
+    await architectEnricher.run(largeTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.prompt).toContain("Size: large");
+  });
+
+  it("large task: awaitingInput is still true when exactly 5 questions are returned", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    const claudeResponse = {
+      approach: "Minimal 5-question set",
+      clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(claudeResponse),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBe(true);
+    expect((arch.clarificationQuestions as string[]).length).toBe(5);
+  });
+
+  it("large task: awaitingInput is true when more than 5 questions are returned", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    const claudeResponse = {
+      approach: "Extended 7-question set",
+      clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?", "Q6?", "Q7?"],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(claudeResponse),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBe(true);
+    expect((arch.clarificationQuestions as string[]).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("large task round 2: prompt includes the round-1 answers so LLM has full context", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Answer about scale", "Answer about integrations"],
+        clarificationQuestions: ["Scale?", "Integrations?"],
+        clarificationRound: 1,
+      },
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ approach: "Blueprint", milestones: [] }),
+      cost: makeCostMeta(),
+    });
+
+    await architectEnricher.run(largeTask, "/tmp", priorResults, DEFAULT_CONFIG);
+
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.prompt).toContain("Answer about scale");
+    expect(callArgs.prompt).toContain("Answer about integrations");
+  });
+
+  it("large task: clarificationRound field is not set on the first (round=0) call", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Questions",
+        clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+      }),
+      cost: makeCostMeta(),
+    });
+
+    // No priorResults → first call → no clarificationRound context
+    const result = await architectEnricher.run(largeTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // awaitingInput must be true on the very first call
+    expect(arch.awaitingInput).toBe(true);
+  });
+
+  it("large task cap: clarificationQuestions is undefined (stripped) when round >= 2", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Final answers"],
+        clarificationQuestions: ["Last?"],
+        clarificationRound: 2,
+      },
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Blueprint forced by cap",
+        clarificationQuestions: ["Ignored?"],
+      }),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", priorResults, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.approach).toBe("Blueprint forced by cap");
+  });
+});
+
 // ── parseBlueprint unit tests ─────────────────────────────────────────────────
 
 describe("parseBlueprint", () => {
@@ -694,5 +824,84 @@ describe("parseBlueprint", () => {
     expect(result.milestones![0].acceptanceCriteria).toEqual([]);
     expect(result.milestones![1].title).toBe("Untitled milestone");
     expect(result.milestones![1].description).toBe("Only desc");
+  });
+
+  // ── parseBlueprint: size-aware clarification round logic ─────────────────
+
+  it("large task, completedRound=0: clarification is allowed (first round)", () => {
+    const input = JSON.stringify({
+      approach: "Clarification needed",
+      clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+    });
+
+    const result = parseBlueprint(input, { hasAnswers: false, taskSize: "large", completedRound: 0 });
+    expect(result.awaitingInput).toBe(true);
+    expect(result.clarificationQuestions).toHaveLength(5);
+  });
+
+  it("large task, completedRound=1 with hasAnswers: second round clarification is still allowed", () => {
+    const input = JSON.stringify({
+      approach: "Follow-up needed",
+      clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+    });
+
+    const result = parseBlueprint(input, { hasAnswers: true, taskSize: "large", completedRound: 1 });
+    expect(result.awaitingInput).toBe(true);
+    expect(result.clarificationQuestions).toHaveLength(5);
+  });
+
+  it("large task, completedRound=2 with hasAnswers: clarification is suppressed (cap reached)", () => {
+    const input = JSON.stringify({
+      approach: "Blueprint at round cap",
+      clarificationQuestions: ["Ignored?"],
+    });
+
+    const result = parseBlueprint(input, { hasAnswers: true, taskSize: "large", completedRound: 2 });
+    expect(result.awaitingInput).toBeUndefined();
+    expect(result.clarificationQuestions).toBeUndefined();
+    expect(result.approach).toBe("Blueprint at round cap");
+  });
+
+  it("medium task, completedRound=1 with hasAnswers: clarification is suppressed (only 1 round)", () => {
+    const input = JSON.stringify({
+      approach: "Blueprint after one round",
+      clarificationQuestions: ["Ignored?"],
+    });
+
+    const result = parseBlueprint(input, { hasAnswers: true, taskSize: "medium", completedRound: 1 });
+    expect(result.awaitingInput).toBeUndefined();
+    expect(result.clarificationQuestions).toBeUndefined();
+  });
+
+  it("small task, completedRound=0, hasAnswers=false: first round clarification is allowed", () => {
+    const input = JSON.stringify({
+      approach: "Small task needs one clarification",
+      clarificationQuestions: ["What is the expected output?"],
+    });
+
+    const result = parseBlueprint(input, { hasAnswers: false, taskSize: "small", completedRound: 0 });
+    expect(result.awaitingInput).toBe(true);
+  });
+
+  it("legacy boolean true: clarification is suppressed (backward-compat)", () => {
+    const input = JSON.stringify({
+      approach: "Blueprint",
+      clarificationQuestions: ["Should be suppressed?"],
+    });
+
+    const result = parseBlueprint(input, true);
+    expect(result.awaitingInput).toBeUndefined();
+    expect(result.clarificationQuestions).toBeUndefined();
+  });
+
+  it("legacy boolean false: clarification is allowed (backward-compat)", () => {
+    const input = JSON.stringify({
+      approach: "Needs info",
+      clarificationQuestions: ["Q1?"],
+    });
+
+    const result = parseBlueprint(input, false);
+    expect(result.awaitingInput).toBe(true);
+    expect(result.clarificationQuestions).toEqual(["Q1?"]);
   });
 });

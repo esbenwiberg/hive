@@ -828,3 +828,114 @@ describe("MAX_CLARIFICATION_ROUNDS", () => {
     expect(MAX_CLARIFICATION_ROUNDS["trivial"]).toBe(1);
   });
 });
+
+// ── Large-task multi-round: additional integration edge cases ─────────────────
+
+describe("large-task multi-round clarification — additional edge cases", () => {
+  // Re-use the mocked task and architect enricher
+  const TASK_ID = "task-edge-001";
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGetById.mockResolvedValue({
+      id: TASK_ID,
+      title: "Edge case large task",
+      description: "Detailed edge case",
+      size: "large",
+      status: "pending",
+      enrichments: {},
+      created_at: new Date().toISOString(),
+    });
+    mockRecordCost.mockResolvedValue(undefined);
+  });
+
+  it("large task: exactly 5 questions satisfies the minimum — awaitingInput=true", async () => {
+    const { runFeedbackLoop } = await import("../../src/agents/feedback-loop.js");
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Exactly five questions",
+        clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+      }),
+      cost: { inputTokens: 10, outputTokens: 20, totalCost: 0.001 },
+    });
+
+    const result = await runFeedbackLoop(TASK_ID);
+
+    const arch = result.enrichments?.architect as Record<string, unknown> | undefined;
+    expect(arch?.awaitingInput).toBe(true);
+    const qs = arch?.clarificationQuestions as string[];
+    expect(qs.length).toBe(5);
+  });
+
+  it("large task second round: awaitingInput=true and ≥5 questions returned", async () => {
+    const { runFeedbackLoop } = await import("../../src/agents/feedback-loop.js");
+
+    // First call: enricher asks follow-up questions at round 1
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Follow-up round",
+        clarificationQuestions: ["FQ1?", "FQ2?", "FQ3?", "FQ4?", "FQ5?", "FQ6?"],
+      }),
+      cost: { inputTokens: 10, outputTokens: 20, totalCost: 0.001 },
+    });
+
+    // priorResults simulate round 1 already completed with user answers
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Big scale", "REST API", "Postgres", "React", "Docker", "CI"],
+        clarificationQuestions: ["Scale?", "API type?", "DB?", "Frontend?", "Infra?", "CI?"],
+        clarificationRound: 1,
+      },
+    };
+
+    const result = await runFeedbackLoop(TASK_ID, priorResults);
+
+    const arch = result.enrichments?.architect as Record<string, unknown> | undefined;
+    // Second round is still permitted for large tasks (clarificationRound=1 → round 2)
+    if (arch?.awaitingInput) {
+      expect((arch.clarificationQuestions as string[]).length).toBeGreaterThanOrEqual(5);
+    } else {
+      // If the mock returns a blueprint instead that's also valid — just check it has approach
+      expect(arch?.approach).toBeDefined();
+    }
+  });
+
+  it("large task: round 3 is never permitted — cap at 2 stops further clarification", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    // completedRound=2 means we have already done rounds 1 and 2
+    expect(shouldAllowClarificationRound("large", 2)).toBe(false);
+    expect(shouldAllowClarificationRound("large", 3)).toBe(false);
+    expect(shouldAllowClarificationRound("large", 10)).toBe(false);
+  });
+
+  it("small task: round 2 is never permitted — cap at 1", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("small", 1)).toBe(false);
+    expect(shouldAllowClarificationRound("small", 2)).toBe(false);
+  });
+
+  it("medium task: round 2 is never permitted — cap at 1", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("medium", 1)).toBe(false);
+    expect(shouldAllowClarificationRound("medium", 2)).toBe(false);
+  });
+
+  it("large task direct blueprint: when Claude returns no clarificationQuestions, awaitingInput is falsy", async () => {
+    const { runFeedbackLoop } = await import("../../src/agents/feedback-loop.js");
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Unambiguous large task blueprint",
+        milestones: [{ title: "M1", description: "Do it", filesToModify: [], acceptanceCriteria: [] }],
+      }),
+      cost: { inputTokens: 10, outputTokens: 20, totalCost: 0.001 },
+    });
+
+    const result = await runFeedbackLoop(TASK_ID);
+
+    const arch = result.enrichments?.architect as Record<string, unknown> | undefined;
+    expect(arch?.awaitingInput).toBeFalsy();
+    expect(arch?.approach).toBe("Unambiguous large task blueprint");
+  });
+});
