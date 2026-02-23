@@ -1273,9 +1273,11 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     || task.failureReason?.includes("Browser validation failed after max");
   // Only show "Continue" when there are completed milestones to resume from
   // Only show "More Cycles" when the failure was specifically due to max rework cycles
+  const isBrowserValidationFailed = task.failureReason?.includes("Browser validation failed") ?? false;
   const actions = allActions.filter((a) => {
     if (a.action === "continue") return (task.completedMilestones ?? 0) > 0;
     if (a.action === "more_cycles") return isMaxCyclesFailed;
+    if (a.action === "accept_browser_validation") return isBrowserValidationFailed;
     return true;
   });
 
@@ -1288,7 +1290,8 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
               a.action === "complete" ||
               a.action === "merge" ||
               a.action === "continue" ||
-              a.action === "more_cycles"
+              a.action === "more_cycles" ||
+              a.action === "accept_browser_validation"
             ? "primary"
             : "secondary";
       const hxVals = escapeHtml(JSON.stringify({ action: a.action, targetStatus: a.targetStatus }));

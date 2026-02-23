@@ -59,6 +59,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
     TaskStatus.APPROVED,
     TaskStatus.REWORK,
     TaskStatus.REVIEWING,
+    TaskStatus.DONE,
     TaskStatus.CANCELLED,
   ],
   [TaskStatus.REJECTED]: [],
@@ -132,6 +133,7 @@ export function getAvailableActions(status: string): Action[] {
       { action: "merge", targetStatus: TaskStatus.MERGED, label: "Merge" },
     ],
     [TaskStatus.FAILED]: [
+      { action: "accept_browser_validation", targetStatus: TaskStatus.DONE, label: "Accept & Create PR" },
       { action: "more_cycles", targetStatus: TaskStatus.REWORK, label: "More Cycles" },
       { action: "redesign", targetStatus: TaskStatus.APPROVED, label: "Redesign" },
       { action: "continue", targetStatus: TaskStatus.APPROVED, label: "Continue" },

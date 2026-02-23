@@ -214,6 +214,11 @@ export async function updateStatus(
     updates.retryInstructions = null;
   }
 
+  // Clear failure state when accepting browser validation failure (direct to done)
+  if (newStatus === "done" && existing.status === "failed") {
+    updates.failureReason = null;
+  }
+
   // Bump max rework cycles when granting more cycles from failed
   if (newStatus === "rework" && existing.status === "failed") {
     updates.maxReworkCycles = (existing.maxReworkCycles ?? 2) + 2;

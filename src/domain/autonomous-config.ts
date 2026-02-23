@@ -59,6 +59,8 @@ export interface PreviewSettings {
   port_range: [number, number];
   /** Timeout in seconds for docker compose up (image pull + build). Default 300. */
   compose_up_timeout_seconds: number;
+  /** Max turns for browser validation agent. Default 20. */
+  validation_max_turns: number;
 }
 
 export interface ConcurrencyConfig {
@@ -106,6 +108,7 @@ const DEFAULTS: AutonomousConfig = {
     },
     port_range: [4001, 4099],
     compose_up_timeout_seconds: 300,
+    validation_max_turns: 20,
   },
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
 };

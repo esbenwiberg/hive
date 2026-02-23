@@ -44,7 +44,7 @@ function parseValidationResult(text: string): { verdict: "pass" | "fail"; findin
     try {
       const parsed = JSON.parse(jsonBlocks[i]);
       if (parsed && typeof parsed === "object" && "verdict" in parsed) {
-        const verdict = typeof parsed.verdict === "string" && parsed.verdict.startsWith("pass") ? "pass" : "fail";
+        const verdict = typeof parsed.verdict === "string" && parsed.verdict.toLowerCase().startsWith("pass") ? "pass" : "fail";
         const findings = Array.isArray(parsed.findings) ? parsed.findings.map(String) : [];
         return { verdict, findings };
       }
@@ -95,14 +95,27 @@ export async function validateWithBrowser(
       `Navigate to the preview URL and verify that the task requirements are met.`,
     ].join("\n");
 
+    const maxTurns = config.preview.validation_max_turns;
+    const nudgeTurn = Math.max(1, maxTurns - 3);
+
     const response = await callClaudeWithTools({
       prompt: userPrompt,
       model,
       systemPrompt: loadPrompt("browser-validator"),
       tools: BROWSER_TOOLS,
       executeTool: browserExecutor,
-      maxTurns: 15,
+      maxTurns,
+      maxNudges: 1,
       onTurnComplete: () => heartbeat(taskId),
+      midLoopNudge: ({ turns }) => {
+        if (turns >= nudgeTurn) {
+          return 'You are running low on turns. Wrap up your validation now. In your next response, output the final JSON verdict: {"verdict": "pass" or "fail", "findings": ["..."]} — then stop.';
+        }
+        return null;
+      },
+      postCompletionNudge: () => {
+        return 'Output your final validation result as a JSON object: {"verdict": "pass" or "fail", "findings": ["specific finding 1", "..."]}';
+      },
     });
 
     const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
@@ -110,11 +123,9 @@ export async function validateWithBrowser(
 
     await recordCost(taskId, task.createdBy, "browser-validator", model, costUsd, response.turns, durationMs);
 
-    let result: { verdict: "pass" | "fail"; findings: string[] };
-    try {
-      result = parseValidationResult(response.text);
-    } catch {
-      result = { verdict: "fail", findings: ["Failed to parse validation result"] };
+    const result = parseValidationResult(response.text);
+    if (result.findings.length === 1 && result.findings[0] === "Failed to parse validation output") {
+      logger.warn({ taskId, textSnippet: response.text.slice(0, 300) }, "Browser validator: failed to parse validation output");
     }
 
     const findingsSummary = result.findings.length > 0

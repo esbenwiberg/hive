@@ -23,7 +23,8 @@ import * as activeAgentQueries from "../../db/queries/active-agents.js";
 import * as enrichmentRunQueries from "../../db/queries/enrichment-runs.js";
 import * as costQueries from "../../db/queries/costs.js";
 import { previewManager } from "../../execution/preview/manager.js";
-import { cleanupWorktree } from "../../execution/worktree.js";
+import { cleanupWorktree, resolveGitCredentials } from "../../execution/worktree.js";
+import { getGitProvider } from "../../execution/git-provider.js";
 import { refineTask } from "../../agents/refiner.js";
 import type { ReviewGateResult } from "../../domain/types.js";
 import * as repoAccessQueries from "../../db/queries/user-repo-access.js";
@@ -381,6 +382,35 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
         };
         await refineTask(id, reviewResult);
       }
+    }
+
+    if (action === "accept_browser_validation" && task.status === "failed") {
+      // The code is already pushed — just create the PR and transition to done.
+      const repo = await repoQueries.getById(task.repoId);
+      if (!repo) throw new Error(`Repo ${task.repoId} not found`);
+      const branchName = `hive/${id}`;
+      const creds = await resolveGitCredentials(task.createdBy, repo.provider);
+      const gitProvider = getGitProvider(repo.provider);
+      const prBody = [
+        `## Task Description`,
+        ``,
+        task.body,
+        ``,
+        `> ⚠️ Browser validation was manually accepted by ${user.displayName ?? `user #${user.id}`}.`,
+        ``,
+        `---`,
+        `_Automated by Hive - Task ${id}_`,
+      ].join("\n");
+      const prUrl = await gitProvider.createPR(
+        repo.fullName,
+        branchName,
+        repo.defaultBranch ?? "main",
+        task.title,
+        prBody,
+        creds,
+      );
+      await db.update(tasksTable).set({ prUrl, failureReason: null, updatedAt: new Date() }).where(eq(tasksTable.id, id));
+      logger.info({ taskId: id, prUrl }, "Browser validation accepted — PR created");
     }
 
     if (action === "redesign" && task.status === "failed") {
