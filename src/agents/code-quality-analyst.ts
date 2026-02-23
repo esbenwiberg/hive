@@ -1,5 +1,5 @@
 import logger from "../logger.js";
-import { callClaude } from "./sdk.js";
+import { callClaude, extractJson } from "./sdk.js";
 import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { createLearning, buildDismissedContext } from "../db/queries/learnings.js";
@@ -57,11 +57,29 @@ interface CodeQualityResult {
 }
 
 function parseCodeQualityResult(text: string): CodeQualityResult {
-  const cleaned = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-  const parsed = JSON.parse(cleaned);
+  let parsed: unknown;
+  try {
+    parsed = extractJson(text);
+  } catch (err) {
+    const snippet = text.slice(0, 120).replace(/\n/g, " ");
+    throw new Error(
+      `parseCodeQualityResult: failed to extract JSON from LLM response. ` +
+      `Original error: ${(err as Error).message}. ` +
+      `Raw snippet: "${snippet}"`
+    );
+  }
 
+  if (typeof parsed !== "object" || parsed === null) {
+    const snippet = text.slice(0, 120).replace(/\n/g, " ");
+    throw new Error(
+      `parseCodeQualityResult: expected a JSON object, got ${typeof parsed}. ` +
+      `Raw snippet: "${snippet}"`
+    );
+  }
+
+  const obj = parsed as Record<string, unknown>;
   return {
-    patterns: Array.isArray(parsed.patterns) ? parsed.patterns : [],
+    patterns: Array.isArray(obj.patterns) ? obj.patterns : [],
   };
 }
 
