@@ -14,7 +14,7 @@ const { findOrCreateByEntraOid } = await import(
 const { findOrCreate: findOrCreateRepo } = await import(
   "../../src/db/queries/repos.js"
 );
-const { create, getById, getByIdWithCost, list, listWithCosts, updateStatus, countByStatus, deleteByIds } = await import(
+const { create, getById, getByIdWithCost, list, listWithCosts, updateStatus, countByStatus, deleteByIds, getOpenTasksForDedup } = await import(
   "../../src/db/queries/tasks.js"
 );
 const { recordCost } = await import(
@@ -501,6 +501,109 @@ describe("tasks queries", () => {
       const counts = await countByStatus();
       expect(counts.pending).toBe(2);
       expect(counts.queued).toBe(1);
+    });
+  });
+
+  // ── getOpenTasksForDedup ─────────────────────────────────────────────────
+
+  describe("getOpenTasksForDedup", () => {
+    it("returns non-terminal tasks with required fields", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      await create({ title: "Open bug", body: "Something is broken", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Open feature", body: "Add a new widget", source: "feature-scout", repoId: repo.id, createdBy: user.id });
+
+      const results = await getOpenTasksForDedup();
+
+      expect(results).toHaveLength(2);
+      // Each result must expose the required fields
+      for (const r of results) {
+        expect(r).toHaveProperty("id");
+        expect(r).toHaveProperty("title");
+        expect(r).toHaveProperty("body");
+        expect(r).toHaveProperty("status");
+        expect(r).toHaveProperty("producerType");
+      }
+    });
+
+    it("excludes tasks in terminal statuses (completed, cancelled, failed, merged, rejected)", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      // Create tasks and walk them to terminal statuses
+      const completed = await create({ title: "Done task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await updateStatus(completed.id, "queued");
+      await updateStatus(completed.id, "enriching");
+      await updateStatus(completed.id, "ready");
+      await updateStatus(completed.id, "approved", user.id);
+      await updateStatus(completed.id, "executing");
+      await updateStatus(completed.id, "reviewing");
+      await updateStatus(completed.id, "done");
+      await updateStatus(completed.id, "merged");
+
+      const cancelled = await create({ title: "Cancelled task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await updateStatus(cancelled.id, "cancelled");
+
+      // This one remains open (pending)
+      const open = await create({ title: "Still open", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+
+      const results = await getOpenTasksForDedup();
+
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe(open.id);
+      expect(results[0].status).toBe("pending");
+    });
+
+    it("filters by producerType when provided", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      await create({ title: "Bug task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Feature task", body: "b", source: "feature-scout", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Security task", body: "b", source: "security-scanner", repoId: repo.id, createdBy: user.id });
+
+      const bugOnly = await getOpenTasksForDedup({ producerType: "bug-hunter" });
+
+      expect(bugOnly).toHaveLength(1);
+      expect(bugOnly[0].producerType).toBe("bug-hunter");
+      expect(bugOnly[0].title).toBe("Bug task");
+    });
+
+    it("returns empty array when producerType has no open tasks", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      // Only create a feature-scout task
+      await create({ title: "Feature task", body: "b", source: "feature-scout", repoId: repo.id, createdBy: user.id });
+
+      const results = await getOpenTasksForDedup({ producerType: "bug-hunter" });
+
+      expect(results).toHaveLength(0);
+    });
+
+    it("respects the limit option", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      for (let i = 1; i <= 5; i++) {
+        await create({ title: `Task ${i}`, body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      }
+
+      const results = await getOpenTasksForDedup({ limit: 3 });
+
+      expect(results).toHaveLength(3);
+    });
+
+    it("returns all open tasks when no filters are provided", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      await create({ title: "Alpha", body: "b", source: "manual", repoId: repo.id, createdBy: user.id });
+      await create({ title: "Beta", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+
+      const results = await getOpenTasksForDedup();
+
+      expect(results.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("returns empty array when no tasks exist", async () => {
+      const results = await getOpenTasksForDedup();
+      expect(results).toHaveLength(0);
     });
   });
 });
