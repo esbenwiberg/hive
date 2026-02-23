@@ -463,7 +463,7 @@ export async function findSuspended() {
 }
 
 /** Terminal statuses excluded from duplicate-detection candidates. */
-const TERMINAL_STATUSES = ["completed", "cancelled", "failed", "merged", "rejected"] as const;
+const TERMINAL_STATUSES = ["done", "cancelled", "failed", "merged", "rejected"] as const;
 
 /**
  * Returns recent non-terminal tasks for duplicate detection.
