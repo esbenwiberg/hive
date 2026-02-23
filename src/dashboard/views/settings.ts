@@ -26,6 +26,7 @@ const ALL_PRODUCER_NAMES = [
   "bug-hunter",
   "security-scanner",
   "feature-scout",
+  "maintenance",
 ] as const;
 
 const PRODUCER_CONFIG_PLACEHOLDERS: Record<string, string> = {
