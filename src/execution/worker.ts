@@ -562,7 +562,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     const hasMilestones = architectData?.milestones && architectData.milestones.length > 0;
 
     let implCostUsd: number;
-    if (hasMilestones) {
+    const isReworkCycle = (task.reworkCount ?? 0) > 0;
+    if (hasMilestones && !isReworkCycle) {
       const startFrom = ((reusedWorktree || worktree?.recovered) && task.completedMilestones) ? task.completedMilestones : 0;
 
       // Resolve credentials early so milestones can push incrementally
@@ -575,6 +576,12 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn);
       implCostUsd = totalCostUsd;
     } else {
+      // Rework cycles (or non-milestone tasks): single targeted fix call.
+      // On rework, the worktree already has the full implementation — only patch
+      // the specific issues listed in retryInstructions (review findings).
+      if (isReworkCycle) {
+        await addEvent(taskId, "rework_fix_started", "worker", `Applying targeted review fixes (rework cycle ${task.reworkCount})`);
+      }
       // Single-call path (original behavior for tasks without milestones)
       await addEvent(taskId, "claude_call_started", "worker", `Calling Claude (${model})`);
       await heartbeat(taskId);
@@ -678,9 +685,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       const creds = await resolveGitCredentials(task.createdBy, repo.provider);
       const gitProvider = getGitProvider(repo.provider);
 
-      // Milestone-based tasks already commit per-milestone; only the single-call
-      // path needs a final commit here.
-      if (!hasMilestones) {
+      // Milestone-based tasks commit per-milestone on the first run.
+      // Rework cycles use the single-call path, so changes need a commit here too.
+      if (!hasMilestones || isReworkCycle) {
         await gitProvider.commitAll(worktree.path, `${task.title}\n\nTask: ${taskId}`);
       }
       await gitProvider.push(worktree.path, branchName, creds);
@@ -722,12 +729,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
                 // Send for rework with browser findings
                 await updateStatus(taskId, "rework");
 
-                // Reset completedMilestones so rework re-executes all milestones
-                if (hasMilestones) {
-                  await db.update(tasks)
-                    .set({ completedMilestones: 0, updatedAt: new Date() })
-                    .where(eq(tasks.id, taskId));
-                }
+                // Do NOT reset completedMilestones — rework uses targeted single-call fix.
 
                 // Get changed files from the worktree for scope-aware refinement
                 const browserSha = await validateBaseSha(worktree!.path, worktree!.baseSha);
@@ -837,12 +839,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       // Always rework if under max cycles — no terminal "fail" verdict
       await updateStatus(taskId, "rework");
 
-      // Reset completedMilestones so rework re-executes all milestones
-      if (hasMilestones) {
-        await db.update(tasks)
-          .set({ completedMilestones: 0, updatedAt: new Date() })
-          .where(eq(tasks.id, taskId));
-      }
+      // Do NOT reset completedMilestones — rework uses a targeted single-call
+      // fix against the existing worktree, not a full milestone re-execution.
 
       await refineTask(taskId, reviewResult);
 
