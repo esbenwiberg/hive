@@ -74,7 +74,8 @@ const { callClaude } = await import("../../src/agents/sdk.js");
 const { getById } = await import("../../src/db/queries/tasks.js");
 const { register, unregister } = await import("../../src/db/queries/active-agents.js");
 const logger = (await import("../../src/logger.js")).default;
-const { extractJson, analyzeFeedback } = await import("../../src/agents/feedback-loop.js");
+const { extractJson, analyzeFeedback, shouldAllowClarificationRound, MAX_CLARIFICATION_ROUNDS } =
+  await import("../../src/agents/feedback-loop.js");
 
 const mockCallClaude = callClaude as ReturnType<typeof vi.fn>;
 const mockGetById = getById as ReturnType<typeof vi.fn>;
@@ -748,5 +749,82 @@ describe("parseFeedbackResult / analyzeFeedback", () => {
     expect(arch.awaitingInput).toBeUndefined();
     expect(arch.clarificationQuestions).toBeUndefined();
     expect(arch.approach).toBe("Clear medium task plan");
+  });
+});
+
+// ── shouldAllowClarificationRound ─────────────────────────────────────────────
+
+describe("shouldAllowClarificationRound", () => {
+  it("returns true for a large task after 0 completed rounds (round 1 allowed)", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("large", 0)).toBe(true);
+  });
+
+  it("returns true for a large task after 1 completed round (round 2 allowed)", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("large", 1)).toBe(true);
+  });
+
+  it("returns false for a large task after 2 completed rounds (cap reached)", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("large", 2)).toBe(false);
+  });
+
+  it("returns true for a medium task after 0 completed rounds (round 1 allowed)", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("medium", 0)).toBe(true);
+  });
+
+  it("returns false for a medium task after 1 completed round (cap reached, only 1 round)", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("medium", 1)).toBe(false);
+  });
+
+  it("returns false for a small task after 1 completed round (cap reached, only 1 round)", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("small", 1)).toBe(false);
+  });
+
+  it("returns true for a small task after 0 completed rounds (first round allowed)", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("small", 0)).toBe(true);
+  });
+
+  it("defaults to 1 round for unknown task sizes", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound("unknown", 0)).toBe(true);
+    expect(shouldAllowClarificationRound("unknown", 1)).toBe(false);
+  });
+
+  it("treats null/undefined task size as medium (1 round)", async () => {
+    const { shouldAllowClarificationRound } = await import("../../src/agents/feedback-loop.js");
+    expect(shouldAllowClarificationRound(null, 0)).toBe(true);
+    expect(shouldAllowClarificationRound(null, 1)).toBe(false);
+    expect(shouldAllowClarificationRound(undefined, 0)).toBe(true);
+    expect(shouldAllowClarificationRound(undefined, 1)).toBe(false);
+  });
+});
+
+// ── MAX_CLARIFICATION_ROUNDS ──────────────────────────────────────────────────
+
+describe("MAX_CLARIFICATION_ROUNDS", () => {
+  it("allows 2 rounds for large tasks", async () => {
+    const { MAX_CLARIFICATION_ROUNDS } = await import("../../src/agents/feedback-loop.js");
+    expect(MAX_CLARIFICATION_ROUNDS["large"]).toBe(2);
+  });
+
+  it("allows 1 round for medium tasks", async () => {
+    const { MAX_CLARIFICATION_ROUNDS } = await import("../../src/agents/feedback-loop.js");
+    expect(MAX_CLARIFICATION_ROUNDS["medium"]).toBe(1);
+  });
+
+  it("allows 1 round for small tasks", async () => {
+    const { MAX_CLARIFICATION_ROUNDS } = await import("../../src/agents/feedback-loop.js");
+    expect(MAX_CLARIFICATION_ROUNDS["small"]).toBe(1);
+  });
+
+  it("allows 1 round for trivial tasks", async () => {
+    const { MAX_CLARIFICATION_ROUNDS } = await import("../../src/agents/feedback-loop.js");
+    expect(MAX_CLARIFICATION_ROUNDS["trivial"]).toBe(1);
   });
 });

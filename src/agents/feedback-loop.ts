@@ -9,6 +9,50 @@ import { reinforceLearning, contradictLearning, createLearning, buildDismissedCo
 import { recordEvent } from "../db/queries/learning-events.js";
 import { loadPrompt } from "../prompt-cache.js";
 
+// ── Clarification-round routing ───────────────────────────────────────────────
+
+/**
+ * Maximum number of clarification rounds permitted per task size.
+ *
+ * - `large`  → 2 rounds (the architect may ask a follow-up set of questions
+ *              after the user's first batch of answers)
+ * - all other sizes → 1 round (existing behaviour)
+ */
+export const MAX_CLARIFICATION_ROUNDS: Record<string, number> = {
+  large: 2,
+  medium: 1,
+  small: 1,
+  trivial: 1,
+};
+
+/**
+ * Returns `true` when the clarification loop should route back to the user
+ * (or AI answerer) for another round of questions, rather than forcing the
+ * architect to generate a blueprint immediately.
+ *
+ * @param taskSize        - Normalised task size string (e.g. "large", "medium").
+ * @param completedRounds - How many clarification rounds have already been answered
+ *                          (i.e. the 1-based index of the last completed round).
+ *
+ * @example
+ * // Large task after round 1 — a second round is still allowed
+ * shouldAllowClarificationRound("large", 1); // → true
+ *
+ * // Large task after round 2 — cap reached, force blueprint
+ * shouldAllowClarificationRound("large", 2); // → false
+ *
+ * // Medium task after round 1 — only 1 round allowed, force blueprint
+ * shouldAllowClarificationRound("medium", 1); // → false
+ */
+export function shouldAllowClarificationRound(
+  taskSize: string | null | undefined,
+  completedRounds: number,
+): boolean {
+  const size = taskSize ?? "medium";
+  const maxRounds = MAX_CLARIFICATION_ROUNDS[size] ?? 1;
+  return completedRounds < maxRounds;
+}
+
 // ── Prompt loader ────────────────────────────────────────────────────────────
 
 function getFeedbackPrompt(): string {

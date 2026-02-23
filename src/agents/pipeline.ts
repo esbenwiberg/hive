@@ -9,6 +9,7 @@ import { getById as getRepoById } from "../db/queries/repos.js";
 import { routeTask } from "./router.js";
 import { evaluateGate } from "./gate.js";
 import { callClaude } from "./sdk.js";
+import { shouldAllowClarificationRound } from "./feedback-loop.js";
 import { runEnrichers } from "../enrichers/base.js";
 import { ALL_ENRICHERS } from "../enrichers/index.js";
 import { architectEnricher } from "../enrichers/architect.js";
@@ -162,8 +163,13 @@ export async function runPipeline(taskId: string): Promise<void> {
 
       // Determine how many clarification rounds are allowed for this task size.
       // Large tasks may have up to 2 rounds; small/medium/trivial tasks only 1.
+      // Uses the canonical shouldAllowClarificationRound helper from feedback-loop.
+      const completedRounds = architect.clarificationRound ?? 0;
+      const currentRound = completedRounds + 1;
+      const hasRoundsRemaining = shouldAllowClarificationRound(taskSize, completedRounds);
+      // maxRounds is derived from the same logic as shouldAllowClarificationRound;
+      // kept here for logging context only.
       const maxRounds = taskSize === "large" ? 2 : 1;
-      const currentRound = (architect.clarificationRound ?? 0) + 1;
 
       logger.info(
         { taskId, clarificationMode, taskSize, clarificationRound: currentRound, maxRounds },
@@ -171,7 +177,7 @@ export async function runPipeline(taskId: string): Promise<void> {
       );
 
       if (clarificationMode === "human") {
-        if (currentRound > maxRounds) {
+        if (!hasRoundsRemaining) {
           // Exceeded the allowed clarification rounds — force blueprint by clearing awaitingInput
           logger.warn(
             { taskId, currentRound, maxRounds },
