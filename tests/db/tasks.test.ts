@@ -605,5 +605,90 @@ describe("tasks queries", () => {
       const results = await getOpenTasksForDedup();
       expect(results).toHaveLength(0);
     });
+
+    it("includes tasks in every non-terminal status", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      // pending (default on create)
+      await create({ title: "Pending task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+
+      // queued
+      const queued = await create({ title: "Queued task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await updateStatus(queued.id, "queued");
+
+      // enriching
+      const enriching = await create({ title: "Enriching task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await updateStatus(enriching.id, "queued");
+      await updateStatus(enriching.id, "enriching");
+
+      // ready
+      const ready = await create({ title: "Ready task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await updateStatus(ready.id, "queued");
+      await updateStatus(ready.id, "enriching");
+      await updateStatus(ready.id, "ready");
+
+      const results = await getOpenTasksForDedup({ producerType: "bug-hunter" });
+      expect(results).toHaveLength(4);
+
+      const statuses = results.map((r) => r.status);
+      expect(statuses).toContain("pending");
+      expect(statuses).toContain("queued");
+      expect(statuses).toContain("enriching");
+      expect(statuses).toContain("ready");
+    });
+
+    it("does not include tasks in done, rejected, or completed terminal statuses", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      // done
+      const done = await create({ title: "Done task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await updateStatus(done.id, "queued");
+      await updateStatus(done.id, "enriching");
+      await updateStatus(done.id, "ready");
+      await updateStatus(done.id, "approved", user.id);
+      await updateStatus(done.id, "executing");
+      await updateStatus(done.id, "reviewing");
+      await updateStatus(done.id, "done");
+
+      // failed
+      const failed = await create({ title: "Failed task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await updateStatus(failed.id, "queued");
+      await updateStatus(failed.id, "enriching");
+      await updateStatus(failed.id, "ready");
+      await updateStatus(failed.id, "approved");
+      await updateStatus(failed.id, "executing");
+      await updateStatus(failed.id, "failed");
+
+      // cancelled
+      const cancelled = await create({ title: "Cancelled task", body: "b", source: "bug-hunter", repoId: repo.id, createdBy: user.id });
+      await updateStatus(cancelled.id, "cancelled");
+
+      const results = await getOpenTasksForDedup({ producerType: "bug-hunter" });
+      expect(results).toHaveLength(0);
+    });
+
+    it("returned rows include id, title, body, status, and producerType fields", async () => {
+      const { user, repo } = await seedUserAndRepo();
+
+      await create({
+        title: "Test field shape",
+        body: "Body content here",
+        source: "security-scanner",
+        repoId: repo.id,
+        createdBy: user.id,
+      });
+
+      const [row] = await getOpenTasksForDedup({ producerType: "security-scanner" });
+
+      expect(row.id).toMatch(/^HIVE-/);
+      expect(row.title).toBe("Test field shape");
+      expect(row.body).toBe("Body content here");
+      expect(row.status).toBe("pending");
+      expect(row.producerType).toBe("security-scanner");
+
+      // Ensure no extra sensitive fields leak through
+      expect((row as any).createdBy).toBeUndefined();
+      expect((row as any).repoId).toBeUndefined();
+    });
   });
 });

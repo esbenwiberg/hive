@@ -293,6 +293,15 @@ export interface CreateTaskResult {
 export async function createTaskWithDedup(
   params: CreateTaskParams,
 ): Promise<CreateTaskResult> {
+  // 0. Refusal title check — reject LLM non-answers immediately.
+  if (isRefusalTitle(params.title)) {
+    logger.warn(
+      { title: params.title, source: params.source },
+      "Refusal-style title detected — skipping task creation",
+    );
+    return { skipped: true };
+  }
+
   // 1. Fast exact-title check.
   const exactMatch = await isDuplicate(params.source, params.title);
   if (exactMatch) {
