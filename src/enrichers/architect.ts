@@ -28,6 +28,10 @@ export interface ArchitectBlueprint {
   milestones?: ArchitectMilestone[];
   /** Set when the architect needs user input before producing a blueprint. */
   clarificationQuestions?: string[];
+  /** Answers provided (by human or AI) to a previous round of clarification questions. */
+  clarificationAnswers?: string[];
+  /** 1-based counter tracking how many clarification rounds have been completed. */
+  clarificationRound?: number;
   /** True when clarification was requested and we are awaiting answers. */
   awaitingInput?: boolean;
   /** True when the enricher was skipped (trivial task). */
@@ -125,10 +129,12 @@ function buildUserPrompt(
   clarificationAnswers?: string[],
   clarificationQuestions?: string[],
   learningsStr?: string,
+  clarificationRound?: number,
 ): string {
+  const taskSize = task.size ?? "medium";
   const sections: string[] = [
     `Task ID: ${task.id}`,
-    `Size: ${task.size ?? "medium"}`,
+    `Size: ${taskSize}`,
     "",
     "<user_provided_title>",
     task.title,
@@ -160,10 +166,17 @@ function buildUserPrompt(
       const q = clarificationQuestions?.[i] ?? `Question ${i + 1}`;
       return `Q${i + 1}: ${q}\nA${i + 1}: ${a}`;
     });
+
+    // On the final clarification round (round 2+), instruct the LLM to produce a blueprint
+    const isFinalRound = (clarificationRound ?? 1) >= 2;
+    const instruction = isFinalRound
+      ? "The user has answered all clarification questions across multiple rounds. You MUST now produce a full blueprint. Do NOT ask further questions."
+      : "The user has answered your clarification questions. If you are satisfied, produce a blueprint. For large tasks, you may ask one more round of follow-up questions if critical details remain unclear.";
+
     sections.push(
       "",
       "<clarification_answers>",
-      "The user has already answered your clarification questions. Do NOT ask again. Produce a blueprint.",
+      instruction,
       "",
       ...qaPairs,
       "</clarification_answers>",
@@ -208,6 +221,9 @@ export const architectEnricher: Enricher = {
     const clarificationQuestions = existingArchitect?.clarificationQuestions as
       | string[]
       | undefined;
+    const clarificationRound = existingArchitect?.clarificationRound as
+      | number
+      | undefined;
 
     // Retrieve relevant learnings to inform the blueprint
     let learningsStr = "";
@@ -240,7 +256,7 @@ export const architectEnricher: Enricher = {
       logger.warn({ taskId: task.id, err }, "Architect: failed to retrieve learnings (non-blocking)");
     }
 
-    const userPrompt = buildUserPrompt(task, priorResults, clarificationAnswers, clarificationQuestions, learningsStr);
+    const userPrompt = buildUserPrompt(task, priorResults, clarificationAnswers, clarificationQuestions, learningsStr, clarificationRound);
 
     // ── Call Claude ───────────────────────────────────────────────────────
     const response = await callClaude({

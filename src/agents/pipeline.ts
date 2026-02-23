@@ -158,25 +158,42 @@ export async function runPipeline(taskId: string): Promise<void> {
     if (architect?.awaitingInput) {
       const config = getAutonomousConfig();
       const clarificationMode = config.clarification.mode;
+      const taskSize = postEnrichTask.size ?? "medium";
+
+      // Determine how many clarification rounds are allowed for this task size.
+      // Large tasks may have up to 2 rounds; small/medium/trivial tasks only 1.
+      const maxRounds = taskSize === "large" ? 2 : 1;
+      const currentRound = (architect.clarificationRound ?? 0) + 1;
 
       logger.info(
-        { taskId, clarificationMode },
+        { taskId, clarificationMode, taskSize, clarificationRound: currentRound, maxRounds },
         "Pipeline: architect requesting clarification",
       );
 
       if (clarificationMode === "human") {
-        // Transition to "ready" so the dashboard shows questions for human review
-        await updateStatus(taskId, "ready");
-        logger.info({ taskId }, "Pipeline: paused for human clarification (status → ready)");
-        return;
-      }
-
-      if (clarificationMode === "ai") {
+        if (currentRound > maxRounds) {
+          // Exceeded the allowed clarification rounds — force blueprint by clearing awaitingInput
+          logger.warn(
+            { taskId, currentRound, maxRounds },
+            "Pipeline: max clarification rounds reached, forcing blueprint generation",
+          );
+          const updatedArchitect = { ...architect, awaitingInput: false };
+          const updatedEnrichment = { ...enrichment, architect: updatedArchitect };
+          await updateEnrichment(taskId, updatedEnrichment);
+        } else {
+          // Transition to "ready" so the dashboard shows questions for human review
+          await updateStatus(taskId, "ready");
+          logger.info(
+            { taskId, clarificationRound: currentRound },
+            "Pipeline: paused for human clarification (status → ready)",
+          );
+          return;
+        }
+      } else if (clarificationMode === "ai") {
         // AI answers the questions, then re-runs architect
-        await handleAiClarification(postEnrichTask, enrichment, architect);
+        await handleAiClarification(postEnrichTask, enrichment, architect, currentRound, maxRounds);
       } else {
         // "auto" mode: skip clarification for trivial/small, AI-answer for medium/large
-        const taskSize = postEnrichTask.size ?? "medium";
         if (taskSize === "trivial" || taskSize === "small") {
           // Clear questions and proceed without answers
           const updatedArchitect = { ...architect, awaitingInput: false };
@@ -185,7 +202,7 @@ export async function runPipeline(taskId: string): Promise<void> {
           logger.info({ taskId }, "Pipeline: auto-mode skipping clarification for small/trivial task");
         } else {
           // Medium/large: AI answers
-          await handleAiClarification(postEnrichTask, enrichment, architect);
+          await handleAiClarification(postEnrichTask, enrichment, architect, currentRound, maxRounds);
         }
       }
     }
@@ -244,11 +261,16 @@ export async function runPipeline(taskId: string): Promise<void> {
 /**
  * Uses Claude to answer the architect's clarification questions, then re-runs
  * the architect enricher with the answers so it can produce a full blueprint.
+ *
+ * @param currentRound - The 1-based clarification round number being processed.
+ * @param maxRounds    - Maximum rounds allowed for this task size (1 for small/medium, 2 for large).
  */
 async function handleAiClarification(
   task: { id: string; title: string; body: string; size: string | null; repoId: number; enrichment: unknown },
   enrichment: Record<string, unknown>,
   architect: ArchitectBlueprint,
+  currentRound: number = 1,
+  maxRounds: number = 1,
 ): Promise<void> {
   const questions = architect.clarificationQuestions ?? [];
   if (questions.length === 0) {
@@ -298,16 +320,18 @@ async function handleAiClarification(
     "Pipeline: AI answered clarification questions",
   );
 
-  // Store answers in enrichment, clear awaitingInput
+  // Store answers in enrichment. Include the current round so the architect prompt
+  // can adjust its instructions accordingly (e.g. force blueprint on final round).
   const updatedArchitect = {
     ...architect,
     clarificationAnswers: answers,
+    clarificationRound: currentRound,
     awaitingInput: false,
   };
   const updatedEnrichment = { ...enrichment, architect: updatedArchitect };
   await updateEnrichment(task.id, updatedEnrichment);
 
-  // Re-run the architect enricher with the updated enrichment (Phase 2)
+  // Re-run the architect enricher with the updated enrichment
   const reloadedTask = await getById(task.id);
   if (!reloadedTask) {
     throw new Error(`Pipeline: task ${task.id} disappeared during AI clarification`);
@@ -324,10 +348,38 @@ async function handleAiClarification(
   );
 
   // Merge the re-run result back into enrichment
-  const finalEnrichment = { ...updatedEnrichment, ...result.data };
-  await updateEnrichment(task.id, finalEnrichment);
+  const reRunArchitect = result.data?.architect as ArchitectBlueprint | undefined;
 
-  logger.info({ taskId: task.id }, "Pipeline: architect re-run after AI clarification complete");
+  if (reRunArchitect?.awaitingInput && currentRound < maxRounds) {
+    // The architect still wants more clarification, and we have rounds remaining.
+    // Preserve the round counter so the next pass treats this as a follow-up round.
+    logger.info(
+      { taskId: task.id, completedRound: currentRound, maxRounds },
+      "Pipeline: architect requesting follow-up clarification after round answers",
+    );
+    const roundTrackedArchitect = {
+      ...reRunArchitect,
+      clarificationRound: currentRound,
+    };
+    const finalEnrichment = { ...updatedEnrichment, ...result.data, architect: roundTrackedArchitect };
+    await updateEnrichment(task.id, finalEnrichment);
+  } else {
+    if (reRunArchitect?.awaitingInput && currentRound >= maxRounds) {
+      // Exhausted rounds — force blueprint generation
+      logger.warn(
+        { taskId: task.id, currentRound, maxRounds },
+        "Pipeline: max clarification rounds reached after re-run, forcing blueprint generation",
+      );
+      const forcedArchitect = { ...reRunArchitect, awaitingInput: false };
+      const finalEnrichment = { ...updatedEnrichment, ...result.data, architect: forcedArchitect };
+      await updateEnrichment(task.id, finalEnrichment);
+    } else {
+      const finalEnrichment = { ...updatedEnrichment, ...result.data };
+      await updateEnrichment(task.id, finalEnrichment);
+    }
+  }
+
+  logger.info({ taskId: task.id, completedRound: currentRound }, "Pipeline: architect re-run after AI clarification complete");
 }
 
 /**
