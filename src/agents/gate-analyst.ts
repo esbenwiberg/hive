@@ -107,12 +107,35 @@ export async function analyzeGatePatterns(
 
     const dismissedContext = await buildDismissedContext();
 
+    // Pull advisor verdict from task enrichment if available
+    let advisorSection = "";
+    try {
+      const { getById } = await import("../db/queries/tasks.js");
+      const task = await getById(taskId);
+      const enrichment = (task?.enrichment ?? {}) as Record<string, unknown>;
+      const advisorVerdict = enrichment.advisor as Record<string, unknown> | undefined;
+      if (advisorVerdict) {
+        advisorSection = [
+          ``,
+          `## Advisor Assessment`,
+          `Overall Score: ${advisorVerdict.overallScore ?? "N/A"}`,
+          `Confidence: ${advisorVerdict.confidenceScore ?? "N/A"}`,
+          `Verdict: ${advisorVerdict.verdict ?? "N/A"}`,
+          `Escalate: ${advisorVerdict.escalate ?? false}`,
+          `Reasoning: ${advisorVerdict.reasoning ?? ""}`,
+        ].join("\n");
+      }
+    } catch {
+      // Non-blocking — advisor data is supplementary
+    }
+
     const userPrompt = [
       `## Current Decision`,
       `Task: ${taskId}`,
       ...(repoFullName ? [`Repo: ${repoFullName}`] : []),
       `Verdict: ${verdict}`,
       `Reasoning: ${reasoning}`,
+      advisorSection,
       ``,
       `## Recent Gate Decisions (${recentDecisions.length} total, ${rejections.length} rejections)`,
       ``,

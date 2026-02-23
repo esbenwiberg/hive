@@ -93,12 +93,25 @@ export async function evaluateGate(taskId: string): Promise<void> {
   }
 
   const config = getAutonomousConfig();
-  const mode = config.gate.mode;
+  let mode = config.gate.mode;
+
+  // ── Advisor escalation: force human approval if advisor says escalate ───
+  const enrichment = (task.enrichment ?? {}) as Record<string, unknown>;
+  const advisorVerdict = enrichment.advisor as Record<string, unknown> | undefined;
+  const advisorEscalate = advisorVerdict?.escalate === true;
+
+  if (advisorEscalate) {
+    logger.warn(
+      { taskId, advisorScore: advisorVerdict?.overallScore, advisorConfidence: advisorVerdict?.confidenceScore },
+      "Gate: advisor flagged escalation — forcing human approval mode",
+    );
+    mode = "human";
+  }
 
   // ── Human mode: transition to ready and return ──────────────────────────
   if (mode === "human") {
     await updateStatus(taskId, "ready");
-    logger.info({ taskId, mode }, "Gate: task moved to ready for human approval");
+    logger.info({ taskId, mode, advisorEscalate }, "Gate: task moved to ready for human approval");
     return;
   }
 

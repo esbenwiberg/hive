@@ -16,6 +16,7 @@ import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js
 import { resolveGitCredentials } from "../execution/worktree.js";
 import { getGitProvider } from "../execution/git-provider.js";
 import { addEvent } from "../db/queries/task-events.js";
+import { runAdvisor } from "./advisor.js";
 import type { EnricherConfig } from "../enrichers/base.js";
 import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
@@ -193,6 +194,46 @@ export async function runPipeline(taskId: string): Promise<void> {
     logger.error({ taskId, err }, "Pipeline: clarification check failed");
     await failTask(taskId, err);
     return;
+  }
+
+  // ── Step 4c: Advisor evaluation ───────────────────────────────────────────
+  try {
+    const preAdvisorTask = await getById(taskId);
+    if (preAdvisorTask) {
+      logger.info({ taskId }, "Pipeline: starting advisor evaluation");
+
+      const enrichment = (preAdvisorTask.enrichment ?? {}) as Record<string, unknown>;
+
+      const verdict = await runAdvisor({
+        taskId,
+        title: preAdvisorTask.title,
+        description: preAdvisorTask.body ?? "",
+        routerClassification: enrichment.router as Record<string, unknown> | undefined,
+        codebaseContext: enrichment.codebase as Record<string, unknown> | undefined,
+        architectBlueprint: enrichment.architect as Record<string, unknown> | undefined,
+        scorerOutput: enrichment.scorer as Record<string, unknown> | undefined,
+      });
+
+      // Persist advisor verdict into enrichment metadata
+      const updatedEnrichment = { ...enrichment, advisor: verdict };
+      await updateEnrichment(taskId, updatedEnrichment);
+
+      // Record a distinct task event with the full verdict payload
+      await addEvent(
+        taskId,
+        "advisor",
+        "advisor",
+        JSON.stringify(verdict),
+      );
+
+      logger.info(
+        { taskId, verdict: verdict.verdict, overallScore: verdict.overallScore, confidenceScore: verdict.confidenceScore, escalate: verdict.escalate },
+        "Pipeline: advisor evaluation complete",
+      );
+    }
+  } catch (err) {
+    // Graceful degradation — log warning but do NOT block the pipeline
+    logger.warn({ taskId, err }, "Pipeline: advisor failed — proceeding to gate without advisor data");
   }
 
   // ── Step 5: Gate evaluation ───────────────────────────────────────────────
