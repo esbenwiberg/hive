@@ -495,6 +495,159 @@ describe("architectEnricher", () => {
   });
 });
 
+// ── Acceptance-criteria tests (milestone 3) ───────────────────────────────────
+// These tests map 1-to-1 onto the milestone acceptance criteria so that the
+// reviewer can immediately locate coverage for each stated requirement.
+
+describe("Milestone 3 acceptance criteria", () => {
+  // AC-1: large tasks always trigger awaitingInput=true with ≥5 questions
+  it("AC-1: large task — enricher output has awaitingInput=true with at least 5 questions", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    const claudeResponse = {
+      approach: "Needs extensive clarification",
+      clarificationQuestions: [
+        "What is the expected scale of the system?",
+        "Which existing services must be integrated?",
+        "What are the latency requirements?",
+        "Are there regulatory constraints?",
+        "What is the preferred deployment strategy?",
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(claudeResponse),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBe(true);
+    const questions = arch.clarificationQuestions as string[];
+    expect(Array.isArray(questions)).toBe(true);
+    expect(questions.length).toBeGreaterThanOrEqual(5);
+  });
+
+  // AC-2: second clarification round is permitted for large tasks
+  it("AC-2: large task — second clarification round is permitted (clarificationRound=1 in priorResults)", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Answer 1", "Answer 2", "Answer 3", "Answer 4", "Answer 5"],
+        clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+        clarificationRound: 1,
+      },
+    };
+
+    // Claude still has follow-up questions — allowed at round 1
+    const followUpResponse = {
+      approach: "One more clarification needed",
+      clarificationQuestions: [
+        "Peak RPS expectations?",
+        "Multi-region needed?",
+        "Message broker preference?",
+        "Data retention policy?",
+        "Third-party SLA dependencies?",
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(followUpResponse),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", priorResults, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBe(true);
+    expect((arch.clarificationQuestions as string[]).length).toBeGreaterThanOrEqual(5);
+  });
+
+  // AC-3: clarification is capped at 2 rounds — third attempt produces a blueprint
+  it("AC-3: large task — clarification capped at 2 rounds; clarificationRound=2 produces a blueprint", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Final answers"],
+        clarificationQuestions: ["Last question?"],
+        clarificationRound: 2,
+      },
+    };
+
+    // Even if Claude tries to ask more questions, the enricher must suppress them
+    const stubbornClaude = {
+      approach: "Forced blueprint after 2 rounds",
+      clarificationQuestions: ["Should be ignored?"],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(stubbornClaude),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", priorResults, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // No further clarification — blueprint must be returned
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Forced blueprint after 2 rounds");
+  });
+
+  // AC-4a: small tasks skip clarification when architect deems task clear
+  it("AC-4a: small task — skips clarification when architect deems the task clear", async () => {
+    const smallTask = { ...DUMMY_TASK, size: "small" } as TaskRow;
+
+    const blueprint = {
+      approach: "Minimal fix with no ambiguity",
+      keyFiles: ["src/fix.ts"],
+      checklist: ["Apply patch", "Run tests"],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(smallTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Minimal fix with no ambiguity");
+  });
+
+  // AC-4b: medium tasks skip clarification when architect deems task clear
+  it("AC-4b: medium task — skips clarification when architect deems the task clear", async () => {
+    const blueprint = {
+      approach: "Clear medium-complexity implementation",
+      milestones: [
+        {
+          title: "Single phase",
+          description: "Implement the feature end-to-end",
+          filesToModify: ["src/feature.ts"],
+          acceptanceCriteria: ["Feature passes all tests"],
+        },
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(DUMMY_TASK, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Clear medium-complexity implementation");
+  });
+});
+
 // ── parseBlueprint unit tests ─────────────────────────────────────────────────
 
 describe("parseBlueprint", () => {

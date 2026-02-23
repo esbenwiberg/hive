@@ -552,4 +552,201 @@ describe("parseFeedbackResult / analyzeFeedback", () => {
       "Task HIVE-00000000-0000 not found",
     );
   });
+
+  // ── Milestone 3 acceptance criteria (feedback-loop perspective) ─────────────
+
+  // AC-1 (feedback-loop view): when task size is 'large' and no prior answers exist,
+  // the enricher output must carry awaitingInput=true with ≥5 questions.
+  it("AC-1: large task — enricher returns awaitingInput=true with ≥5 questions on first call", async () => {
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    const claudeResponse = {
+      approach: "Need clarification before planning",
+      clarificationQuestions: [
+        "What is the expected scale?",
+        "Which services must be integrated?",
+        "What are the latency requirements?",
+        "Are there compliance constraints?",
+        "What is the deployment strategy?",
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(claudeResponse),
+      cost: { inputTokens: 100, outputTokens: 200, model: "claude-test" },
+    });
+
+    const largeTask = {
+      id: "task-ac1-fl",
+      title: "Large feature",
+      body: "Build a distributed pipeline.",
+      size: "large",
+      type: "feature",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(largeTask as never, "/tmp", {}, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBe(true);
+    const questions = arch.clarificationQuestions as string[];
+    expect(Array.isArray(questions)).toBe(true);
+    expect(questions.length).toBeGreaterThanOrEqual(5);
+  });
+
+  // AC-2 (feedback-loop view): the feedback loop permits a second clarification round.
+  it("AC-2: feedback loop permits a second clarification round for large tasks", async () => {
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    // priorResults simulates state after the user answered round-1 questions
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Ans 1", "Ans 2", "Ans 3", "Ans 4", "Ans 5"],
+        clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+        clarificationRound: 1,
+      },
+    };
+
+    const secondRound = {
+      approach: "Still clarifying",
+      clarificationQuestions: [
+        "Peak load?",
+        "Multi-region?",
+        "Message broker?",
+        "Data retention?",
+        "SLA deps?",
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(secondRound),
+      cost: { inputTokens: 100, outputTokens: 200, model: "claude-test" },
+    });
+
+    const largeTask = {
+      id: "task-ac2-fl",
+      title: "Large feature round 2",
+      body: "Build a distributed pipeline.",
+      size: "large",
+      type: "feature",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(largeTask as never, "/tmp", priorResults, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // Second round is permitted
+    expect(arch.awaitingInput).toBe(true);
+    expect((arch.clarificationQuestions as string[]).length).toBeGreaterThanOrEqual(5);
+  });
+
+  // AC-3 (feedback-loop view): the feedback loop caps clarification at 2 rounds;
+  // a third attempt (clarificationRound=2) forces a blueprint.
+  it("AC-3: feedback loop caps clarification at 2 rounds — third attempt produces a blueprint", async () => {
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Final answers"],
+        clarificationQuestions: ["Last round question?"],
+        clarificationRound: 2,
+      },
+    };
+
+    // Claude still tries to ask more questions
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Forced blueprint at round cap",
+        clarificationQuestions: ["Ignored question?"],
+      }),
+      cost: { inputTokens: 100, outputTokens: 200, model: "claude-test" },
+    });
+
+    const largeTask = {
+      id: "task-ac3-fl",
+      title: "Large task at cap",
+      body: "Must produce blueprint now.",
+      size: "large",
+      type: "feature",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(largeTask as never, "/tmp", priorResults, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // Cap enforced — no further clarification
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Forced blueprint at round cap");
+  });
+
+  // AC-4a (feedback-loop view): small tasks skip clarification
+  it("AC-4a: small task — skips clarification and produces a blueprint directly", async () => {
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Quick fix for small task",
+        keyFiles: ["src/small.ts"],
+        checklist: ["Fix it", "Test it"],
+      }),
+      cost: { inputTokens: 50, outputTokens: 80, model: "claude-test" },
+    });
+
+    const smallTask = {
+      id: "task-ac4a-fl",
+      title: "Tiny fix",
+      body: "Fix a one-line bug.",
+      size: "small",
+      type: "bug",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(smallTask as never, "/tmp", {}, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Quick fix for small task");
+  });
+
+  // AC-4b (feedback-loop view): medium tasks skip clarification when task is clear
+  it("AC-4b: medium task — skips clarification when architect deems the task clear", async () => {
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        approach: "Clear medium task plan",
+        keyFiles: ["src/medium.ts"],
+        checklist: ["Implement", "Test", "Document"],
+      }),
+      cost: { inputTokens: 70, outputTokens: 120, model: "claude-test" },
+    });
+
+    const mediumTask = {
+      id: "task-ac4b-fl",
+      title: "Medium feature",
+      body: "Add a well-specified feature.",
+      size: "medium",
+      type: "feature",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(mediumTask as never, "/tmp", {}, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Clear medium task plan");
+  });
 });
