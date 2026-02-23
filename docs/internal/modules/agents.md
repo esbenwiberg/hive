@@ -935,8 +935,7 @@ const response = await callClaudeWithTools({
 ## See Also
 
 - [`docs/internal/architecture.md`](../architecture.md) — system-wide data flow and component map
-- [`docs/internal/modules/enrichers.md`](./enrichers.md) *(upcoming)* — pre-LLM task enrichment
-- [`docs/internal/modules/db.md`](./db.md) *(upcoming)* — database schema and query layer
+- [`docs/internal/modules/database.md`](./database.md) — database schema and query layer
 - [`docs/internal/modules/daemon.md`](./daemon.md) *(upcoming)* — task scheduling and agent dispatch
 - `src/prompts/` — system prompts loaded by each agent
 - `autonomous.config.yaml` — model assignments, gate mode, cost rates
