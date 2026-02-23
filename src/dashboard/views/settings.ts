@@ -36,7 +36,7 @@ const ALL_COMPONENT_NAMES = [
   "router", "gate", "worker", "decomposer", "refiner", "clarification",
   "keeper", "retrospective", "feedback-loop", "code-quality-analyst",
   "gate-analyst", "browser-validator", "review-gate", "architect",
-  "scorer", "producer",
+  "scorer", "producer", "milestone-review", "milestone-fix", "rework",
 ] as const;
 
 /** Latest recommended model for each component. Update this single const when new models release. */
