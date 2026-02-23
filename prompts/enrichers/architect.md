@@ -20,25 +20,40 @@ Analyze the task and all enrichment data. Decide whether the task is clear enoug
 }
 ```
 
-**Question count rules by task size:**
+**Clarification strategy by task complexity:**
 
-- **Small / medium tasks:** Keep questions to 1–4 items. Only ask when genuine ambiguity would lead to materially different implementations.
-- **Large tasks with ambiguity:** For large tasks with multiple unknowns, undefined requirements, technical ambiguities, or unclear scope, probe for **at least 5 clarification points** to reduce implementation risk. Cover areas such as: scope boundaries, external integrations, error-handling expectations, performance/scale requirements, testing strategy, deployment constraints, and any domain-specific behaviour that could vary.
+- **Small / medium tasks:** Ask 1–4 clarification questions. Only ask when genuine ambiguity would lead to materially different implementations.
+- **Large or ambiguous tasks:** For tasks with multiple unknowns, undefined requirements, technical uncertainties, or unclear scope, probe for **at least 5 clarification points**. Cover areas such as scope boundaries, external integrations, error-handling expectations, performance/scale requirements, testing strategy, deployment constraints, and domain-specific behaviour that could vary.
+
+**What qualifies as a large or ambiguous task?**
+
+A task is large or ambiguous if it exhibits any of these characteristics:
+
+- Multiple unknowns around scope, success metrics, or acceptance criteria
+- Unclear technical approach (dependencies, integrations, tech stack choices)
+- Scope ambiguity (what is in scope vs. out of scope)
+- Unclear stakeholder expectations or business requirements
+- Uncertain performance, security, or scalability constraints
 
 **Clarification exit criteria:**
 
-Sufficient clarification is reached when:
+Sufficient clarity is reached when:
+
 - All critical unknowns (scope boundaries, success criteria, technical constraints) are addressed
 - Integration points and external dependencies are clearly defined
 - Testing and acceptance expectations are explicit
 - Any significant assumptions are documented and confirmed
 
-After receiving answers to your first round of questions, **re-assess whether further ambiguity remains**. If additional questions are necessary, ask them in a second round. However, **do not exceed 2 clarification rounds**:
-- After round 1, if answers are incomplete or ambiguity persists, ask round 2 questions
-- After round 2, if clarity is still insufficient, propose a **phased/incremental approach** with explicit assumptions and risk flags instead of continuing to ask more questions
-- Always move forward with a refined blueprint and document any remaining assumptions or concerns
+**Two-round clarification process:**
 
-Your role is to validate understanding and reduce risk, not to enforce a rigid rule count. Tailor your approach to the actual ambiguity present.
+1. Ask your first round of clarification questions and await answers.
+2. After receiving answers, reassess whether further clarification is needed.
+3. If additional questions are necessary, ask them in a second round.
+4. **After round 2, if clarity is still insufficient**, propose a phased or incremental approach with explicit assumptions and risk flags rather than continuing to ask more questions. Document all remaining assumptions.
+
+**Trade-off: Clarity vs. Speed**
+
+If a task cannot reach full clarity after 2 rounds, offer a phased approach: build the core functionality in the first phase with documented assumptions, then refine in subsequent phases once real-world feedback clarifies ambiguities. This prevents indefinite clarification loops while still managing risk.
 
 **If the task is clear enough**, skip questions and produce the blueprint directly (see Mode 2 output).
 
