@@ -51,13 +51,47 @@ function stripCodeFences(text: string): string {
 }
 
 /**
+ * Options for controlling clarification behaviour in `parseBlueprint`.
+ */
+export interface ParseBlueprintOptions {
+  /**
+   * Whether clarification answers have already been provided for a prior round.
+   * When `true`, a follow-up clarification round is only permitted for large
+   * tasks that have not yet exhausted their allowed rounds.
+   */
+  hasAnswers?: boolean;
+  /** Size of the task — used to determine the maximum clarification rounds. */
+  taskSize?: string | null;
+  /**
+   * The 1-based number of the clarification round that produced the current
+   * `hasAnswers = true` state. Used to decide whether another round is allowed.
+   */
+  completedRound?: number;
+}
+
+/**
  * Parses the raw Claude output into an ArchitectBlueprint.
  *
  * Attempts JSON parsing first. On failure, falls back to storing the raw text
  * as the `approach` field so downstream consumers still have something to work
  * with.
+ *
+ * @param raw     - Raw text returned by the LLM.
+ * @param options - Controls when follow-up clarification questions are allowed.
  */
-export function parseBlueprint(raw: string, hasAnswers = false): ArchitectBlueprint {
+export function parseBlueprint(raw: string, options: ParseBlueprintOptions | boolean = {}): ArchitectBlueprint {
+  // Support legacy boolean `hasAnswers` callers for backward compatibility.
+  // When called with a plain `true`, treat it as "answers exist, cap reached"
+  // so that clarification is suppressed unconditionally (legacy behaviour).
+  const opts: ParseBlueprintOptions =
+    typeof options === "boolean"
+      ? { hasAnswers: options, completedRound: options ? 99 : 0 }
+      : options;
+
+  const hasAnswers = opts.hasAnswers ?? false;
+  const taskSize = opts.taskSize ?? "medium";
+  const completedRound = opts.completedRound ?? 0;
+
   const cleaned = stripCodeFences(raw);
 
   let parsed: Record<string, unknown>;
@@ -72,8 +106,18 @@ export function parseBlueprint(raw: string, hasAnswers = false): ArchitectBluepr
     return { approach: cleaned };
   }
 
-  // ── Clarification mode (skip if answers were already provided) ──────────
-  if (!hasAnswers && Array.isArray(parsed.clarificationQuestions)) {
+  // ── Clarification mode ───────────────────────────────────────────────────
+  // Maximum allowed clarification rounds per task size:
+  //   large  → 2 rounds
+  //   others → 1 round
+  const maxRounds = taskSize === "large" ? 2 : 1;
+
+  // Allow clarification questions when:
+  //   a) No answers have been provided yet (first round for any size), OR
+  //   b) Answers exist but the task is large and round limit not yet reached.
+  const allowClarification = !hasAnswers || completedRound < maxRounds;
+
+  if (allowClarification && Array.isArray(parsed.clarificationQuestions)) {
     return {
       approach: typeof parsed.approach === "string" ? parsed.approach : "",
       clarificationQuestions: (parsed.clarificationQuestions as unknown[]).map(String),
@@ -265,9 +309,15 @@ export const architectEnricher: Enricher = {
       systemPrompt,
     });
 
-    // ── Parse response (skip clarification if answers already provided) ──
+    // ── Parse response ────────────────────────────────────────────────────
+    // Pass the task size and completed-round count so parseBlueprint can
+    // correctly decide whether another clarification round is permitted.
     const hasAnswers = !!clarificationAnswers && clarificationAnswers.length > 0;
-    const blueprint = parseBlueprint(response.text, hasAnswers);
+    const blueprint = parseBlueprint(response.text, {
+      hasAnswers,
+      taskSize: task.size,
+      completedRound: clarificationRound ?? 0,
+    });
 
     // ── Cost tracking ────────────────────────────────────────────────────
     const costUsd = estimateCostUsd(
