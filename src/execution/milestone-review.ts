@@ -85,38 +85,32 @@ export async function quickVerify(worktreePath: string): Promise<QuickVerifyResu
  * Gets the git diff for review. Falls back gracefully.
  */
 async function getDiff(worktreePath: string): Promise<string> {
+  // Diff against HEAD (not HEAD~1): reviewFix runs before commitMilestone, so milestone
+  // changes are still uncommitted. HEAD~1 would pull in the previous committed milestone,
+  // causing the reviewer to see a growing compound diff and flag already-reviewed code.
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "HEAD~1"], {
+    const { stdout } = await execFileAsync("git", ["diff", "HEAD"], {
       cwd: worktreePath,
       timeout: SHELL_TIMEOUT_MS,
       maxBuffer: 2 * 1024 * 1024,
     });
-    return stdout;
+    return stdout || "(no diff available)";
   } catch {
-    // If HEAD~1 fails (e.g., first commit), fall back to showing all staged/tracked
-    try {
-      const { stdout } = await execFileAsync("git", ["diff", "HEAD"], {
-        cwd: worktreePath,
-        timeout: SHELL_TIMEOUT_MS,
-        maxBuffer: 2 * 1024 * 1024,
-      });
-      return stdout;
-    } catch {
-      return "(no diff available)";
-    }
+    return "(no diff available)";
   }
 }
 
 /**
  * Gets the list of changed file paths for context in fix prompts.
+ * Includes both modified tracked files and new untracked files.
  */
 async function getChangedFiles(worktreePath: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD~1"], {
-      cwd: worktreePath,
-      timeout: SHELL_TIMEOUT_MS,
-    });
-    return stdout.trim().split("\n").filter(Boolean);
+    const [{ stdout: tracked }, { stdout: untracked }] = await Promise.all([
+      execFileAsync("git", ["diff", "--name-only", "HEAD"], { cwd: worktreePath, timeout: SHELL_TIMEOUT_MS }),
+      execFileAsync("git", ["ls-files", "--others", "--exclude-standard"], { cwd: worktreePath, timeout: SHELL_TIMEOUT_MS }),
+    ]);
+    return [...tracked.trim().split("\n"), ...untracked.trim().split("\n")].filter(Boolean);
   } catch {
     return [];
   }
