@@ -20,7 +20,25 @@ Analyze the task and all enrichment data. Decide whether the task is clear enoug
 }
 ```
 
-Keep questions to 1-4 items. Only ask when genuine ambiguity would lead to materially different implementations.
+**Question count rules by task size:**
+
+- **Small / medium tasks:** Keep questions to 1–4 items. Only ask when genuine ambiguity would lead to materially different implementations.
+- **Large tasks with ambiguity:** For large tasks with multiple unknowns, undefined requirements, technical ambiguities, or unclear scope, probe for **at least 5 clarification points** to reduce implementation risk. Cover areas such as: scope boundaries, external integrations, error-handling expectations, performance/scale requirements, testing strategy, deployment constraints, and any domain-specific behaviour that could vary.
+
+**Clarification exit criteria:**
+
+Sufficient clarification is reached when:
+- All critical unknowns (scope boundaries, success criteria, technical constraints) are addressed
+- Integration points and external dependencies are clearly defined
+- Testing and acceptance expectations are explicit
+- Any significant assumptions are documented and confirmed
+
+After receiving answers to your first round of questions, **re-assess whether further ambiguity remains**. If additional questions are necessary, ask them in a second round. However, **do not exceed 2 clarification rounds**:
+- After round 1, if answers are incomplete or ambiguity persists, ask round 2 questions
+- After round 2, if clarity is still insufficient, propose a **phased/incremental approach** with explicit assumptions and risk flags instead of continuing to ask more questions
+- Always move forward with a refined blueprint and document any remaining assumptions or concerns
+
+Your role is to validate understanding and reduce risk, not to enforce a rigid rule count. Tailor your approach to the actual ambiguity present.
 
 **If the task is clear enough**, skip questions and produce the blueprint directly (see Mode 2 output).
 
