@@ -72,6 +72,70 @@ const DEFAULT_MAX_TURNS = 30;
 const MIN_OUTPUT_TOKENS = 4096;
 
 /**
+ * Extracts a JSON object or array from a raw LLM response that may contain
+ * leading/trailing prose or markdown code fences.
+ *
+ * Strategy:
+ *  1. Strip markdown code fences (```json ... ```).
+ *  2. Walk the string to collect all top-level `{...}` blocks.
+ *  3. Try each block last-to-first (Claude's final answer is usually last).
+ *  4. If none of those parse, fall back to slicing from the first `{` / `[`
+ *     to the last `}` / `]`.
+ *  5. If still unparseable, throws a descriptive error with a snippet of the
+ *     raw text for debuggability.
+ */
+export function extractJson(raw: string): unknown {
+  // Strip markdown fences
+  const cleaned = raw.replace(/```(?:json)?\s*\n?/g, "").trim();
+
+  // Collect top-level {...} blocks
+  const jsonBlocks: string[] = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < cleaned.length; i++) {
+    if (cleaned[i] === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (cleaned[i] === "}") {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        jsonBlocks.push(cleaned.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+
+  // Try each block last-to-first
+  for (let i = jsonBlocks.length - 1; i >= 0; i--) {
+    try {
+      return JSON.parse(jsonBlocks[i]);
+    } catch { /* try next */ }
+  }
+
+  // Fallback: slice from first { or [ to last } or ]
+  const firstBrace = cleaned.indexOf("{");
+  const firstBracket = cleaned.indexOf("[");
+  const firstStart =
+    firstBrace === -1 ? firstBracket :
+    firstBracket === -1 ? firstBrace :
+    Math.min(firstBrace, firstBracket);
+
+  if (firstStart !== -1) {
+    const lastBrace = cleaned.lastIndexOf("}");
+    const lastBracket = cleaned.lastIndexOf("]");
+    const lastEnd = Math.max(lastBrace, lastBracket);
+    if (lastEnd > firstStart) {
+      try {
+        return JSON.parse(cleaned.slice(firstStart, lastEnd + 1));
+      } catch { /* fall through to error */ }
+    }
+  }
+
+  const snippet = raw.slice(0, 120).replace(/\n/g, " ");
+  throw new SyntaxError(`extractJson: no valid JSON found in LLM response. Raw snippet: "${snippet}"`);
+}
+
+/**
  * Parses the Anthropic context-limit 400 error.
  * Returns input token count and context limit, or null if unrelated error.
  *
