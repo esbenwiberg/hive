@@ -639,7 +639,7 @@ Returns all tasks with a non-null `preview_port`, joined to their repo name. Use
 | `UserRepoAccessRow` | No domain type | Used directly |
 | `EnrichmentRunRow` | No domain type | Used directly |
 
-**Key distinction:** `ReviewGateResult` (in `domain/types.ts`) is the in-memory result produced by the code-review agent. `CodeReviewRow` is what gets persisted — the agent serialises its structured findings into JSONB columns before calling `recordReview()`.
+**Key distinction:** `ReviewGateResult` (in [`src/domain/types.ts`](../../../src/domain/types.ts), documented in [`docs/internal/modules/domain.md`](./domain.md)) is the in-memory result produced by the code-review agent. `CodeReviewRow` is what gets persisted — the agent serialises its structured findings into JSONB columns before calling `recordReview()`.
 
 ---
 
