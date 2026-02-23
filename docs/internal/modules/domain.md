@@ -49,7 +49,7 @@ The module deliberately has no runtime logic beyond validation and configuration
 
 ## Types — `types.ts`
 
-`types.ts` is the single source of truth for every discriminated union, enum, interface, and utility type used across the codebase. Importing from `src/domain/types.js` is the correct pattern for any module that needs task or execution types.
+`types.ts` is the single source of truth for every discriminated union, enum, interface, and utility type used across the codebase. Importing from `src/domain/types.ts` is the correct pattern for any module that needs task or execution types.
 
 ### SessionUser
 
@@ -611,14 +611,14 @@ The domain module and the database schema are deliberately kept separate:
 
 | Concern | Defined in | Notes |
 |---|---|---|
-| TypeScript enum values | `domain/types.ts` | `TaskStatus`, `TaskType`, etc. |
-| Column types / constraints | `db/schema.ts` | `text("status")` — no DB-level enum |
-| Row TypeScript types | `db/schema.ts` | `InferSelectModel` exports |
-| Validation logic | `domain/types.ts` | `isValidTaskType()`, `isValidVisibility()` |
-| Transition logic | `domain/state-machine.ts` | `canTransition()` |
-| Business workflows | `domain/autonomous-config.ts` | Config that drives pipeline behaviour |
+| TypeScript enum values | `src/domain/types.ts` | `TaskStatus`, `TaskType`, etc. |
+| Column types / constraints | `src/db/schema.ts` | `text("status")` — no DB-level enum |
+| Row TypeScript types | `src/db/schema.ts` | `InferSelectModel` exports |
+| Validation logic | `src/domain/types.ts` | `isValidTaskType()`, `isValidVisibility()` |
+| Transition logic | `src/domain/state-machine.ts` | `canTransition()` |
+| Business workflows | `src/domain/autonomous-config.ts` | Config that drives pipeline behaviour |
 
-The database stores `status` as plain `text` with no PostgreSQL `ENUM` constraint. This is intentional: adding a new status value requires only a code change in `domain/types.ts` and `domain/state-machine.ts` — no migration needed. The trade-off is that invalid status strings can be stored if the application-level validation is bypassed; this risk is accepted in exchange for deployment agility.
+The database stores `status` as plain `text` with no PostgreSQL `ENUM` constraint. This is intentional: adding a new status value requires only a code change in `src/domain/types.ts` and `src/domain/state-machine.ts` — no migration needed. The trade-off is that invalid status strings can be stored if the application-level validation is bypassed; this risk is accepted in exchange for deployment agility.
 
 ### Type Flow Example: Task Lifecycle
 
@@ -645,7 +645,7 @@ canTransition("reviewing", "done") → true
 updateStatus(id, TaskStatus.DONE)
 ```
 
-At no point does the domain module know about the database schema directly. The database module imports `TaskStatus` from `domain/types.ts` for reference in query helpers, but the schema itself is type-agnostic.
+At no point does the domain module know about the database schema directly. The database module imports `TaskStatus` from `src/domain/types.ts` for reference in query helpers, but the schema itself is type-agnostic.
 
 ---
 
