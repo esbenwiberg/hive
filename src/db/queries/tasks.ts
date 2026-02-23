@@ -429,6 +429,27 @@ export async function countByStatus(accessibleRepoIds?: number[]): Promise<Recor
 }
 
 /**
+ * Transitions a task to `failed` status and records the failure reason.
+ * Bypasses the normal state-machine transition check so it can be called
+ * from any non-terminal status.
+ */
+export async function failTask(id: string, reason: string | Error) {
+  const failureReason = reason instanceof Error ? reason.message : String(reason);
+
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      status: "failed",
+      failureReason,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, id))
+    .returning();
+
+  return updated;
+}
+
+/**
  * Suspends a task by recording its current status in `suspendedFrom`
  * and transitioning it to `suspended`.
  */
