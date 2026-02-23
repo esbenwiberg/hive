@@ -61,19 +61,19 @@ Use the task description, enrichment data, and any clarification answers to prod
 
 #### Follow-up clarification round for large tasks
 
-After receiving clarification answers for a **large** task, evaluate whether the answers have fully resolved all significant ambiguities. If material uncertainties remain that would lead to meaningfully different blueprints, you may emit a **second round** of clarification questions instead of producing the blueprint immediately:
+After receiving clarification answers for a **large** task (`size === "large"`), evaluate whether the answers have fully resolved all significant ambiguities **before** producing the blueprint. If material uncertainties remain that would lead to meaningfully different implementations, you MUST emit a **second round** of clarification questions — using the same `clarificationQuestions` + `awaitingInput` response format — instead of producing the blueprint immediately:
 
 ```json
 {
   "clarificationQuestions": [
-    "Follow-up question addressing a gap in the first-round answers",
-    "Another follow-up if needed"
+    "Follow-up question addressing a gap revealed by the first-round answers",
+    "Another follow-up question if needed"
   ],
   "awaitingInput": true
 }
 ```
 
-Only use a second round when genuinely necessary — do not re-ask questions already answered, and do not delay the blueprint indefinitely. If the answers are sufficient, proceed directly to the blueprint. For small and medium tasks, always proceed to the blueprint after the first round of answers.
+Only use a second round when genuinely necessary — do not re-ask questions already answered, and do not delay the blueprint indefinitely with repeated rounds. If the first-round answers are sufficient to proceed, go directly to the blueprint. **For small and medium tasks, always proceed directly to the blueprint after receiving the first round of answers — no second clarification round.**
 
 ## Output Schema (by task size)
 
