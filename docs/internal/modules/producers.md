@@ -625,7 +625,7 @@ Scans repository source code for technical debt signals — legacy patterns, out
 
 #### Signal Source
 
-Repository file tree and README (`needsRepo: true`). The producer builds context via `gatherRepoSummary()` and passes it to Claude with a dedicated system prompt loaded from `src/prompts/producers/maintenance.md` via `loadPrompt()`.
+Repository file tree and README (`needsRepo: true`). The producer builds context via `gatherRepoSummary()` and passes it to Claude with a dedicated system prompt loaded from `prompts/producers/maintenance.md` via `loadPrompt()`.
 
 #### Scan Categories
 
@@ -1190,7 +1190,7 @@ const threshold = (ctx.config?.someThreshold as number) ?? 10;
 
 ### Step 4 — Write tests
 
-Create a test file alongside your producer (e.g. `src/producers/my-producer.test.ts`). Use the following pattern as a starting point:
+Create a test file alongside your producer (e.g. `src/producers/<name>.test.ts`). Use the following pattern as a starting point:
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
