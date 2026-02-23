@@ -39,14 +39,23 @@ How likely is it that the autonomous agent can complete this task successfully?
 
 ## Cost Estimation
 
-Estimate the total cost in USD based on:
-- **Enrichment cost**: Token usage for all enricher stages (classification, codebase analysis, architect, scorer). Estimate ~2,000 input tokens and ~1,000 output tokens per enricher.
-- **Execution cost**: Based on milestone count and task size. Each milestone typically requires 5,000–20,000 input tokens and 2,000–8,000 output tokens depending on complexity. Small tasks with no milestones use a single execution pass.
-- **Review cost**: Each milestone gets a review pass (~3,000 input tokens, ~1,500 output tokens). Failed reviews trigger rework cycles (estimate 1 rework per 3 milestones on average).
+Estimate the total cost in USD based on realistic token usage for an agentic coding system:
+
+- **Enrichment cost**: ~5,000 input tokens and ~2,000 output tokens per enricher stage. With 6 enrichers, that is roughly 30,000 input + 12,000 output tokens total.
+- **Execution cost**: Each milestone runs an agentic loop that reads source files, writes code, and executes shell commands over multiple turns. Expect **30,000–100,000 input tokens and 3,000–12,000 output tokens per milestone**, depending on codebase size and task complexity. Small tasks with no milestones use a single pass in the lower range.
+- **Review cost**: Each milestone gets a review pass (~8,000 input tokens, ~2,000 output tokens). Failed reviews trigger rework cycles (estimate 1 rework per 3 milestones on average, at the same cost as execution).
 
 Use these token costs for estimation:
 - Input: $3 per million tokens
 - Output: $15 per million tokens
+
+**Reference totals — calibrate your estimate against these:**
+- Small task (1 milestone): ~$0.15–$0.40
+- Medium task (4–6 milestones): ~$0.80–$2.50
+- Large task (10–15 milestones): ~$2.50–$8.00
+- Very large task (20+ milestones): ~$8.00–$18.00
+
+If your calculated total exceeds $20, you have almost certainly overestimated token counts — re-check your per-milestone math using the ranges above.
 
 Provide a breakdown of enrichment, execution, and review costs, plus the total.
 

@@ -135,8 +135,16 @@ export function parseScorerResult(raw: string): ScorerResult {
   const totalFromBreakdown = breakdown.enrichment + breakdown.execution + breakdown.review;
   const rawTotal = ensurePositiveNumber(rawCost?.totalUsd);
 
+  const resolvedTotal = rawTotal > 0 ? rawTotal : totalFromBreakdown;
+  if (resolvedTotal > 20) {
+    logger.warn(
+      { resolvedTotal, rawTotal, totalFromBreakdown, breakdown },
+      "Scorer returned suspiciously high cost estimate — prompt guidance may not have been followed",
+    );
+  }
+
   const costEstimate: CostEstimate = {
-    totalUsd: rawTotal > 0 ? rawTotal : totalFromBreakdown,
+    totalUsd: resolvedTotal,
     breakdown,
     reasoning: typeof rawCost?.reasoning === "string" ? rawCost.reasoning : "",
   };
