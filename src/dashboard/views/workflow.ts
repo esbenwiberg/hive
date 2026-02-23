@@ -11,8 +11,45 @@ import {
   renderStage,
 } from "./components.js";
 import { layout } from "./layout.js";
+import { advisorVerdictSection } from "./tasks.js";
 
 // ── Pipeline partial (HTMX fragment) ────────────────────────────────────────
+
+// ── Advisor summary pill (compact, for pipeline view) ────────────────────────
+
+function advisorSummaryPill(task: TaskRow): string {
+  const enrichment = task.enrichment as Record<string, unknown> | null;
+  const advisor = enrichment?.advisor as
+    | { verdict: string; overallScore: number; confidenceScore: number; escalate: boolean }
+    | undefined;
+  if (!advisor || typeof advisor !== "object") return "";
+
+  const verdictColors: Record<string, string> = {
+    approve: "bg-emerald-400/10 text-emerald-400 ring-emerald-400/20",
+    caution: "bg-amber-400/10 text-amber-400 ring-amber-400/20",
+    reject:  "bg-red-400/10 text-red-400 ring-red-400/20",
+  };
+  const verdictLabels: Record<string, string> = {
+    approve: "Proceed",
+    caution: "Redesign",
+    reject:  "Reject",
+  };
+  const cls = verdictColors[advisor.verdict] ?? "bg-slate-700 text-slate-300 ring-slate-600";
+  const label = verdictLabels[advisor.verdict] ?? advisor.verdict;
+
+  const escalateIcon = advisor.escalate
+    ? `<svg class="h-3 w-3 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>`
+    : "";
+
+  return `<div class="mt-2 flex items-center gap-2 flex-wrap">
+    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${cls}">
+      Advisor: ${escapeHtml(label)}
+    </span>
+    <span class="text-xs text-slate-500">Score&nbsp;<span class="text-slate-300">${(advisor.overallScore * 10).toFixed(1)}/10</span></span>
+    <span class="text-xs text-slate-500">Conf&nbsp;<span class="text-slate-300">${(advisor.confidenceScore * 100).toFixed(0)}%</span></span>
+    ${escalateIcon}
+  </div>`;
+}
 
 /**
  * Builds a task info badge shown next to the active stage.
@@ -34,6 +71,7 @@ export function pipelinePartial(
   taskStatus: string | null,
   taskId?: string,
   taskTitle?: string,
+  task?: TaskRow,
 ): string {
   const activeIndex = taskStatus ? getStageIndex(taskStatus) : -1;
   const stages = buildStages();
@@ -65,6 +103,8 @@ export function pipelinePartial(
       ? ` hx-get="/api/workflow/pipeline?taskId=${escapeHtml(taskId)}" hx-trigger="every 5s" hx-swap="outerHTML"`
       : "";
 
+    const advisorPill = task ? advisorSummaryPill(task) : "";
+
   return `<div id="pipeline-container"${htmxAttrs}>
   <div class="rounded-xl border border-slate-700 bg-slate-800 p-6">
     <h3 class="text-lg font-semibold text-slate-50 mb-4">Pipeline</h3>
@@ -72,6 +112,7 @@ export function pipelinePartial(
     <div class="py-2 overflow-x-auto">
       ${stagesHtml}
     </div>
+    ${advisorPill}
   </div>
 </div>`;
 }

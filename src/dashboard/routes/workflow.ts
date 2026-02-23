@@ -44,7 +44,7 @@ router.get("/api/workflow/pipeline", requireAuth, requireRole("admin"), async (r
       .from(tasks)
       .where(eq(tasks.id, taskId));
 
-    res.send(pipelinePartial(task?.status ?? null, taskId, task?.title));
+    res.send(pipelinePartial(task?.status ?? null, taskId, task?.title, task));
   } catch (err) {
     next(err);
   }

@@ -651,6 +651,157 @@ function scorerSection(task: TaskWithCost): string {
   </div>`;
 }
 
+// ── Advisor verdict display ──────────────────────────────────────────────────
+
+interface AdvisorDimension {
+  score: number;
+  rationale: string;
+}
+
+interface AdvisorVerdict {
+  verdict: "approve" | "caution" | "reject";
+  overallScore: number;
+  confidenceScore: number;
+  dimensions: {
+    productFit: AdvisorDimension;
+    architecturalAlignment: AdvisorDimension;
+    userImpact: AdvisorDimension;
+    implementationRisk: AdvisorDimension;
+    scopeClarity: AdvisorDimension;
+  };
+  reasoning: string;
+  recommendations: string[];
+  escalate: boolean;
+}
+
+function advisorVerdictBadge(verdict: AdvisorVerdict["verdict"]): string {
+  const map: Record<AdvisorVerdict["verdict"], { color: "emerald" | "amber" | "red"; label: string }> = {
+    approve:  { color: "emerald", label: "Proceed" },
+    caution:  { color: "amber",   label: "Redesign" },
+    reject:   { color: "red",     label: "Reject" },
+  };
+  const { color, label } = map[verdict] ?? { color: "slate" as const, label: verdict };
+  return badge(label, color);
+}
+
+function advisorScoreBar(score: number, max = 1): string {
+  const pct = Math.round((score / max) * 100);
+  const barColor =
+    pct >= 70 ? "bg-emerald-400" :
+    pct >= 40 ? "bg-amber-400"  :
+                "bg-red-400";
+  return `<div class="flex items-center gap-2">
+    <div class="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+      <div class="${barColor} h-full rounded-full" style="width:${pct}%"></div>
+    </div>
+    <span class="text-xs text-slate-300 w-8 text-right">${score.toFixed(2)}</span>
+  </div>`;
+}
+
+function advisorDimensionsTable(dims: AdvisorVerdict["dimensions"]): string {
+  const entries: Array<{ label: string; key: keyof AdvisorVerdict["dimensions"]; invert?: boolean }> = [
+    { label: "Product Fit",             key: "productFit" },
+    { label: "Arch. Alignment",         key: "architecturalAlignment" },
+    { label: "User Impact",             key: "userImpact" },
+    { label: "Implementation Risk",     key: "implementationRisk", invert: true },
+    { label: "Scope Clarity",           key: "scopeClarity" },
+  ];
+
+  const rows = entries.map(({ label, key, invert }) => {
+    const dim = dims[key];
+    const displayScore = invert ? 1 - dim.score : dim.score;
+    const pct = Math.round(displayScore * 100);
+    const dotColor =
+      pct >= 70 ? "bg-emerald-400" :
+      pct >= 40 ? "bg-amber-400"  :
+                  "bg-red-400";
+    return `<div class="flex items-center gap-2 py-1" title="${escapeHtml(dim.rationale)}">
+      <span class="shrink-0 h-2 w-2 rounded-full ${dotColor}"></span>
+      <span class="text-xs text-slate-400 w-32 shrink-0">${escapeHtml(label)}</span>
+      <div class="flex-1 h-1 rounded-full bg-slate-700 overflow-hidden">
+        <div class="${dotColor} h-full rounded-full" style="width:${pct}%"></div>
+      </div>
+      <span class="text-xs text-slate-400 w-8 text-right">${dim.score.toFixed(2)}</span>
+    </div>`;
+  }).join("");
+
+  return `<div class="space-y-0.5">${rows}</div>`;
+}
+
+export function advisorVerdictSection(task: TaskRow): string {
+  const enrichment = task.enrichment as Record<string, unknown> | null;
+  const advisor = enrichment?.advisor as AdvisorVerdict | undefined;
+  if (!advisor || typeof advisor !== "object") return "";
+
+  const escalateBanner = advisor.escalate
+    ? `<div class="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-950/30 px-4 py-3 mb-4">
+        <svg class="h-5 w-5 shrink-0 text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+        </svg>
+        <span class="text-sm font-medium text-amber-300">Advisor flagged for human review — low confidence</span>
+      </div>`
+    : "";
+
+  const overallScoreColor =
+    advisor.overallScore >= 0.7 ? "text-emerald-400" :
+    advisor.overallScore >= 0.4 ? "text-amber-400"   :
+                                   "text-red-400";
+
+  const confidenceColor =
+    advisor.confidenceScore >= 0.7 ? "text-emerald-400" :
+    advisor.confidenceScore >= 0.5 ? "text-amber-400"   :
+                                      "text-red-400";
+
+  const recList = advisor.recommendations?.length
+    ? `<ul class="mt-2 space-y-1">${advisor.recommendations.map(
+        (r) => `<li class="flex items-start gap-2 text-sm text-slate-300">
+          <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400"></span>
+          <span>${escapeHtml(r)}</span>
+        </li>`
+      ).join("")}</ul>`
+    : "";
+
+  const reasoningAndRecs = (advisor.reasoning || recList)
+    ? `<details class="group mt-3">
+        <summary class="flex cursor-pointer items-center justify-between rounded-lg bg-slate-800/60 px-3 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800">
+          Reasoning &amp; Recommendations
+          <svg class="h-3.5 w-3.5 text-slate-500 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </summary>
+        <div class="mt-1 rounded-lg bg-slate-900 px-4 py-3">
+          ${advisor.reasoning ? `<p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(advisor.reasoning)}</p>` : ""}
+          ${recList ? `<div class="mt-3 pt-3 border-t border-slate-800">
+            <p class="text-xs font-medium text-slate-400 mb-1">Recommendations</p>
+            ${recList}
+          </div>` : ""}
+        </div>
+      </details>`
+    : "";
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Advisor Assessment</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      ${escalateBanner}
+      <div class="flex items-center gap-3 mb-4">
+        ${advisorVerdictBadge(advisor.verdict)}
+        <div class="flex items-center gap-4 ml-auto">
+          <div class="text-right">
+            <p class="text-xs text-slate-500 mb-0.5">Score</p>
+            <span class="text-sm font-semibold ${overallScoreColor}">${(advisor.overallScore * 10).toFixed(1)}<span class="text-xs font-normal text-slate-500">/10</span></span>
+          </div>
+          <div class="text-right">
+            <p class="text-xs text-slate-500 mb-0.5">Confidence</p>
+            <span class="text-sm font-semibold ${confidenceColor}">${(advisor.confidenceScore * 100).toFixed(0)}<span class="text-xs font-normal text-slate-500">%</span></span>
+          </div>
+        </div>
+      </div>
+      ${advisorDimensionsTable(advisor.dimensions)}
+      ${reasoningAndRecs}
+    </div>
+  </div>`;
+}
+
 // ── Gate decision display ───────────────────────────────────────────────────
 
 function gateDecisionSection(task: TaskRow): string {
@@ -1403,6 +1554,9 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
 
     <!-- Scorer -->
     ${scorerSection(task)}
+
+    <!-- Advisor -->
+    ${advisorVerdictSection(task)}
 
     <!-- Blueprint -->
     ${blueprintSection(task)}
