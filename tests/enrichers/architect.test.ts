@@ -426,6 +426,45 @@ describe("architectEnricher", () => {
     expect(arch.approach).toBe("Kubernetes-based microservice with GDPR-compliant data handling");
   });
 
+  it("large task second round: Claude may ask a follow-up set of ≥5 questions at clarificationRound=1", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    // After the user answered round-1 questions, Claude still wants more info.
+    // The enricher must honour that (awaitingInput stays true) as long as round < 2.
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Some answers"],
+        clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"],
+        clarificationRound: 1,
+      },
+    };
+
+    const followUpQuestions = {
+      approach: "Still need more details before committing",
+      clarificationQuestions: [
+        "What is the expected peak RPS?",
+        "Are multi-region deployments required?",
+        "Which message broker should be used?",
+        "What is the data retention policy?",
+        "Are there third-party SLA dependencies?",
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(followUpQuestions),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", priorResults, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // Second-round clarification is permitted — awaitingInput is still true
+    expect(arch.awaitingInput).toBe(true);
+    const questions = arch.clarificationQuestions as string[];
+    expect(Array.isArray(questions)).toBe(true);
+    expect(questions.length).toBeGreaterThanOrEqual(5);
+  });
+
   it("large task: final-round instruction forces a blueprint when clarificationRound>=2", async () => {
     const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
 

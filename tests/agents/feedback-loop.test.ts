@@ -320,27 +320,60 @@ describe("parseFeedbackResult / analyzeFeedback", () => {
   // ── Multi-round clarification for large tasks ─────────────────────────────
 
   it("large task: second clarification round is permitted when clarificationRound=1", async () => {
-    // Represents the architect blueprint stored after round 1 (first set of answers given,
-    // but Claude chose to ask a second set of questions for a large task).
-    const secondRoundBlueprint = {
-      awaitingInput: true,
-      clarificationQuestions: [
-        "Can you expand on the caching strategy?",
-        "What failure-mode behaviour is expected?",
-        "Is zero-downtime deployment required?",
-        "Are there rate-limiting constraints on upstream APIs?",
-        "What SLA is expected for the async workers?",
-      ],
-      clarificationRound: 1,
-      approach: "",
+    // Drive the real enricher: after the user supplied round-1 answers Claude is still
+    // allowed to return a second batch of ≥5 questions (clarificationRound=1 in
+    // priorResults means we are entering round 2, which is still within the 2-round cap).
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    const priorResults = {
+      architect: {
+        clarificationAnswers: [
+          "~10 k concurrent users",
+          "REST API gateway integration",
+          "p99 < 200 ms",
+          "GDPR compliant",
+          "Kubernetes on GKE",
+        ],
+        clarificationQuestions: ["Scale?", "Integrations?", "Latency?", "Compliance?", "Deploy?"],
+        clarificationRound: 1,
+      },
     };
 
-    // The feedback-loop itself doesn't directly drive the architect round-trip, but
-    // the blueprint shape must be valid so downstream consumers can detect the second
-    // round.  We verify the structural rules here.
-    expect(secondRoundBlueprint.awaitingInput).toBe(true);
-    expect(secondRoundBlueprint.clarificationRound).toBe(1);
-    expect(secondRoundBlueprint.clarificationQuestions.length).toBeGreaterThanOrEqual(5);
+    const secondRoundQuestions = {
+      approach: "Need one more pass of clarification",
+      clarificationQuestions: [
+        "What is the expected peak RPS?",
+        "Are multi-region deployments required?",
+        "Which message broker should be used?",
+        "What is the data retention policy?",
+        "Are there third-party SLA dependencies?",
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(secondRoundQuestions),
+      cost: { inputTokens: 100, outputTokens: 200, model: "claude-test" },
+    });
+
+    const largeTask = {
+      id: "task-large-round1",
+      title: "Large feature request",
+      body: "Build a distributed event processing pipeline.",
+      size: "large",
+      type: "feature",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(largeTask as never, "/tmp", priorResults, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // Second round of clarification is permitted — awaitingInput must still be true
+    expect(arch.awaitingInput).toBe(true);
+    const questions = arch.clarificationQuestions as string[];
+    expect(Array.isArray(questions)).toBe(true);
+    expect(questions.length).toBeGreaterThanOrEqual(5);
   });
 
   it("large task: third attempt produces a blueprint — clarification capped at 2 rounds", async () => {
@@ -361,6 +394,50 @@ describe("parseFeedbackResult / analyzeFeedback", () => {
     expect(result.awaitingInput).toBeUndefined();
     expect(result.clarificationQuestions).toBeUndefined();
     expect(result.approach).toBe("Still want more info");
+  });
+
+  it("large task: cap enforced end-to-end — enricher returns blueprint at clarificationRound=2", async () => {
+    // Drive the real enricher at round 2 to confirm that even if Claude tries to ask
+    // more questions, the enricher strips them and returns a proper blueprint.
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Final answer batch"],
+        clarificationQuestions: ["Last question?"],
+        clarificationRound: 2,
+      },
+    };
+
+    // Claude still tries to ask more questions — the enricher must ignore them
+    const stubbornClaude = JSON.stringify({
+      approach: "Reluctant blueprint",
+      clarificationQuestions: ["Yet another question?"],
+    });
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: stubbornClaude,
+      cost: { inputTokens: 100, outputTokens: 200, model: "claude-test" },
+    });
+
+    const largeTask = {
+      id: "task-large-round2-cap",
+      title: "Large task hitting the cap",
+      body: "Must produce a blueprint by now.",
+      size: "large",
+      type: "feature",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(largeTask as never, "/tmp", priorResults, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // At round 2 the cap is enforced — no more clarification
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Reluctant blueprint");
   });
 
   it("large task: second-round user prompt contains 'MUST now produce' when clarificationRound>=2", async () => {
@@ -396,6 +473,76 @@ describe("parseFeedbackResult / analyzeFeedback", () => {
 
     const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
     expect(callArgs.prompt).toContain("MUST now produce a full blueprint");
+  });
+
+  it("small task: skips clarification and produces a blueprint directly", async () => {
+    // Small tasks must never block on awaitingInput — the enricher must produce a
+    // blueprint regardless of task complexity signals in the prompt.
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    const blueprint = {
+      approach: "Simple direct implementation",
+      keyFiles: ["src/utils.ts"],
+      checklist: ["Implement helper function", "Add unit test"],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: { inputTokens: 50, outputTokens: 100, model: "claude-test" },
+    });
+
+    const smallTask = {
+      id: "task-small",
+      title: "Fix typo in README",
+      body: "There is a typo on line 42.",
+      size: "small",
+      type: "chore",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(smallTask as never, "/tmp", {}, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // Small task must never produce awaitingInput
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.approach).toBe("Simple direct implementation");
+  });
+
+  it("medium task: skips clarification when architect considers the task clear", async () => {
+    // Medium tasks should not block on clarification unless the architect explicitly
+    // deems them unclear.  When Claude returns a blueprint directly, it must be accepted.
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    const blueprint = {
+      approach: "Straightforward medium task implementation",
+      keyFiles: ["src/feature.ts"],
+      checklist: ["Add feature", "Write tests", "Update docs"],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: { inputTokens: 80, outputTokens: 150, model: "claude-test" },
+    });
+
+    const mediumTask = {
+      id: "task-medium",
+      title: "Add pagination to list endpoint",
+      body: "The /users endpoint needs cursor-based pagination.",
+      size: "medium",
+      type: "feature",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    const result = await architectEnricher.run(mediumTask as never, "/tmp", {}, { model: "claude-test" });
+
+    const arch = result.data.architect as Record<string, unknown>;
+    // Medium task without questions must produce a blueprint immediately
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.approach).toBe("Straightforward medium task implementation");
   });
 
   it("throws when task is not found", async () => {
