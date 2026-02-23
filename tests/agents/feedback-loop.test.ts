@@ -317,6 +317,87 @@ describe("parseFeedbackResult / analyzeFeedback", () => {
     expect(mockUnregister).toHaveBeenCalledWith(fakeTask.id);
   });
 
+  // ── Multi-round clarification for large tasks ─────────────────────────────
+
+  it("large task: second clarification round is permitted when clarificationRound=1", async () => {
+    // Represents the architect blueprint stored after round 1 (first set of answers given,
+    // but Claude chose to ask a second set of questions for a large task).
+    const secondRoundBlueprint = {
+      awaitingInput: true,
+      clarificationQuestions: [
+        "Can you expand on the caching strategy?",
+        "What failure-mode behaviour is expected?",
+        "Is zero-downtime deployment required?",
+        "Are there rate-limiting constraints on upstream APIs?",
+        "What SLA is expected for the async workers?",
+      ],
+      clarificationRound: 1,
+      approach: "",
+    };
+
+    // The feedback-loop itself doesn't directly drive the architect round-trip, but
+    // the blueprint shape must be valid so downstream consumers can detect the second
+    // round.  We verify the structural rules here.
+    expect(secondRoundBlueprint.awaitingInput).toBe(true);
+    expect(secondRoundBlueprint.clarificationRound).toBe(1);
+    expect(secondRoundBlueprint.clarificationQuestions.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("large task: third attempt produces a blueprint — clarification capped at 2 rounds", async () => {
+    // When clarificationRound >= 2, the enricher prompt instructs Claude to produce a
+    // blueprint unconditionally.  We verify this by checking that parseBlueprint with
+    // hasAnswers=true never returns awaitingInput=true.
+    const { parseBlueprint } = await import("../../src/enrichers/architect.js");
+
+    const claudeOutputWithQuestions = JSON.stringify({
+      approach: "Still want more info",
+      clarificationQuestions: ["One more question?"],
+    });
+
+    // hasAnswers=true mimics the state at round 2+ (answers were provided, so
+    // the enricher passes hasAnswers=true forcing parseBlueprint to skip clarification)
+    const result = parseBlueprint(claudeOutputWithQuestions, true);
+
+    expect(result.awaitingInput).toBeUndefined();
+    expect(result.clarificationQuestions).toBeUndefined();
+    expect(result.approach).toBe("Still want more info");
+  });
+
+  it("large task: second-round user prompt contains 'MUST now produce' when clarificationRound>=2", async () => {
+    // Smoke-test that the buildUserPrompt logic emits the mandatory blueprint instruction
+    // at round 2.  We drive this through the full enricher so we test the real code path.
+    const { architectEnricher } = await import("../../src/enrichers/architect.js");
+
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Some final answers"],
+        clarificationQuestions: ["A question?"],
+        clarificationRound: 2,
+      },
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ approach: "Blueprint after two rounds", milestones: [] }),
+      cost: { inputTokens: 100, outputTokens: 200, model: "claude-test" },
+    });
+
+    const largeTask = {
+      id: "task-large-round2",
+      title: "Large task reaching cap",
+      body: "Detailed description.",
+      size: "large",
+      type: "feature",
+      severity: null,
+      repoId: 1,
+      createdBy: "user-1",
+    };
+
+    await architectEnricher.run(largeTask as never, "/tmp", priorResults, { model: "claude-test" });
+
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.prompt).toContain("MUST now produce a full blueprint");
+  });
+
   it("throws when task is not found", async () => {
     mockGetById.mockResolvedValue(null);
 

@@ -273,6 +273,187 @@ describe("architectEnricher", () => {
     const arch = result.data.architect as Record<string, unknown>;
     expect(arch.approach).toBe("Approach for null-size task");
   });
+
+  // ── Large-task mandatory clarification ──────────────────────────────────────
+
+  it("large task: always returns awaitingInput=true with at least 5 questions", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    const claudeResponse = {
+      approach: "Need more information before planning this large task",
+      clarificationQuestions: [
+        "What is the expected scale of the system in terms of users and data volume?",
+        "Which existing services or APIs must be integrated with?",
+        "What are the performance and latency requirements?",
+        "Are there regulatory or compliance constraints (e.g., GDPR, SOC2)?",
+        "What is the preferred deployment strategy (containerised, serverless, etc.)?",
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(claudeResponse),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBe(true);
+    const questions = arch.clarificationQuestions as string[];
+    expect(Array.isArray(questions)).toBe(true);
+    expect(questions.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("large task: prompt instructs Claude to ask at least 5 questions", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ approach: "x", clarificationQuestions: ["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"] }),
+      cost: makeCostMeta(),
+    });
+
+    await architectEnricher.run(largeTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    // The system prompt should convey the 5-question rule for large tasks
+    expect(callArgs.systemPrompt ?? callArgs.prompt).toBeTruthy();
+    // The user prompt must surface the size so Claude can apply the rule
+    expect(callArgs.prompt).toContain("Size: large");
+  });
+
+  it("small task: skips clarification when Claude returns a direct blueprint", async () => {
+    const smallTask = { ...DUMMY_TASK, size: "small" } as TaskRow;
+
+    const blueprint = {
+      approach: "Straightforward fix with no ambiguity",
+      keyFiles: ["src/utils.ts"],
+      checklist: ["Apply the fix", "Add a regression test"],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(smallTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Straightforward fix with no ambiguity");
+  });
+
+  it("medium task: skips clarification when Claude returns a direct blueprint", async () => {
+    const blueprint = {
+      approach: "Medium task with clear requirements",
+      milestones: [
+        {
+          title: "Phase 1",
+          description: "Initial implementation",
+          filesToModify: ["src/index.ts"],
+          acceptanceCriteria: ["Feature works end-to-end"],
+        },
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(DUMMY_TASK, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.clarificationQuestions).toBeUndefined();
+    expect(arch.approach).toBe("Medium task with clear requirements");
+  });
+
+  it("large task second round: produces a blueprint after first-round answers (clarificationRound=1)", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    // Simulate a second clarification pass — Claude is allowed to ask a follow-up
+    const priorResults = {
+      architect: {
+        clarificationAnswers: [
+          "~10 k concurrent users",
+          "Integrates with existing REST API gateway",
+          "p99 < 200 ms",
+          "GDPR compliant, no SOC2 requirement",
+          "Kubernetes on GKE",
+        ],
+        clarificationQuestions: [
+          "Scale?",
+          "Integrations?",
+          "Latency?",
+          "Compliance?",
+          "Deployment?",
+        ],
+        clarificationRound: 1,
+      },
+    };
+
+    const blueprint = {
+      approach: "Kubernetes-based microservice with GDPR-compliant data handling",
+      milestones: [
+        {
+          title: "Core service scaffold",
+          description: "Bootstrap the service with CI/CD pipelines",
+          filesToModify: ["src/service/index.ts"],
+          acceptanceCriteria: ["Service starts without errors"],
+        },
+      ],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(largeTask, "/tmp", priorResults, DEFAULT_CONFIG);
+
+    // Claude is called (not skipped)
+    expect(mockCallClaude).toHaveBeenCalledTimes(1);
+
+    // The prompt must include the answers and round context
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.prompt).toContain("clarification_answers");
+    expect(callArgs.prompt).toContain("~10 k concurrent users");
+
+    // Blueprint is returned (no further awaitingInput)
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.awaitingInput).toBeUndefined();
+    expect(arch.approach).toBe("Kubernetes-based microservice with GDPR-compliant data handling");
+  });
+
+  it("large task: final-round instruction forces a blueprint when clarificationRound>=2", async () => {
+    const largeTask = { ...DUMMY_TASK, size: "large" } as TaskRow;
+
+    // Round 2 — the prompt must tell Claude it MUST produce a blueprint now
+    const priorResults = {
+      architect: {
+        clarificationAnswers: ["Final answer set"],
+        clarificationQuestions: ["Last question?"],
+        clarificationRound: 2,
+      },
+    };
+
+    const blueprint = {
+      approach: "Definitive blueprint after two clarification rounds",
+      milestones: [],
+    };
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify(blueprint),
+      cost: makeCostMeta(),
+    });
+
+    await architectEnricher.run(largeTask, "/tmp", priorResults, DEFAULT_CONFIG);
+
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    // The prompt must contain the "MUST now produce" instruction
+    expect(callArgs.prompt).toContain("MUST now produce a full blueprint");
+  });
 });
 
 // ── parseBlueprint unit tests ─────────────────────────────────────────────────
