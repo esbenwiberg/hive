@@ -579,11 +579,16 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       // Rework cycles (or non-milestone tasks): single targeted fix call.
       // On rework, the worktree already has the full implementation — only patch
       // the specific issues listed in retryInstructions (review findings).
+      // Use a separately configurable rework model (falls back to worker model).
+      const callModel = isReworkCycle
+        ? (config.models.components["rework"] ?? model)
+        : model;
+
       if (isReworkCycle) {
-        await addEvent(taskId, "rework_fix_started", "worker", `Applying targeted review fixes (rework cycle ${task.reworkCount})`);
+        await addEvent(taskId, "rework_fix_started", "worker", `Applying targeted review fixes (rework cycle ${task.reworkCount}, model: ${callModel})`);
       }
       // Single-call path (original behavior for tasks without milestones)
-      await addEvent(taskId, "claude_call_started", "worker", `Calling Claude (${model})`);
+      await addEvent(taskId, "claude_call_started", "worker", `Calling Claude (${callModel})`);
       await heartbeat(taskId);
 
       const keyFiles = architectData?.keyFiles?.length
@@ -594,7 +599,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
       const response = await callClaudeWithTools({
         prompt: userPrompt,
-        model,
+        model: callModel,
         systemPrompt: getFlowPrompt(),
         tools: WORKER_TOOLS,
         executeTool: createWorktreeToolExecutor(worktree.path),
@@ -616,7 +621,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       });
       implCostUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
 
-      await addEvent(taskId, "claude_call_complete", "worker", `Claude complete (${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCostUsd.toFixed(2)}, ${response.turns} turns)`, {
+      await addEvent(taskId, "claude_call_complete", "worker", `Claude complete (${callModel}, ${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCostUsd.toFixed(2)}, ${response.turns} turns)`, {
         inputTokens: response.cost.inputTokens,
         outputTokens: response.cost.outputTokens,
         costUsd: implCostUsd,
