@@ -110,6 +110,8 @@ export const tasks = pgTable(
     worktreePath: text("worktree_path"),
     worktreeBaseSha: text("worktree_base_sha"),
     completedMilestones: integer("completed_milestones").default(0),
+    blueprintSource: text("blueprint_source").notNull().default("architect"),
+    externalBlueprint: jsonb("external_blueprint"),
     visibility: text("visibility").notNull().default("public"),
     createdAt: timestamp("created_at", tz).defaultNow(),
     updatedAt: timestamp("updated_at", tz).defaultNow(),

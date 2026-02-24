@@ -33,6 +33,8 @@ export async function create(data: {
   createdBy: number;
   visibility?: string;
   skipPreview?: boolean;
+  blueprintSource?: "architect" | "external";
+  externalBlueprint?: Record<string, unknown>;
 }) {
   const id = generateTaskId();
 
@@ -51,6 +53,8 @@ export async function create(data: {
       visibility: data.visibility ?? "public",
       skipPreview: data.skipPreview ?? false,
       status: "pending",
+      blueprintSource: data.blueprintSource ?? "architect",
+      externalBlueprint: data.externalBlueprint ?? null,
     })
     .returning();
 
