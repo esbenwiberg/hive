@@ -18,6 +18,7 @@ import {
   remoteComposeUp,
   remoteComposeDown,
   cleanupRemoteWorktree,
+  getComposeLogs,
 } from "./remote-docker.js";
 
 /**
@@ -112,6 +113,27 @@ export class PreviewManager {
       const kind = strict ? "Health check" : "Reachability check";
       const msg = `${kind} failed after ${timeoutMs}ms on port ${port}`;
       await addPreviewLog(taskId, "health", msg);
+
+      // Capture container logs before teardown for diagnosis
+      if (config.type === "compose" && info.composeProject && this.settings.docker_host.ip) {
+        try {
+          const certs = await ensureCerts(this.settings.docker_host);
+          const logs = await getComposeLogs(
+            this.settings.docker_host,
+            certs.sshKey,
+            info.composeProject,
+            80,
+          );
+          if (logs.trim()) {
+            await addPreviewLog(taskId, "health", `Container logs before teardown:\n${logs.trim()}`);
+          } else {
+            await addPreviewLog(taskId, "health", "No container logs available (containers may not have started)");
+          }
+        } catch {
+          // Best-effort — don't let log fetching block cleanup
+        }
+      }
+
       await this.stopPreview(taskId);
       await db
         .update(tasks)
@@ -499,21 +521,30 @@ export class PreviewManager {
     const pollIntervalMs = 2000;
     const deadline = Date.now() + timeoutMs;
 
+    logger.info({ url, timeoutMs, strict }, "Starting health check polling");
+
+    let attempts = 0;
+    let lastError: string | undefined;
+
     while (Date.now() < deadline) {
+      attempts++;
       try {
         const response = await fetch(url, {
           signal: AbortSignal.timeout(pollIntervalMs),
         });
         if (!strict || response.ok) {
+          logger.info({ url, attempts, status: response.status }, "Health check passed");
           return true;
         }
-      } catch {
-        // Connection refused or timeout — keep polling
+        lastError = `HTTP ${response.status}`;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
       }
 
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
 
+    logger.warn({ url, attempts, lastError }, "Health check timed out");
     return false;
   }
 
