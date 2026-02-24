@@ -21,9 +21,14 @@ clarification:
   mode: human
 
 models:
+  # ── Global defaults ─────────────────────────────────────────────────────────
+  # Used by every component that does NOT have a per-component override below.
   default: claude-sonnet-4-6
   inputCostPerM: 3
   outputCostPerM: 15
+
+  # ── Simple per-component model names (Anthropic direct, legacy format) ──────
+  # These are used when no per-component provider block overrides the component.
   components:
     router: claude-haiku-4-5-20251001          # classification — fast & cheap
     scorer: claude-haiku-4-5-20251001          # numeric scoring — fast & cheap
@@ -43,6 +48,85 @@ models:
     review-gate: claude-sonnet-4-6    # code review — quality critical
     architect: claude-sonnet-4-6      # architecture design
     producer: claude-haiku-4-5-20251001        # task discovery — lightweight
+
+  # ── Per-component provider overrides ────────────────────────────────────────
+  # Each key matches a ComponentName.  When present, this block takes full
+  # precedence over the simple `components.<name>` string above.
+  #
+  # Supported provider types:
+  #   anthropic       — Anthropic public API (apiKey optional; falls back to
+  #                     ANTHROPIC_API_KEY env var)
+  #   azure-openai    — Azure AI Foundry, OpenAI-compatible endpoint
+  #                     (GPT-4o, GPT-4.1, o-series, …)
+  #   azure-anthropic — Anthropic model hosted on Azure AI Foundry
+  #
+  # Required fields for azure-openai / azure-anthropic:
+  #   endpoint       — e.g. https://<resource>.openai.azure.com
+  #   deploymentName — deployment / model name in the Foundry project
+  #   apiKey         — Azure AI Foundry API key
+  #
+  # Example overrides (all commented out — uncomment and fill in to activate):
+  #
+  # componentProviders:
+  #
+  #   # Route review-gate to a cheap Haiku deployment on Anthropic directly
+  #   review-gate:
+  #     type: anthropic
+  #     model: claude-haiku-4-5-20251001
+  #     # apiKey: sk-ant-...   # optional; omit to use ANTHROPIC_API_KEY env var
+  #
+  #   # Use an Azure-hosted GPT model for the worker (heavy lifting)
+  #   worker:
+  #     type: azure-openai
+  #     endpoint: https://my-resource.openai.azure.com
+  #     deploymentName: gpt-4o-deployment
+  #     apiKey: AZURE_OPENAI_API_KEY_PLACEHOLDER
+  #     model: gpt-4o
+  #
+  #   # Use an Anthropic model via Azure AI Foundry for the router
+  #   router:
+  #     type: azure-anthropic
+  #     endpoint: https://my-foundry.services.ai.azure.com
+  #     deploymentName: claude-haiku-foundry
+  #     apiKey: AZURE_FOUNDRY_API_KEY_PLACEHOLDER
+  #     model: claude-haiku-4-5-20251001
+  #
+  #   # Decomposer with a specific Sonnet deployment on Azure
+  #   decomposer:
+  #     type: azure-openai
+  #     endpoint: https://my-resource.openai.azure.com
+  #     deploymentName: gpt-4-1-deployment
+  #     apiKey: AZURE_OPENAI_API_KEY_PLACEHOLDER
+  #     model: gpt-4.1
+  #
+  #   # Gate using Azure-hosted Anthropic Sonnet
+  #   gate:
+  #     type: azure-anthropic
+  #     endpoint: https://my-foundry.services.ai.azure.com
+  #     deploymentName: claude-sonnet-foundry
+  #     apiKey: AZURE_FOUNDRY_API_KEY_PLACEHOLDER
+  #     model: claude-sonnet-4-6
+  #
+  #   # Enricher using Anthropic direct
+  #   enricher:
+  #     type: anthropic
+  #     model: claude-sonnet-4-6
+  #
+  #   # Milestone-review via Azure OpenAI
+  #   milestone-review:
+  #     type: azure-openai
+  #     endpoint: https://my-resource.openai.azure.com
+  #     deploymentName: gpt-4o-mini-deployment
+  #     apiKey: AZURE_OPENAI_API_KEY_PLACEHOLDER
+  #     model: gpt-4o-mini
+  #
+  #   # Producer using the cheapest Azure OpenAI option
+  #   producer:
+  #     type: azure-openai
+  #     endpoint: https://my-resource.openai.azure.com
+  #     deploymentName: gpt-35-turbo-deployment
+  #     apiKey: AZURE_OPENAI_API_KEY_PLACEHOLDER
+  #     model: gpt-35-turbo
 
 enrichers:
   - name: codebase

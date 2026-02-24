@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "yaml";
 import { getConfig, setConfig } from "./config.js";
+import type { ComponentModelConfig } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,8 +29,14 @@ export interface ModelConfig {
   inputCostPerM: number;
   /** Cost per million output tokens in USD */
   outputCostPerM: number;
-  /** Per-component model overrides keyed by component name. */
+  /** Per-component model overrides keyed by component name (simple string form). */
   components: Record<string, string>;
+  /**
+   * Full per-component provider overrides.  When set for a component, takes
+   * precedence over `components.<name>` and drives the provider selection in
+   * `resolveModelConfig`.
+   */
+  componentProviders: Record<string, ComponentModelConfig>;
 }
 
 export interface ClarificationConfig {
@@ -90,6 +97,7 @@ const DEFAULTS: AutonomousConfig = {
     inputCostPerM: 3,
     outputCostPerM: 15,
     components: {},
+    componentProviders: {},
   },
   enrichers: [],
   clarification: { mode: "human" },
@@ -130,6 +138,11 @@ function mergeModels(raw: Record<string, unknown> | undefined): ModelConfig {
     components: {
       ...(raw.components && typeof raw.components === "object"
         ? (raw.components as Record<string, string>)
+        : {}),
+    },
+    componentProviders: {
+      ...(raw.componentProviders && typeof raw.componentProviders === "object"
+        ? (raw.componentProviders as Record<string, ComponentModelConfig>)
         : {}),
     },
   };

@@ -45,6 +45,7 @@ const LATEST_MODELS: ModelConfig = {
   default: "claude-sonnet-4-6",
   inputCostPerM: 3,
   outputCostPerM: 15,
+  componentProviders: {},
   components: {
     router: "claude-haiku-4-5-20251001",
     scorer: "claude-haiku-4-5-20251001",
@@ -82,6 +83,7 @@ const MODEL_TIERS: Record<"low" | "medium" | "high", { label: string; title: str
       default: "claude-haiku-4-5-20251001",
       inputCostPerM: 0.8,
       outputCostPerM: 4,
+      componentProviders: {},
       components: {
         router: "claude-haiku-4-5-20251001",
         scorer: "claude-haiku-4-5-20251001",
@@ -112,6 +114,7 @@ const MODEL_TIERS: Record<"low" | "medium" | "high", { label: string; title: str
       default: "claude-sonnet-4-6",
       inputCostPerM: 3,
       outputCostPerM: 15,
+      componentProviders: {},
       components: {
         router: "claude-haiku-4-5-20251001",
         scorer: "claude-haiku-4-5-20251001",
