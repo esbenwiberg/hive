@@ -1,6 +1,47 @@
 # Changelog
 
+## 2026-02-24
+- feat: add PR feedback polling daemon to rework tasks on human review comments
+- feat: add manual preview start from dashboard with PR comment
+- fix: add final build/test verification after review gate pass
+- fix: prevent review gate JSON truncation by increasing maxTokens and using extractJson
+- fix: update max rework cycles test to match forced-pass behavior
+- fix: add ambient type declarations for optional @prism/core dependency
+- feat: integrate Prism semantic search into enrichment pipeline
+- feat: fix non-converging review cycles with soft pass, advisory findings, and forced pass
+
+## 2026-02-23
+- fix: review diff against HEAD not HEAD~1 to avoid bleeding prior commits
+- feat: add maintenance producer toggle to repo settings UI
+- fix: correct scorer cost estimate guidance to reflect real agentic token usage
+- Merge pull request #21 from esbenwiberg/hive/HIVE-20260223-c3968ddd
+- feat: accept failed browser validation + fix parse output failure
+- Architect discussion
+- Architect discussion
+- fix: surface milestone-review, milestone-fix, rework in settings UI
+- feat: add milestone-review, milestone-fix, rework model components to tiers
+- fix: update settings test to expect tier buttons instead of Update to Latest
+- feat: add Low/Medium/High model cost tiers to settings
+- fix: use correct terminal status 'done' in dedup query
+- fix: rework cycles apply targeted fixes instead of re-running milestones
+- Merge pull request #20 from esbenwiberg/hive/HIVE-20260223-647073cb
+- feat: Add tests for duplicate detection
+- feat: Implement duplicate detection in producer base class
+- feat: Add DB query for candidate duplicate tasks
+- Merge pull request #17 from esbenwiberg/hive/HIVE-20260222-9b827953
+- Merge pull request #18 from esbenwiberg/hive/HIVE-20260222-047e5bbf
+- Merge pull request #19 from esbenwiberg/hive/HIVE-20260222-c2d7636d
+- Recurring error: Code-quality-analyst: analysis failed
+- Broken references in docs/internal/modules/agents.md
+- Broken references in docs/internal/modules/database.md
+- Merge pull request #15 from esbenwiberg/hive/HIVE-20260222-8668916c
+- Merge pull request #16 from esbenwiberg/hive/HIVE-20260222-c74b2512
+- Broken references in docs/internal/modules/domain.md
+- Broken references in docs/internal/modules/producers.md
+
 ## 2026-02-22
+- fix: add missing appendFile mock to worktree tests
+- chore: regenerate changelog
 - fix: clean up preview compose artifact from worktree
 - feat: surface concurrency limits in dashboard
 - fix: parse "pass (nothing to validate)" verdict as pass
