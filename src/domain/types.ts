@@ -1,63 +1,14 @@
 import { randomBytes } from "node:crypto";
 
 // ── LLM Provider types ───────────────────────────────────────────────────────
-// Re-exported here so domain-level code can reference ModelProvider without
-// importing from the agents sub-tree.
-export type {
-  AnthropicProvider,
-  AzureOpenAIProvider,
-  AzureAnthropicProvider,
-  ModelProvider,
-} from "../agents/providers/types.js";
 
-// ── Component names ──────────────────────────────────────────────────────────
-// All pipeline components that can have a per-component model override.
-
-export const ComponentNames = [
-  "router",
-  "gate",
-  "decomposer",
-  "enricher",
-  "worker",
-  "review-gate",
-  "milestone-review",
-  "producer",
-  // additional internal components (used by config but not overridable via
-  // componentProviders — kept here for completeness)
-  "scorer",
-  "refiner",
-  "clarification",
-  "keeper",
-  "retrospective",
-  "feedback-loop",
-  "code-quality-analyst",
-  "gate-analyst",
-  "browser-validator",
-  "milestone-fix",
-  "architect",
-] as const;
-
-export type ComponentName = (typeof ComponentNames)[number];
-
-// ── Per-component model config ───────────────────────────────────────────────
-// Mirrors the `componentProviders.<name>` shape in autonomous.config.yaml.
-
-export interface ComponentModelConfig {
-  /** Which provider to use for this component. */
-  type: "anthropic" | "azure-openai" | "azure-anthropic";
-  /**
-   * Model / deployment name.
-   * - anthropic      → Anthropic model id, e.g. "claude-sonnet-4-6"
-   * - azure-openai   → Azure deployment name or model id, e.g. "gpt-4o"
-   * - azure-anthropic → model id on the Foundry deployment
-   */
-  model?: string;
-  /** Azure AI Foundry resource endpoint (azure-openai / azure-anthropic only). */
-  endpoint?: string;
-  /** Deployment name inside the Foundry project (azure-openai / azure-anthropic only). */
-  deploymentName?: string;
-  /** API key (azure-openai / azure-anthropic).  Omit for anthropic to use env var. */
+export interface ModelProvider {
+  type: 'anthropic' | 'azure-openai' | 'azure-anthropic';
+  modelId: string;
   apiKey?: string;
+  apiKeyEnv?: string;
+  endpoint?: string;
+  deploymentName?: string;
 }
 
 // ── SessionUser ─────────────────────────────────────────────────────────────

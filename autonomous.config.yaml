@@ -1,192 +1,72 @@
-# Autonomous pipeline configuration
-# Controls routing, gating, budgets, and enrichment behaviour.
+# Default LLM provider for all components
+# Can be overridden per-component in componentProviders below
+defaultProvider:
+  type: anthropic
+  modelId: claude-3-5-sonnet-20241022
+  apiKeyEnv: ANTHROPIC_API_KEY
 
+# Per-component provider configuration
+# Valid component names: router, gate, decomposer, pipeline, worker, review-gate, milestone-review, base-producer
+componentProviders:
+  # Example: Use Azure OpenAI for worker
+  # Uncomment and fill in your values:
+  # worker:
+  #   type: azure-openai
+  #   modelId: gpt-4-turbo
+  #   apiKeyEnv: AZURE_OPENAI_API_KEY
+  #   endpoint: https://your-resource.openai.azure.com/
+  #   deploymentName: your-deployment-name
+
+  # Example: Use Azure Anthropic (Foundry) for code review
+  # Uncomment and fill in your values:
+  # review-gate:
+  #   type: azure-anthropic
+  #   modelId: claude-3-haiku-20242022
+  #   apiKeyEnv: AZURE_FOUNDRY_API_KEY
+  #   endpoint: https://api.foundry.microsoft.com/
+  #   deploymentName: your-deployment-name
+
+# ── Classification ────────────────────────────────────────────────────────
+# Which task types the system will automatically route and execute.
 classification:
-  # Default task type when the router cannot determine one
-  defaultType: improvement
-  # Default size estimate when unknown
-  defaultSize: medium
-
-gate:
-  # Mode: "ai" (LLM decides), "human" (always require approval), "auto" (skip gate)
-  mode: human
-
-budget:
-  # Default daily budget per user in USD
-  dailyDefault: 100.00
-  # Maximum spend allowed for a single task in USD
-  perTaskMax: 25.00
-
-clarification:
-  mode: human
-
-models:
-  # ── Global defaults ─────────────────────────────────────────────────────────
-  # Used by every component that does NOT have a per-component override below.
-  default: claude-sonnet-4-6
-  inputCostPerM: 3
-  outputCostPerM: 15
-
-  # ── Simple per-component model names (Anthropic direct, legacy format) ──────
-  # These are used when no per-component provider block overrides the component.
-  components:
-    router: claude-haiku-4-5-20251001          # classification — fast & cheap
-    scorer: claude-haiku-4-5-20251001          # numeric scoring — fast & cheap
-    gate: claude-sonnet-4-6           # approval decisions — needs judgment
-    worker: claude-opus-4-6           # code implementation — heavy lifting
-    decomposer: claude-sonnet-4-6     # epic breakdown — reasoning
-    refiner: claude-sonnet-4-6        # task refinement
-    clarification: claude-haiku-4-5-20251001   # generating questions — lightweight
-    keeper: claude-haiku-4-5-20251001          # knowledge management — lightweight
-    retrospective: claude-sonnet-4-6  # post-task analysis
-    feedback-loop: claude-haiku-4-5-20251001   # feedback processing — lightweight
-    code-quality-analyst: claude-sonnet-4-6  # code review needs judgment
-    gate-analyst: claude-haiku-4-5-20251001    # pattern analysis — lightweight
-    browser-validator: claude-sonnet-4-6  # UI validation
-    milestone-review: claude-sonnet-4-6  # milestone diff review — classification
-    milestone-fix: claude-sonnet-4-6     # milestone fix loop — agentic
-    review-gate: claude-sonnet-4-6    # code review — quality critical
-    architect: claude-sonnet-4-6      # architecture design
-    producer: claude-haiku-4-5-20251001        # task discovery — lightweight
-
-  # ── Per-component provider overrides ────────────────────────────────────────
-  # Each key matches a ComponentName.  When present, this block takes full
-  # precedence over the simple `components.<name>` string above.
-  #
-  # Supported provider types:
-  #   anthropic       — Anthropic public API (apiKey optional; falls back to
-  #                     ANTHROPIC_API_KEY env var)
-  #   azure-openai    — Azure AI Foundry, OpenAI-compatible endpoint
-  #                     (GPT-4o, GPT-4.1, o-series, …).  Sends requests to:
-  #                     <endpoint>/openai/deployments/<deploymentName>/chat/completions
-  #                     with an `api-key` header.
-  #   azure-anthropic — Anthropic model hosted on Azure AI Foundry.
-  #                     Uses the Anthropic SDK with a custom baseURL so
-  #                     prompt-caching and tool-use work identically to direct
-  #                     Anthropic calls.
-  #
-  # Required fields for azure-openai / azure-anthropic:
-  #   endpoint       — Project-level endpoint shown in Azure AI Foundry portal,
-  #                    e.g. https://<project>.services.ai.azure.com
-  #   deploymentName — The deployment name you gave the model in the Foundry
-  #                    project (may differ from the model identifier).
-  #   apiKey         — Azure AI Foundry project API key (or use an env var
-  #                    reference: $AZURE_OPENAI_API_KEY).
-  #   model          — Canonical model identifier used for cost tracking and
-  #                    logging (e.g. "gpt-4o", "claude-3-5-haiku-20241022").
-  #
-  # Resolution order (highest → lowest priority):
-  #   1. componentProviders.<name>  (this section)
-  #   2. components.<name>          (simple string model name above)
-  #   3. models.default             (global default model)
-  #   4. Built-in default           (anthropic / claude-sonnet-4-6)
-  #
-  # ── Valid component names ────────────────────────────────────────────────────
-  #   router           Task classifier (pending → queued)
-  #   gate             Approval gate (enriched → approved/rejected/rework)
-  #   decomposer       Epic splitter
-  #   enricher         All six sequential enrichers
-  #   worker           Code execution (keeper)
-  #   review-gate      Post-execution code review
-  #   milestone-review Per-milestone review within epic execution
-  #   producer         Auto task generators (all six producers)
-  #
-  # ── Example overrides — uncomment and fill in to activate ───────────────────
-  #
-  # componentProviders:
-  #
-  #   # router — use a fast, cheap Haiku deployment on Azure AI Foundry
-  #   # (azure-anthropic example: Anthropic model served through Azure)
-  #   router:
-  #     type: azure-anthropic
-  #     endpoint: https://my-project.services.ai.azure.com
-  #     deploymentName: claude-3-5-haiku
-  #     apiKey: $AZURE_FOUNDRY_API_KEY          # env var reference
-  #     model: claude-3-5-haiku-20241022
-  #
-  #   # gate — Azure AI Foundry, Anthropic Sonnet for nuanced approval decisions
-  #   gate:
-  #     type: azure-anthropic
-  #     endpoint: https://my-project.services.ai.azure.com
-  #     deploymentName: claude-sonnet-foundry
-  #     apiKey: $AZURE_FOUNDRY_API_KEY
-  #     model: claude-sonnet-4-6
-  #
-  #   # decomposer — GPT-based reasoning on Azure (azure-openai example)
-  #   decomposer:
-  #     type: azure-openai
-  #     endpoint: https://my-resource.openai.azure.com
-  #     deploymentName: gpt-4o-deployment
-  #     apiKey: $AZURE_OPENAI_API_KEY
-  #     model: gpt-4o
-  #
-  #   # enricher — all six enrichers share this provider when set here
-  #   enricher:
-  #     type: anthropic
-  #     model: claude-sonnet-4-6
-  #     # apiKey omitted → uses ANTHROPIC_API_KEY env var
-  #
-  #   # worker — heavy code implementation via Azure-hosted GPT-4.1
-  #   # (azure-openai example: OpenAI-compatible endpoint on Azure AI Foundry)
-  #   worker:
-  #     type: azure-openai
-  #     endpoint: https://my-resource.openai.azure.com
-  #     deploymentName: gpt-4-1-deployment
-  #     apiKey: $AZURE_OPENAI_API_KEY
-  #     model: gpt-4.1
-  #
-  #   # review-gate — quality-critical review using direct Anthropic
-  #   review-gate:
-  #     type: anthropic
-  #     model: claude-sonnet-4-6
-  #
-  #   # milestone-review — per-milestone diff review, Azure OpenAI mini model
-  #   milestone-review:
-  #     type: azure-openai
-  #     endpoint: https://my-resource.openai.azure.com
-  #     deploymentName: gpt-4o-mini-deployment
-  #     apiKey: $AZURE_OPENAI_API_KEY
-  #     model: gpt-4o-mini
-  #
-  #   # producer — all six auto-discovery producers, cheapest option
-  #   producer:
-  #     type: azure-openai
-  #     endpoint: https://my-resource.openai.azure.com
-  #     deploymentName: gpt-35-turbo-deployment
-  #     apiKey: $AZURE_OPENAI_API_KEY
-  #     model: gpt-35-turbo
-
-enrichers:
-  - name: codebase
-    enabled: true
-  - name: docs
-    enabled: true
-  - name: git-history
-    enabled: true
-  - name: dependencies
-    enabled: true
-  - name: architect
-    enabled: true
-  - name: scorer
-    enabled: true
-
-preview:
-  # Whether preview environments are enabled
   enabled: true
-  # Maximum number of concurrent preview environments
-  max_concurrent: 3
-  # Minutes before an idle preview is cleaned up
-  cleanup_timeout_minutes: 30
-  # Docker host configuration for remote Docker
-  docker_host:
-    ip: "20.107.218.135"
-    port: 2376
-    tls_cert_vault_secret: docker-tls-cert
-    tls_key_vault_secret: docker-tls-key
-    tls_ca_vault_secret: docker-tls-ca
-    ssh_key_vault_secret: docker-ssh-key
-    ssh_user: hiveadmin
-  # Seconds to wait for docker compose up (image pull + build)
-  compose_up_timeout_seconds: 300
-  # Port range for preview environments [start, end]
-  port_range: [4001, 4099]
+  allowedTypes:
+    - bug
+    - feature
+    - security
+    - refactor
+    - improvement
+
+# ── Gating ────────────────────────────────────────────────────────────────
+# Cost, complexity, and risk thresholds before human approval is required.
+gating:
+  enabled: true
+  maxTaskCostUsd: 100.00
+  maxTaskTokens: 500000
+  requireApprovalForRisks:
+    - security-sensitive-files
+    - large-change-surface-area
+    - breaking-public-apis
+
+# ── Enrichment ────────────────────────────────────────────────────────────
+# Repository context ingestion (codebase summaries, docs, test snapshots).
+enrichment:
+  enabled: true
+  maxRepoCacheAgeDays: 7
+  maxSummaryTokens: 50000
+
+# ── Execution ─────────────────────────────────────────────────────────────
+# Orchestration and safety limits for task execution.
+execution:
+  maxReworkCycles: 3
+  maxExecutionTimeMinutes: 60
+  concurrencyLimit: 5
+  requireMilestoneReview: true
+  previewDeploymentEnabled: true
+
+# ── Producers ─────────────────────────────────────────────────────────────
+# Autonomous task generation from signals (logs, scans, etc).
+producers:
+  enabled: false
+  interval: 3600
+  types: []

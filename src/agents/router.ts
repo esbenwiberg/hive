@@ -1,9 +1,10 @@
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
+import { getModelFor } from "../domain/autonomous-config.js";
 import { getById, updateClassification, updateStatus } from "../db/queries/tasks.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { recordCost } from "../db/queries/costs.js";
-import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
+import { getAutonomousConfig } from "../domain/config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { loadPrompt } from "../prompt-cache.js";
 

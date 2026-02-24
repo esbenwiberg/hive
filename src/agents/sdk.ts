@@ -1,12 +1,19 @@
+/**
+ * @deprecated Anthropic SDK direct export – kept for backward compatibility only
+ * 
+ * For new code and refactored components, use per-component provider configuration:
+ * 
+ *   import { getModelFor } from '../domain/autonomous-config';
+ *   const providerConfig = getModelFor('<component-name>');
+ *   // Use providerConfig to instantiate the appropriate LLM client
+ * 
+ * See docs/internal/modules/agents.md for details.
+ * This export will be removed in v2.0.0 (Q2 2025).
+ */
+
 import Anthropic from "@anthropic-ai/sdk";
 import type { Tool, ToolResultBlockParam, ToolUseBlock, MessageParam, TextBlockParam, ImageBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.js";
 import logger from "../logger.js";
-
-// ── Provider abstraction re-exports ──────────────────────────────────────────
-// Downstream modules can import `createLlmClient` and `ModelProvider` from
-// this module to avoid a breaking change to existing import paths.
-export type { ModelProvider, LlmClient, LlmSendParams, LlmResponse, LlmUsage } from "./providers/index.js";
-export { createLlmClient } from "./providers/index.js";
 
 /** Rich tool result content — text blocks and/or image blocks (e.g. screenshots). */
 export type ToolResultContent = Array<TextBlockParam | ImageBlockParam>;
