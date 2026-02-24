@@ -495,6 +495,27 @@ export function globalSettingsPartial(
     padding: "compact",
   });
 
+  // Prism card
+  const prismFields = [
+    input("prismDatabaseUrl", "Database URL", {
+      value: config.prism.databaseUrl,
+      placeholder: "postgres://...",
+    }),
+    input("prismEmbeddingProvider", "Embedding Provider", {
+      value: config.prism.embeddingProvider,
+      placeholder: "azure-openai",
+    }),
+    input("prismEmbeddingModel", "Embedding Model", {
+      value: config.prism.embeddingModel,
+      placeholder: "text-embedding-3-large",
+    }),
+  ].join("");
+
+  const prismCard = card(prismFields, {
+    title: "Prism",
+    padding: "compact",
+  });
+
   // Preview test dialog
   const previewTestModal = previewTestDialog();
 
@@ -509,6 +530,7 @@ export function globalSettingsPartial(
       ${clarificationCard}
       ${modelsCard}
       ${previewCard}
+      ${prismCard}
     </div>
     <div class="flex justify-end">
       ${button("Save Global Settings", { variant: "primary", attrs: `type="submit"` })}

@@ -7,6 +7,7 @@
  */
 
 import logger from "../logger.js";
+import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
 
@@ -76,7 +77,8 @@ export const prismEnricher: Enricher = {
       return { data: {}, durationMs: Date.now() - startTime };
     }
 
-    const prismDbUrl = process.env.PRISM_DATABASE_URL;
+    const prismConfig = getAutonomousConfig().prism;
+    const prismDbUrl = process.env.PRISM_DATABASE_URL || prismConfig.databaseUrl;
     if (!prismDbUrl) {
       logger.info("Prism enricher: PRISM_DATABASE_URL not set, skipping");
       return { data: {}, durationMs: Date.now() - startTime };
@@ -107,8 +109,8 @@ export const prismEnricher: Enricher = {
     try {
       const queryText = `${task.title} ${task.body ?? ""}`.trim();
 
-      const embeddingProvider = process.env.PRISM_EMBEDDING_PROVIDER ?? "voyage";
-      const embeddingModel = process.env.PRISM_EMBEDDING_MODEL ?? "voyage-code-3";
+      const embeddingProvider = process.env.PRISM_EMBEDDING_PROVIDER || prismConfig.embeddingProvider;
+      const embeddingModel = process.env.PRISM_EMBEDDING_MODEL || prismConfig.embeddingModel;
 
       const embedder = prism.createEmbedder({
         enabled: true,

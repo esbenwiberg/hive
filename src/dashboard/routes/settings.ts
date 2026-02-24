@@ -225,6 +225,18 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
       }
     }
 
+    // Prism
+    const prismDatabaseUrl = body.prismDatabaseUrl?.trim();
+    const prismEmbeddingProvider = body.prismEmbeddingProvider?.trim();
+    const prismEmbeddingModel = body.prismEmbeddingModel?.trim();
+
+    if (prismDatabaseUrl || prismEmbeddingProvider || prismEmbeddingModel) {
+      overrides.prism = {};
+      if (prismDatabaseUrl) overrides.prism.databaseUrl = prismDatabaseUrl;
+      if (prismEmbeddingProvider) overrides.prism.embeddingProvider = prismEmbeddingProvider;
+      if (prismEmbeddingModel) overrides.prism.embeddingModel = prismEmbeddingModel;
+    }
+
     // Preview
     const composeUpTimeout = body.composeUpTimeout?.trim();
     if (composeUpTimeout !== undefined && composeUpTimeout !== "") {

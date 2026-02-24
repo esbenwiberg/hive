@@ -63,6 +63,12 @@ export interface PreviewSettings {
   validation_max_turns: number;
 }
 
+export interface PrismConfig {
+  databaseUrl: string;
+  embeddingProvider: string;
+  embeddingModel: string;
+}
+
 export interface ConcurrencyConfig {
   maxConcurrent: number;
   maxPerUser: number;
@@ -77,6 +83,7 @@ export interface AutonomousConfig {
   clarification: ClarificationConfig;
   preview: PreviewSettings;
   concurrency: ConcurrencyConfig;
+  prism: PrismConfig;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -111,6 +118,7 @@ const DEFAULTS: AutonomousConfig = {
     validation_max_turns: 20,
   },
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
+  prism: { databaseUrl: "", embeddingProvider: "azure-openai", embeddingModel: "text-embedding-3-large" },
 };
 
 // ── Model helpers ────────────────────────────────────────────────────────────
@@ -211,6 +219,10 @@ export function loadConfig(
       ...DEFAULTS.concurrency,
       ...(raw.concurrency as Partial<ConcurrencyConfig> | undefined),
     },
+    prism: {
+      ...DEFAULTS.prism,
+      ...(raw.prism as Partial<PrismConfig> | undefined),
+    },
   };
 
   return config;
@@ -227,6 +239,7 @@ export interface ConfigOverrides {
   models?: { default?: string; inputCostPerM?: number; outputCostPerM?: number; components?: Record<string, string> };
   preview?: { compose_up_timeout_seconds?: number };
   concurrency?: Partial<ConcurrencyConfig>;
+  prism?: Partial<PrismConfig>;
 }
 
 const CONFIG_DB_KEY = "autonomous";
@@ -281,6 +294,7 @@ function mergeOverrides(
       ? { ...base.preview, ...overrides.preview }
       : base.preview,
     concurrency: { ...base.concurrency, ...overrides.concurrency },
+    prism: { ...base.prism, ...overrides.prism },
   };
 }
 

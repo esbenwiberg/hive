@@ -49,6 +49,7 @@ const mockConfig: AutonomousConfig = {
     port_range: [4001, 4099],
   },
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
+  prism: { databaseUrl: "", embeddingProvider: "azure-openai", embeddingModel: "text-embedding-3-large" },
 };
 
 const mockRepos: RepoRow[] = [

@@ -55,6 +55,16 @@ vi.mock("@prism/core", () => ({
   getFindingsByProjectId: mockGetFindingsByProjectId,
 }));
 
+vi.mock("../../src/domain/autonomous-config.js", () => ({
+  getAutonomousConfig: () => ({
+    prism: {
+      databaseUrl: "",
+      embeddingProvider: "azure-openai",
+      embeddingModel: "text-embedding-3-large",
+    },
+  }),
+}));
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("prismEnricher", () => {
@@ -200,11 +210,11 @@ describe("prismEnricher", () => {
     expect(stats.findingsReturned).toBe(1);
     expect(stats.semanticSearchFailed).toBeUndefined();
 
-    // Verify embedder was created with env defaults
+    // Verify embedder was created with config defaults
     expect(mockCreateEmbedder).toHaveBeenCalledWith(
       expect.objectContaining({
-        embeddingProvider: "voyage",
-        embeddingModel: "voyage-code-3",
+        embeddingProvider: "azure-openai",
+        embeddingModel: "text-embedding-3-large",
       }),
     );
 
