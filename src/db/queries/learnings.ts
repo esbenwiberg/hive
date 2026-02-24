@@ -5,6 +5,38 @@ import type { LearningRow } from "../schema.js";
 import { recordEvent } from "./learning-events.js";
 
 /**
+ * Merges Claude-generated tags with contextual tags (task type, repo name).
+ * Deduplicates and lowercases for consistent overlap matching.
+ */
+export function normalizeLearningTags(
+  claudeTags: string[],
+  context: { taskType?: string | null; repoFullName?: string | null },
+): string[] {
+  const merged = new Set(claudeTags.map((t) => t.toLowerCase()));
+  if (context.taskType) merged.add(context.taskType.toLowerCase());
+  if (context.repoFullName) merged.add(context.repoFullName.toLowerCase());
+  return [...merged];
+}
+
+/**
+ * Builds the tag array used when retrieving learnings.
+ * Includes task type, severity, and repo name so the PostgreSQL `&&`
+ * array-overlap operator can match against normalized creation tags.
+ * Falls back to `["general"]` when no dimensions are available.
+ */
+export function buildRetrievalTags(context: {
+  taskType?: string | null;
+  severity?: string | null;
+  repoFullName?: string | null;
+}): string[] {
+  const tags: string[] = [];
+  if (context.taskType) tags.push(context.taskType.toLowerCase());
+  if (context.severity) tags.push(context.severity.toLowerCase());
+  if (context.repoFullName) tags.push(context.repoFullName.toLowerCase());
+  return tags.length > 0 ? tags : ["general"];
+}
+
+/**
  * Inserts a new learning record.
  */
 export async function createLearning(data: {

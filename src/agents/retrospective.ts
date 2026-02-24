@@ -9,6 +9,7 @@ import {
   contradictLearning,
   createLearning,
   buildDismissedContext,
+  normalizeLearningTags,
 } from "../db/queries/learnings.js";
 import { recordEvent, getRecentEvents } from "../db/queries/learning-events.js";
 import { db } from "../db/connection.js";
@@ -218,12 +219,13 @@ export async function runRetrospective(): Promise<RetrospectiveReport> {
     for (const proposal of report.proposals) {
       try {
         if (proposal.action === "create" && proposal.content && proposal.scope && proposal.category) {
+          const repoFullName = proposal.scope?.startsWith("repo:") ? proposal.scope.slice(5) : null;
           const learning = await createLearning({
             scope: proposal.scope,
             category: proposal.category,
             content: proposal.content,
             confidence: 0.50,
-            tags: proposal.tags ?? [],
+            tags: normalizeLearningTags(proposal.tags ?? [], { taskType: null, repoFullName }),
           });
           await recordEvent({
             learningId: learning.id,

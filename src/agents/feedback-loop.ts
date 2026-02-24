@@ -5,7 +5,8 @@ import { recordCost } from "../db/queries/costs.js";
 import { register, unregister } from "../db/queries/active-agents.js";
 import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
-import { reinforceLearning, contradictLearning, createLearning, buildDismissedContext } from "../db/queries/learnings.js";
+import { reinforceLearning, contradictLearning, createLearning, buildDismissedContext, normalizeLearningTags } from "../db/queries/learnings.js";
+import { getById as getRepo } from "../db/queries/repos.js";
 import { recordEvent } from "../db/queries/learning-events.js";
 import { loadPrompt } from "../prompt-cache.js";
 
@@ -161,6 +162,7 @@ export async function analyzeFeedback(
   try {
     const task = await getById(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
+    const repo = await getRepo(task.repoId);
 
     const dismissedContext = await buildDismissedContext();
 
@@ -210,7 +212,7 @@ export async function analyzeFeedback(
         category: nl.category,
         content: nl.content,
         confidence: nl.confidence,
-        tags: nl.tags,
+        tags: normalizeLearningTags(nl.tags, { taskType: task.type, repoFullName: repo?.fullName }),
         sourceTaskIds: [taskId],
       });
       await recordEvent({ learningId: learning.id, eventType: "created", taskId, evidence: `Verdict: ${verdict}` });

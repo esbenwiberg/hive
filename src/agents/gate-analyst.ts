@@ -2,7 +2,8 @@ import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
-import { createLearning, buildDismissedContext } from "../db/queries/learnings.js";
+import { createLearning, buildDismissedContext, normalizeLearningTags } from "../db/queries/learnings.js";
+import { getById as getTask } from "../db/queries/tasks.js";
 import { recordEvent } from "../db/queries/learning-events.js";
 import { db } from "../db/connection.js";
 import { gateDecisions } from "../db/schema.js";
@@ -130,13 +131,14 @@ export async function analyzeGatePatterns(
     const result = parseGateAnalystResult(response.text);
 
     // Create learnings for identified patterns
+    const task = await getTask(taskId);
     for (const pattern of result.patterns) {
       const learning = await createLearning({
         scope: pattern.learning.scope,
         category: pattern.learning.category,
         content: pattern.learning.content,
         confidence: pattern.learning.confidence,
-        tags: pattern.learning.tags,
+        tags: normalizeLearningTags(pattern.learning.tags, { taskType: task?.type, repoFullName }),
         sourceTaskIds: [taskId],
       });
       await recordEvent({

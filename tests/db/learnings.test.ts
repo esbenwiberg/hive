@@ -19,6 +19,8 @@ const {
   archiveStale,
   listLearnings,
   getLearningStats,
+  normalizeLearningTags,
+  buildRetrievalTags,
 } = await import("../../src/db/queries/learnings.js");
 
 useTestDb();
@@ -259,6 +261,147 @@ describe("learnings queries", () => {
       // Test category filter
       const catFiltered = await listLearnings({ category: "testing" });
       expect(catFiltered.total).toBe(2);
+    });
+  });
+
+  // ── normalizeLearningTags ──────────────────────────────────────────────────
+
+  describe("normalizeLearningTags", () => {
+    it("merges Claude tags with task type and repo name", () => {
+      const result = normalizeLearningTags(["validation", "database"], {
+        taskType: "bug",
+        repoFullName: "acme/widget",
+      });
+
+      expect(result).toContain("validation");
+      expect(result).toContain("database");
+      expect(result).toContain("bug");
+      expect(result).toContain("acme/widget");
+    });
+
+    it("deduplicates tags (case-insensitive)", () => {
+      const result = normalizeLearningTags(["Bug", "validation"], {
+        taskType: "bug",
+        repoFullName: null,
+      });
+
+      const bugCount = result.filter((t) => t === "bug").length;
+      expect(bugCount).toBe(1);
+      expect(result).toContain("validation");
+    });
+
+    it("handles null context values", () => {
+      const result = normalizeLearningTags(["testing"], {
+        taskType: null,
+        repoFullName: null,
+      });
+
+      expect(result).toEqual(["testing"]);
+    });
+
+    it("handles empty Claude tags with context", () => {
+      const result = normalizeLearningTags([], {
+        taskType: "feature",
+        repoFullName: "org/repo",
+      });
+
+      expect(result).toContain("feature");
+      expect(result).toContain("org/repo");
+      expect(result).toHaveLength(2);
+    });
+  });
+
+  // ── buildRetrievalTags ───────────────────────────────────────────────────────
+
+  describe("buildRetrievalTags", () => {
+    it("includes all dimensions", () => {
+      const result = buildRetrievalTags({
+        taskType: "bug",
+        severity: "high",
+        repoFullName: "acme/widget",
+      });
+
+      expect(result).toContain("bug");
+      expect(result).toContain("high");
+      expect(result).toContain("acme/widget");
+    });
+
+    it("falls back to ['general'] when no dimensions provided", () => {
+      const result = buildRetrievalTags({
+        taskType: null,
+        severity: null,
+        repoFullName: null,
+      });
+
+      expect(result).toEqual(["general"]);
+    });
+
+    it("falls back to ['general'] with all undefined", () => {
+      const result = buildRetrievalTags({});
+
+      expect(result).toEqual(["general"]);
+    });
+
+    it("includes partial dimensions", () => {
+      const result = buildRetrievalTags({
+        taskType: "feature",
+        severity: null,
+        repoFullName: null,
+      });
+
+      expect(result).toEqual(["feature"]);
+    });
+  });
+
+  // ── tag overlap integration ──────────────────────────────────────────────────
+
+  describe("normalized tag overlap", () => {
+    it("retrieves learnings created with normalizeLearningTags using buildRetrievalTags", async () => {
+      // Create a learning the way the fixed feedback-loop would
+      const tags = normalizeLearningTags(["validation", "database"], {
+        taskType: "bug",
+        repoFullName: "acme/widget",
+      });
+
+      await createLearning({
+        scope: "repo:acme/widget",
+        category: "correctness",
+        content: "Always validate inputs",
+        tags,
+      });
+
+      // Retrieve the way the fixed worker would
+      const retrievalTags = buildRetrievalTags({
+        taskType: "bug",
+        severity: "high",
+        repoFullName: "acme/widget",
+      });
+
+      const rows = await retrieveRelevantLearnings({
+        scopes: ["universal", "repo:acme/widget"],
+        tags: retrievalTags,
+      });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].content).toBe("Always validate inputs");
+    });
+
+    it("does NOT retrieve learnings with old-style tags (no overlap)", async () => {
+      // Simulate an old learning with only technical tags — no task type or repo name
+      await createLearning({
+        scope: "repo:acme/widget",
+        category: "correctness",
+        content: "Old-style learning",
+        tags: ["validation", "database", "correctness"],
+      });
+
+      // Retrieval uses task-type tags — no overlap with old tags
+      const rows = await retrieveRelevantLearnings({
+        scopes: ["universal", "repo:acme/widget"],
+        tags: ["bug", "high", "acme/widget"],
+      });
+
+      expect(rows).toHaveLength(0);
     });
   });
 

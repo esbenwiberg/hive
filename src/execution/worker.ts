@@ -12,7 +12,7 @@ import { register, unregister, heartbeat } from "../db/queries/active-agents.js"
 import { addEvent } from "../db/queries/task-events.js";
 import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
-import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
+import { retrieveRelevantLearnings, buildRetrievalTags } from "../db/queries/learnings.js";
 import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktree.js";
 import { getGitProvider } from "./git-provider.js";
 import { reviewChanges, validateBaseSha } from "./review-gate.js";
@@ -478,13 +478,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     let learningIds: number[] = [];
     let relevantLearnings: Awaited<ReturnType<typeof retrieveRelevantLearnings>> = [];
     try {
-      const enrichmentTags: string[] = [];
-      if (task.type) enrichmentTags.push(task.type);
-      if (task.severity) enrichmentTags.push(task.severity);
-
       relevantLearnings = await retrieveRelevantLearnings({
         scopes: ["universal", `repo:${repo.fullName}`],
-        tags: enrichmentTags.length > 0 ? enrichmentTags : ["general"],
+        tags: buildRetrievalTags({ taskType: task.type, severity: task.severity, repoFullName: repo.fullName }),
         limit: 15,
       });
 

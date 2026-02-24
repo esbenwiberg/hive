@@ -58,6 +58,16 @@ vi.mock("../../src/db/queries/learnings.js", () => ({
   contradictLearning: vi.fn(),
   createLearning: vi.fn(),
   buildDismissedContext: vi.fn().mockResolvedValue(""),
+  normalizeLearningTags: (tags: string[], ctx: { taskType?: string | null; repoFullName?: string | null }) => {
+    const merged = new Set(tags.map((t: string) => t.toLowerCase()));
+    if (ctx.taskType) merged.add(ctx.taskType.toLowerCase());
+    if (ctx.repoFullName) merged.add(ctx.repoFullName.toLowerCase());
+    return [...merged];
+  },
+}));
+
+vi.mock("../../src/db/queries/repos.js", () => ({
+  getById: vi.fn().mockResolvedValue({ id: 1, fullName: "acme/widget" }),
 }));
 
 vi.mock("../../src/db/queries/learning-events.js", () => ({
@@ -93,6 +103,8 @@ const fakeTask = {
   title: "Fix login bug",
   body: "The login form crashes when empty email is submitted",
   createdBy: 1,
+  repoId: 1,
+  type: "bug",
 };
 
 function stubClaude(text: string) {

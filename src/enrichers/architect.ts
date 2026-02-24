@@ -3,7 +3,7 @@ import { callClaude } from "../agents/sdk.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
 import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { loadPrompt } from "../prompt-cache.js";
-import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
+import { retrieveRelevantLearnings, buildRetrievalTags } from "../db/queries/learnings.js";
 import { getById as getRepoById } from "../db/queries/repos.js";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
@@ -212,17 +212,13 @@ export const architectEnricher: Enricher = {
     // Retrieve relevant learnings to inform the blueprint
     let learningsStr = "";
     try {
-      const tags: string[] = [];
-      if (task.type) tags.push(task.type);
-      if (task.severity) tags.push(task.severity);
-
       const scopes = ["universal"];
       const repo = await getRepoById(task.repoId);
       if (repo) scopes.push(`repo:${repo.fullName}`);
 
       const relevant = await retrieveRelevantLearnings({
         scopes,
-        tags: tags.length > 0 ? tags : ["general"],
+        tags: buildRetrievalTags({ taskType: task.type, severity: task.severity, repoFullName: repo?.fullName }),
         limit: 10,
       });
 
