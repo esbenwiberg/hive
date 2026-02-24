@@ -16,7 +16,7 @@ import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
 import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktree.js";
 import { getGitProvider } from "./git-provider.js";
 import { reviewChanges, validateBaseSha } from "./review-gate.js";
-import { reviewFix } from "./milestone-review.js";
+import { reviewFix, quickVerify } from "./milestone-review.js";
 import { refineTask } from "../agents/refiner.js";
 import { parseHiveYaml } from "../hive-yaml.js";
 import type { PreviewConfig, BasePreviewConfig, ComposePreviewConfig, TestcontainersPreviewConfig, ProcessPreviewConfig } from "../hive-yaml.js";
@@ -746,6 +746,44 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         `Forced pass at max rework cycles (${maxCyclesReview}): creating PR with outstanding findings for human review`);
       logger.warn({ taskId, reworkCount, maxCycles: maxCyclesReview },
         "Forced pass at max rework cycles — PR will include outstanding findings");
+    }
+
+    // ── Final build/test sanity check ─────────────────────────────────────
+    // The review gate is diff-only (Claude reads code, never runs build/test).
+    // Rework fixes or late-stage changes can introduce build errors that slip
+    // through. Run quickVerify here to catch them before pushing.
+    await addEvent(taskId, "final_verify_started", "worker", "Running final build/test verification");
+    const finalVerify = await quickVerify(worktree.path);
+
+    if (!finalVerify.passed) {
+      logger.warn({ taskId, failures: finalVerify.failures }, "Final build/test verification failed after review pass");
+      await addEvent(taskId, "final_verify_failed", "worker",
+        `Final verification failed: ${finalVerify.failures.map(f => f.substring(0, 200)).join("; ")}`);
+
+      if (reworkCount < maxCyclesReview) {
+        // Send for another rework cycle with the build/test failures
+        await updateStatus(taskId, "rework");
+        const verifyReviewResult: ReviewGateResult = {
+          verdict: "rework",
+          findings: finalVerify.failures.map(f => ({
+            severity: "critical" as const,
+            file: "",
+            message: f.substring(0, 500),
+            category: "verification",
+          })),
+          securityFindings: [],
+          verification: { testsRun: true, testsPassed: false, lintClean: false, buildSucceeded: false, notes: finalVerify.failures },
+          costUsd: 0,
+        };
+        await refineTask(taskId, verifyReviewResult);
+        logger.info({ taskId, reworkCount: reworkCount + 1 }, "Final verify failed — sent for rework");
+        return { success: false, branch: branchName, reviewResult: verifyReviewResult, error: "Final build/test failed — rework" };
+      }
+
+      // At max cycles — force through with advisory
+      await addEvent(taskId, "final_verify_forced", "worker",
+        `Final verification failed at max rework cycles (${maxCyclesReview}) — creating PR with build/test failures for human review`);
+      logger.warn({ taskId, reworkCount }, "Final verify failed at max cycles — forcing PR creation");
     }
 
     // ── Verdict is now guaranteed "pass" — commit, push, PR ────────────────
