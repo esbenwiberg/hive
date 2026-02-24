@@ -129,3 +129,55 @@ export async function getPullRequest(
 
   return { id: data.pullRequestId, url: prUrl, status: data.status };
 }
+
+/**
+ * Gets all comments from PR threads in Azure DevOps.
+ * Flattens thread comments into a flat list.
+ */
+export async function getPRThreadComments(
+  org: string,
+  project: string,
+  repo: string,
+  prId: number,
+  pat: string,
+): Promise<Array<{ id: number; body: string; author: string; createdAt: string }>> {
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests/${prId}/threads?api-version=${API_VERSION}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Azure DevOps get PR threads failed (${response.status}): ${text}`);
+  }
+
+  const data = await response.json() as {
+    value: Array<{
+      comments: Array<{
+        id: number;
+        content: string;
+        author: { displayName: string };
+        publishedDate: string;
+      }>;
+    }>;
+  };
+
+  const result: Array<{ id: number; body: string; author: string; createdAt: string }> = [];
+  for (const thread of data.value) {
+    for (const comment of thread.comments) {
+      if (!comment.content) continue;
+      result.push({
+        id: comment.id,
+        body: comment.content,
+        author: comment.author?.displayName ?? "unknown",
+        createdAt: comment.publishedDate,
+      });
+    }
+  }
+
+  return result;
+}

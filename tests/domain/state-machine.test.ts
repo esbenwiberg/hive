@@ -153,12 +153,15 @@ describe("getAvailableActions", () => {
     expect(actionNames).toContain("fail");
   });
 
-  it("returns merge for done", () => {
+  it("returns merge and pr_rework for done", () => {
     const actions = getAvailableActions("done");
-    expect(actions).toHaveLength(1);
+    expect(actions).toHaveLength(2);
     expect(actions[0].action).toBe("merge");
     expect(actions[0].targetStatus).toBe("merged");
     expect(actions[0].label).toBe("Merge");
+    expect(actions[1].action).toBe("pr_rework");
+    expect(actions[1].targetStatus).toBe("rework");
+    expect(actions[1].label).toBe("PR Rework");
   });
 
   it("returns accept_browser_validation, more_cycles, redesign, continue, retry and archive for failed", () => {

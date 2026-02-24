@@ -225,6 +225,11 @@ export async function updateStatus(
     updates.failureReason = null;
   }
 
+  // When reworking from done (PR feedback), bump max rework cycles
+  if (newStatus === "rework" && existing.status === "done") {
+    updates.maxReworkCycles = (existing.maxReworkCycles ?? 2) + 2;
+  }
+
   // Clear suspendedFrom when resuming from suspended
   if (existing.status === "suspended") {
     updates.suspendedFrom = null;

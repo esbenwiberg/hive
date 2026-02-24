@@ -52,6 +52,7 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   ],
   [TaskStatus.DONE]: [
     TaskStatus.MERGED,
+    TaskStatus.REWORK,
   ],
   [TaskStatus.MERGED]: [],
   [TaskStatus.FAILED]: [
@@ -131,6 +132,7 @@ export function getAvailableActions(status: string): Action[] {
     ],
     [TaskStatus.DONE]: [
       { action: "merge", targetStatus: TaskStatus.MERGED, label: "Merge" },
+      { action: "pr_rework", targetStatus: TaskStatus.REWORK, label: "PR Rework" },
     ],
     [TaskStatus.FAILED]: [
       { action: "accept_browser_validation", targetStatus: TaskStatus.DONE, label: "Accept & Create PR" },

@@ -168,6 +168,12 @@ vi.mock("../../src/daemon/pr-close-cleanup.js", () => ({
   cleanupClosedPRPreviews: mockCleanupClosedPRPreviews,
 }));
 
+// Mock PR feedback poll (imports db/connection transitively)
+const mockPollPRFeedback = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../src/daemon/pr-feedback-poll.js", () => ({
+  pollPRFeedback: mockPollPRFeedback,
+}));
+
 // Mock git cloning (used by producer clone-before-run)
 const mockResolveGitCredentials = vi.fn().mockResolvedValue({ provider: "github", token: "mock-token" });
 vi.mock("../../src/execution/worktree.js", () => ({

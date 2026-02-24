@@ -28,6 +28,7 @@ import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { getMaxConcurrent as getUserMaxConcurrent } from "../db/queries/users.js";
 import { cleanupExpiredPreviews } from "./preview-cleanup.js";
 import { cleanupClosedPRPreviews } from "./pr-close-cleanup.js";
+import { pollPRFeedback } from "./pr-feedback-poll.js";
 import type { Producer, ProducerContext } from "../producers/base.js";
 
 interface DaemonOptions {
@@ -47,6 +48,7 @@ const DECAY_MIN_GAP_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 const PRISM_SEMANTIC_INTERVAL_MS = 24 * 60 * 60 * 1_000; // 24 hours
 const PREVIEW_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const PR_CLOSE_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
+const PR_FEEDBACK_POLL_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
 const SUSPEND_DRAIN_MS = 10_000; // 10s for _dispatch finally blocks to clean up
 
 const ALL_PRODUCERS: Producer[] = [
@@ -74,6 +76,7 @@ export class Daemon {
   private readonly prismSemanticScheduler: Scheduler;
   private readonly previewCleanupScheduler: Scheduler;
   private readonly prCloseCleanupScheduler: Scheduler;
+  private readonly prFeedbackPollScheduler: Scheduler;
   private stopping = false;
 
   constructor(opts?: DaemonOptions) {
@@ -88,6 +91,7 @@ export class Daemon {
     this.prismSemanticScheduler = new Scheduler(PRISM_SEMANTIC_INTERVAL_MS, () => this._prismSemanticTick(), { label: "prism-semantic" });
     this.previewCleanupScheduler = new Scheduler(PREVIEW_CLEANUP_INTERVAL_MS, () => cleanupExpiredPreviews());
     this.prCloseCleanupScheduler = new Scheduler(PR_CLOSE_CLEANUP_INTERVAL_MS, () => cleanupClosedPRPreviews(), { label: "pr-close-cleanup" });
+    this.prFeedbackPollScheduler = new Scheduler(PR_FEEDBACK_POLL_INTERVAL_MS, () => pollPRFeedback(), { label: "pr-feedback-poll" });
   }
 
   async start(): Promise<void> {
@@ -178,6 +182,9 @@ export class Daemon {
     // Start PR-close cleanup scheduler (60s interval)
     this.prCloseCleanupScheduler.start();
 
+    // Start PR feedback poll scheduler (15min interval)
+    this.prFeedbackPollScheduler.start();
+
     const concurrency = getAutonomousConfig().concurrency;
     logger.info(
       {
@@ -202,6 +209,7 @@ export class Daemon {
     await this.prismSemanticScheduler.stop();
     await this.previewCleanupScheduler.stop();
     await this.prCloseCleanupScheduler.stop();
+    await this.prFeedbackPollScheduler.stop();
     await this.scheduler.stop();
 
     // Suspend all in-flight tasks so they survive a deploy

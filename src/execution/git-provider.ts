@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import logger from "../logger.js";
 import type { GitCredentials } from "../domain/types.js";
-import { parseAdoRepoName, createPullRequest, createPRComment as adoCreatePRComment, getPullRequest } from "../integrations/azure-devops.js";
+import { parseAdoRepoName, createPullRequest, createPRComment as adoCreatePRComment, getPullRequest, getPRThreadComments } from "../integrations/azure-devops.js";
 
 // ── Helper ──────────────────────────────────────────────────────────────────
 
@@ -60,6 +60,15 @@ export function extractAdoPRNumber(prUrl: string): number {
   return parseInt(match[1], 10);
 }
 
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface PRComment {
+  id: number;
+  body: string;
+  author: string;
+  createdAt: string; // ISO 8601
+}
+
 // ── Interface ───────────────────────────────────────────────────────────────
 
 export interface CloneOptions {
@@ -91,6 +100,7 @@ export interface GitProvider {
     creds: GitCredentials,
   ): Promise<"open" | "closed" | "merged">;
   fetchBranch(repoDir: string, branch: string, creds: GitCredentials): Promise<boolean>;
+  getPRComments(repoFullName: string, prUrl: string, creds: GitCredentials): Promise<PRComment[]>;
 }
 
 // ── GitHubProvider ──────────────────────────────────────────────────────────
@@ -290,6 +300,50 @@ export class GitHubProvider implements GitProvider {
       await execGit(["remote", "set-url", "origin", remoteUrl], repoDir);
     }
   }
+
+  async getPRComments(
+    repoFullName: string,
+    prUrl: string,
+    creds: GitCredentials,
+  ): Promise<PRComment[]> {
+    const prNumber = extractGitHubPRNumber(prUrl);
+    const [owner, repo] = repoFullName.split("/");
+    if (!owner || !repo) {
+      throw new Error(`Invalid GitHub repo format: "${repoFullName}" (expected owner/repo)`);
+    }
+
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${prNumber}/comments`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          Accept: "application/vnd.github+json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`GitHub get PR comments failed (${response.status}): ${text}`);
+    }
+
+    const data = (await response.json()) as Array<{
+      id: number;
+      body: string;
+      user: { login: string } | null;
+      created_at: string;
+    }>;
+
+    return data
+      .filter((c) => !c.body.includes("_Automated by Hive") && !c.body.includes("_Automated review by Hive"))
+      .map((c) => ({
+        id: c.id,
+        body: c.body,
+        author: c.user?.login ?? "unknown",
+        createdAt: c.created_at,
+      }));
+  }
 }
 
 // ── AzureDevOpsProvider ─────────────────────────────────────────────────────
@@ -426,6 +480,25 @@ export class AzureDevOpsProvider implements GitProvider {
     } finally {
       await execGit(["remote", "set-url", "origin", remoteUrl], repoDir);
     }
+  }
+
+  async getPRComments(
+    repoFullName: string,
+    prUrl: string,
+    creds: GitCredentials,
+  ): Promise<PRComment[]> {
+    const { org, project, repo } = parseAdoRepoName(repoFullName);
+    const prId = extractAdoPRNumber(prUrl);
+    const comments = await getPRThreadComments(org, project, repo, prId, creds.token);
+
+    return comments
+      .filter((c) => !c.body.includes("_Automated by Hive") && !c.body.includes("_Automated review by Hive"))
+      .map((c) => ({
+        id: c.id,
+        body: c.body,
+        author: c.author,
+        createdAt: c.createdAt,
+      }));
   }
 }
 
