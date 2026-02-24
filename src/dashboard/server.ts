@@ -21,6 +21,7 @@ import healthRouter from "./routes/health.js";
 import instancesRouter from "./routes/instances.js";
 import changelogRouter from "./routes/changelog.js";
 import previewTestRouter from "./routes/preview-test.js";
+import { modelsRouter } from "./routes/models.js";
 import previewRouter from "../execution/preview/proxy.js";
 
 const app = express();
@@ -174,6 +175,7 @@ app.use("/", healthRouter);
 app.use("/", instancesRouter);
 app.use("/", changelogRouter);
 app.use("/", previewTestRouter);
+app.use("/admin/models", modelsRouter);
 app.use(previewRouter);
 
 // ── Error handler ────────────────────────────────────────────────────────────

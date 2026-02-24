@@ -538,6 +538,290 @@ export function noAccessBanner(): string {
 </div>`;
 }
 
+// ── Model Config UI ──────────────────────────────────────────────────────────
+
+/** All pipeline component names that can have per-component model config. */
+export const PIPELINE_COMPONENTS = [
+  "router",
+  "gate",
+  "decomposer",
+  "enricher-codebase",
+  "enricher-docs",
+  "enricher-git-history",
+  "enricher-dependencies",
+  "enricher-prism",
+  "enricher-architect",
+  "enricher-scorer",
+  "worker",
+  "review-gate",
+  "milestone-review",
+  "producer-log-scanner",
+  "producer-bug-hunter",
+  "producer-security-scanner",
+  "producer-feature-scout",
+  "producer-maintenance",
+  "producer-self-monitor",
+] as const;
+
+export type PipelineComponent = (typeof PIPELINE_COMPONENTS)[number];
+
+export interface ComponentProviderDisplay {
+  component: string;
+  type: string;
+  model: string;
+  endpoint: string;
+  deploymentName: string;
+  /** Whether this component has a full provider override (vs simple model string) */
+  hasProviderOverride: boolean;
+}
+
+function providerTypeBadge(type: string): string {
+  const colorMap: Record<string, "amber" | "blue" | "emerald" | "slate"> = {
+    anthropic: "emerald",
+    "azure-openai": "blue",
+    "azure-anthropic": "amber",
+  };
+  return badge(type || "anthropic (default)", colorMap[type] ?? "slate");
+}
+
+function maskApiKey(key: string | undefined): string {
+  if (!key) return "(from env)";
+  if (key.length <= 8) return "••••••••";
+  return key.slice(0, 4) + "••••••••" + key.slice(-4);
+}
+
+/**
+ * Renders the full /admin/models page (HTMX shell + table of all components).
+ */
+export function modelConfigPage(
+  components: ComponentProviderDisplay[],
+  user: { name: string; role: string },
+  activeComponent?: string,
+): string {
+  const navUser = `<span class="text-sm text-slate-400">${escapeHtml(user.name)}</span>`;
+
+  const tableRows = components.map((c) => modelConfigRow(c)).join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Model Configuration — Hive</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="icon" href="/favicon.ico" />
+</head>
+<body class="h-full bg-slate-900 text-slate-50">
+
+<!-- Toast listener -->
+<div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2"
+     hx-on::after-settle="htmx.trigger(document.body, 'htmx:afterSettle')"></div>
+<script>
+document.body.addEventListener('htmx:afterOnLoad', function(evt) {
+  try {
+    const trigger = evt.detail.xhr.getResponseHeader('HX-Trigger');
+    if (!trigger) return;
+    const data = JSON.parse(trigger);
+    if (data.showToast) {
+      const t = data.showToast;
+      const el = document.createElement('div');
+      el.className = 'rounded-lg px-4 py-3 text-sm font-medium shadow-lg ' +
+        (t.type === 'error' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white');
+      el.textContent = t.message;
+      document.getElementById('toast-container').appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }
+  } catch {}
+});
+</script>
+
+<!-- Nav -->
+<nav class="border-b border-slate-700 bg-slate-800/80 backdrop-blur sticky top-0 z-40">
+  <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+    <div class="flex items-center gap-6">
+      <a href="/dashboard" class="text-lg font-semibold text-amber-400">🐝 Hive</a>
+      <a href="/settings" class="text-sm text-slate-400 hover:text-slate-50">Settings</a>
+      <a href="/admin/models" class="text-sm font-medium text-amber-400 underline underline-offset-4">Model Config</a>
+    </div>
+    <div class="flex items-center gap-4">
+      ${navUser}
+    </div>
+  </div>
+</nav>
+
+<!-- Main -->
+<main class="mx-auto max-w-7xl px-6 py-8">
+  <div class="mb-6 flex items-start justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-50">Model Configuration</h1>
+      <p class="mt-1 text-sm text-slate-400">Configure the LLM provider and model for each pipeline component. Changes take effect immediately for new tasks.</p>
+    </div>
+  </div>
+
+  <!-- Component table -->
+  <div class="rounded-xl border border-slate-700 bg-slate-800 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-slate-700">
+        <thead class="bg-slate-800/50">
+          <tr>
+            <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Component</th>
+            <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Provider</th>
+            <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Model / Deployment</th>
+            <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Endpoint</th>
+            <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">API Key</th>
+            <th class="px-5 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="model-config-table" class="divide-y divide-slate-700">
+          ${tableRows}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+</body>
+</html>`;
+}
+
+/**
+ * Renders a single table row for a component (used for OOB swaps too).
+ */
+export function modelConfigRow(c: ComponentProviderDisplay): string {
+  const endpoint = c.endpoint
+    ? escapeHtml(c.endpoint)
+    : '<span class="text-slate-500">—</span>';
+  const deployment = c.deploymentName
+    ? escapeHtml(c.deploymentName)
+    : '<span class="text-slate-500">—</span>';
+
+  return `<tr id="model-row-${escapeHtml(c.component)}" class="hover:bg-slate-800/50">
+  <td class="px-5 py-3 text-sm font-mono font-medium text-slate-200">${escapeHtml(c.component)}</td>
+  <td class="px-5 py-3 text-sm">${providerTypeBadge(c.type)}</td>
+  <td class="px-5 py-3 text-sm text-slate-300">${escapeHtml(c.model || "—")}</td>
+  <td class="px-5 py-3 text-sm text-slate-400 max-w-xs truncate">${endpoint}</td>
+  <td class="px-5 py-3 text-sm text-slate-500 font-mono text-xs">${escapeHtml(maskApiKey(undefined))}</td>
+  <td class="px-5 py-3 text-right">
+    <button
+      onclick="document.getElementById('edit-modal-${escapeHtml(c.component)}').classList.remove('hidden')"
+      class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-slate-50 transition-colors">
+      Edit
+    </button>
+  </td>
+</tr>
+${modelConfigEditModal(c)}`;
+}
+
+/**
+ * Renders the inline edit modal for a component.
+ */
+export function modelConfigEditModal(c: ComponentProviderDisplay): string {
+  const modalId = `edit-modal-${c.component}`;
+  const formId = `edit-form-${c.component}`;
+
+  return `<tr id="${modalId}" class="hidden">
+  <td colspan="6" class="px-5 py-4 bg-slate-900/60">
+    <div class="rounded-xl border border-slate-600 bg-slate-800 p-5 max-w-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-semibold text-slate-50">Edit: <span class="font-mono text-amber-400">${escapeHtml(c.component)}</span></h3>
+        <button onclick="document.getElementById('${escapeHtml(modalId)}').classList.add('hidden')"
+                class="text-slate-400 hover:text-slate-50 rounded p-1 hover:bg-slate-700">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div id="error-${escapeHtml(c.component)}" class="hidden mb-3 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-3 text-sm text-red-400"></div>
+
+      <form id="${escapeHtml(formId)}"
+            hx-post="/admin/models/${escapeHtml(c.component)}"
+            hx-target="#model-row-${escapeHtml(c.component)}"
+            hx-swap="outerHTML"
+            hx-on::after-request="if(event.detail.successful) document.getElementById('${escapeHtml(modalId)}').classList.add('hidden')"
+            hx-on::response-error="
+              const errEl = document.getElementById('error-${escapeHtml(c.component)}');
+              errEl.textContent = event.detail.xhr.responseText;
+              errEl.classList.remove('hidden');
+            "
+            class="space-y-4">
+
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium text-slate-300">Provider Type</label>
+          <select name="type" id="type-select-${escapeHtml(c.component)}"
+                  onchange="handleProviderTypeChange('${escapeHtml(c.component)}')"
+                  class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">
+            <option value="anthropic"${c.type === "anthropic" || !c.type ? " selected" : ""}>Anthropic (direct)</option>
+            <option value="azure-openai"${c.type === "azure-openai" ? " selected" : ""}>Azure AI Foundry — OpenAI-compatible</option>
+            <option value="azure-anthropic"${c.type === "azure-anthropic" ? " selected" : ""}>Azure AI Foundry — Anthropic</option>
+          </select>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium text-slate-300">Model / Deployment Name</label>
+          <input type="text" name="model" value="${escapeHtml(c.model)}"
+                 placeholder="e.g. claude-sonnet-4-6 or gpt-4o"
+                 class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+        </div>
+
+        <div id="azure-fields-${escapeHtml(c.component)}" class="${!c.type || c.type === "anthropic" ? "hidden" : ""} space-y-4">
+          <div class="space-y-1.5">
+            <label class="block text-sm font-medium text-slate-300">Endpoint URL</label>
+            <input type="url" name="endpoint" value="${escapeHtml(c.endpoint)}"
+                   placeholder="https://your-resource.openai.azure.com/"
+                   class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="block text-sm font-medium text-slate-300">Deployment Name</label>
+            <input type="text" name="deploymentName" value="${escapeHtml(c.deploymentName)}"
+                   placeholder="e.g. gpt-4o-deployment"
+                   class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="block text-sm font-medium text-slate-300">API Key</label>
+            <input type="password" name="apiKey"
+                   placeholder="Leave blank to keep existing key"
+                   class="block w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+            <p class="text-xs text-slate-500">Leave blank to keep the existing key. Keys are stored in config and never displayed in full.</p>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-2">
+          <button type="button"
+                  onclick="document.getElementById('${escapeHtml(modalId)}').classList.add('hidden')"
+                  class="inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium border border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-slate-50 transition-colors">
+            Cancel
+          </button>
+          <button type="submit"
+                  class="inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium bg-amber-400 text-slate-900 hover:bg-amber-300 transition-colors">
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
+  </td>
+</tr>
+
+<script>
+(function() {
+  function handleProviderTypeChange(component) {
+    const sel = document.getElementById('type-select-' + component);
+    const azureFields = document.getElementById('azure-fields-' + component);
+    if (!sel || !azureFields) return;
+    if (sel.value === 'anthropic') {
+      azureFields.classList.add('hidden');
+    } else {
+      azureFields.classList.remove('hidden');
+    }
+  }
+  window.handleProviderTypeChange = handleProviderTypeChange;
+})();
+</script>`;
+}
+
 /** Banner shown when a user's daily budget is exhausted. */
 export function budgetExhaustedBanner(): string {
   return `<div class="flex items-start gap-3 rounded-lg border border-red-400/30 bg-red-400/5 px-4 py-3">
