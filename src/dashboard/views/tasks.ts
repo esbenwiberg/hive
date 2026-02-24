@@ -829,9 +829,23 @@ export function previewMetaRow(task: TaskRow): string {
   </div>`;
 }
 
-export function previewSection(task: TaskRow): string {
-  if (!task.previewStatus && !task.previewUrl) {
+export function previewSection(task: TaskRow, previewAvailable = false): string {
+  if (!task.previewStatus && !task.previewUrl && !previewAvailable) {
     return "";
+  }
+
+  // Show "Start Preview" button for done tasks with no active preview
+  if (!task.previewStatus && !task.previewUrl && previewAvailable) {
+    return `<h4 class="text-sm font-medium text-slate-400 mb-2">Preview</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-slate-400">No preview running</span>
+        ${button("Start Preview", {
+          variant: "secondary",
+          attrs: `hx-post="/api/tasks/${escapeHtml(task.id)}/preview/start" hx-target="#preview-section" hx-swap="innerHTML"`,
+        })}
+      </div>
+    </div>`;
   }
 
   // Show persisted URL even without active preview status
@@ -875,12 +889,22 @@ export function previewSection(task: TaskRow): string {
         <span class="text-sm text-slate-400">Starting...</span>
       </div>`;
   } else if (task.previewStatus === "failed") {
+    const restartBtn = previewAvailable ? button("Start Preview", {
+      variant: "secondary",
+      attrs: `hx-post="/api/tasks/${escapeHtml(task.id)}/preview/start" hx-target="#preview-section" hx-swap="innerHTML"`,
+    }) : "";
     content = `<div class="flex items-center gap-2">
         ${badgeHtml}
+        ${restartBtn}
       </div>`;
   } else if (task.previewStatus === "stopped") {
+    const restartBtn = previewAvailable ? button("Start Preview", {
+      variant: "secondary",
+      attrs: `hx-post="/api/tasks/${escapeHtml(task.id)}/preview/start" hx-target="#preview-section" hx-swap="innerHTML"`,
+    }) : "";
     content = `<div class="flex items-center gap-2">
         ${badgeHtml}
+        ${restartBtn}
       </div>`;
   }
 
@@ -1268,7 +1292,7 @@ ${taskCreateForm(repos, user, selfRepoFullName)}`;
 /**
  * Task detail slide-over panel.
  */
-export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map(), user?: SessionUser): string {
+export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, string> = new Map(), events: TaskEventRow[] = [], latestReview?: CodeReviewRow, userNames: Map<number, string> = new Map(), user?: SessionUser, previewAvailable = false): string {
   const allActions = getAvailableActions(task.status);
   const isMaxCyclesFailed = task.failureReason?.includes("Max rework cycles")
     || task.failureReason?.includes("Browser validation failed after max");
@@ -1419,7 +1443,7 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     ${reviewFindingsSection(task)}
 
     <!-- Preview -->
-    ${task.previewStatus || task.previewUrl ? `<div id="preview-section">${previewSection(task)}</div>` : ""}
+    ${task.previewStatus || task.previewUrl || previewAvailable ? `<div id="preview-section">${previewSection(task, previewAvailable)}</div>` : ""}
 
     <!-- Activity -->
     ${activitySection(task, events)}

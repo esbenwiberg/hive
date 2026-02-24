@@ -23,8 +23,11 @@ import * as activeAgentQueries from "../../db/queries/active-agents.js";
 import * as enrichmentRunQueries from "../../db/queries/enrichment-runs.js";
 import * as costQueries from "../../db/queries/costs.js";
 import { previewManager } from "../../execution/preview/manager.js";
-import { cleanupWorktree, resolveGitCredentials } from "../../execution/worktree.js";
+import { createWorktree, cleanupWorktree, resolveGitCredentials } from "../../execution/worktree.js";
 import { getGitProvider } from "../../execution/git-provider.js";
+import { buildPreviewConfigFromSettings } from "../../execution/worker.js";
+import { parseHiveYaml } from "../../hive-yaml.js";
+import { getAutonomousConfig } from "../../domain/autonomous-config.js";
 import { refineTask } from "../../agents/refiner.js";
 import type { ReviewGateResult } from "../../domain/types.js";
 import * as repoAccessQueries from "../../db/queries/user-repo-access.js";
@@ -266,7 +269,19 @@ router.get("/api/tasks/:id", requireAuth, async (req: Request, res: Response, ne
       }
     }
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
-    res.send(taskDetailPanel(task, repoNames, events, latestReview, userNames, user));
+
+    // Determine if preview can be started for done tasks
+    let previewAvailable = false;
+    if (task.status === "done" && task.prUrl) {
+      const repo = repos.find((r) => r.id === task.repoId);
+      if (repo) {
+        const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+        const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
+        previewAvailable = (repoPreview.enabled as boolean | undefined) === true;
+      }
+    }
+
+    res.send(taskDetailPanel(task, repoNames, events, latestReview, userNames, user, previewAvailable));
   } catch (err) {
     next(err);
   }
@@ -553,6 +568,116 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
       }),
     );
     res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, user.role === "admin"));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/tasks/:id/preview/start ─ Start preview for done task ─────
+
+router.post("/api/tasks/:id/preview/start", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const user = req.session.user!;
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
+    }
+    if (task.status !== "done" || !task.prUrl) {
+      res.status(400).send("Task must be done with a PR to start a preview");
+      return;
+    }
+
+    const repo = await repoQueries.getById(task.repoId);
+    if (!repo) {
+      res.status(404).send("Repository not found");
+      return;
+    }
+
+    // Resolve preview config from .hive.yaml (if worktree exists) or repo settings
+    const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+    const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
+
+    // Build config — if there's already a worktree, try .hive.yaml first
+    let previewConfig = task.worktreePath
+      ? parseHiveYaml(task.worktreePath)
+      : null;
+    if (!previewConfig) {
+      previewConfig = buildPreviewConfigFromSettings(repoPreview);
+    }
+    if (!previewConfig) {
+      res.status(400).send("No preview configuration found in repo settings or .hive.yaml");
+      return;
+    }
+
+    // Create worktree if needed (from the hive/{taskId} branch)
+    let worktreePath = task.worktreePath;
+    if (!worktreePath) {
+      const branchName = `hive/${id}`;
+      const worktree = await createWorktree(
+        repo.fullName,
+        repo.provider,
+        branchName,
+        repo.defaultBranch ?? "main",
+        task.createdBy,
+      );
+      worktreePath = worktree.path;
+      await db.update(tasksTable).set({
+        worktreePath,
+        updatedAt: new Date(),
+      }).where(eq(tasksTable.id, id));
+    }
+
+    // Start the preview
+    const previewInfo = await previewManager.startPreview(id, worktreePath, previewConfig);
+    const previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
+
+    // Persist previewUrl on the task
+    await db.update(tasksTable).set({
+      previewUrl,
+      updatedAt: new Date(),
+    }).where(eq(tasksTable.id, id));
+
+    // Post preview URL as a comment on the PR
+    try {
+      const creds = await resolveGitCredentials(task.createdBy, repo.provider);
+      const gitProvider = getGitProvider(repo.provider);
+      const config = getAutonomousConfig();
+      const timeoutMinutes = (repoPreview.cleanup_timeout_minutes as number | undefined)
+        ?? config.preview.cleanup_timeout_minutes;
+      const comment = [
+        `## Preview Environment`,
+        ``,
+        `A preview environment is available for this PR:`,
+        ``,
+        `**URL:** ${previewUrl}`,
+        ``,
+        `_Preview will auto-cleanup when this PR is closed/merged or after ${timeoutMinutes} minutes of inactivity._`,
+        ``,
+        `---`,
+        `_Automated by Hive - Task ${id}_`,
+      ].join("\n");
+      await gitProvider.commentOnPR(repo.fullName, task.prUrl, comment, creds);
+      logger.info({ taskId: id, prUrl: task.prUrl }, "Preview URL posted as PR comment");
+    } catch (commentErr) {
+      logger.warn({ taskId: id, err: commentErr }, "Failed to post preview comment on PR");
+    }
+
+    const updated = await taskQueries.getById(id);
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: "Preview started", type: "success" } }),
+    );
+    res.send(updated ? previewSection(updated, true) : "");
   } catch (err) {
     next(err);
   }

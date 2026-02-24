@@ -33,7 +33,7 @@ const MAX_REWORK_CYCLES = 2;
  * Builds a PreviewConfig from repo.settings.preview when no `.hive.yaml` exists.
  * Returns null if the settings don't contain enough info for a valid config.
  */
-function buildPreviewConfigFromSettings(
+export function buildPreviewConfigFromSettings(
   preview: Record<string, unknown>,
 ): PreviewConfig | null {
   const type = preview.type as string | undefined;
