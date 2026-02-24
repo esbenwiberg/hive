@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import logger from "../logger.js";
-import { callClaude } from "../agents/sdk.js";
+import { callClaude, extractJson } from "../agents/sdk.js";
 import { getById } from "../db/queries/tasks.js";
 import { getById as getRepoById } from "../db/queries/repos.js";
 import { recordReview } from "../db/queries/code-reviews.js";
@@ -12,7 +12,7 @@ import { estimateCostUsd } from "../agents/cost-utils.js";
 import { fireAndForgetFeedback } from "../agents/feedback-loop.js";
 import { analyzeReviewPatterns } from "../agents/code-quality-analyst.js";
 import { loadPrompt } from "../prompt-cache.js";
-import type { ReviewGateResult, WorktreeInfo } from "../domain/types.js";
+import type { ReviewGateResult, SecurityFinding, VerificationResult, WorktreeInfo } from "../domain/types.js";
 import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
 const execFileAsync = promisify(execFile);
@@ -80,16 +80,8 @@ async function getChangedFiles(worktreePath: string, baseSha: string): Promise<s
  * Handles markdown code fences around JSON.
  */
 export function parseReviewResult(text: string): ReviewGateResult {
-  // Try multiple strategies to extract JSON from Claude's response:
-  // 1. Extract from markdown code fence (handles preamble/postamble text)
-  // 2. Find first { ... last } in the text
-  // 3. Strip simple fences and parse directly
-  const fenceMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n\s*```/);
-  const bracketMatch = !fenceMatch ? text.match(/(\{[\s\S]*\})/) : null;
-  const cleaned = (fenceMatch?.[1] ?? bracketMatch?.[1] ?? text).trim();
-
   try {
-    const parsed = JSON.parse(cleaned);
+    const parsed = extractJson(text) as Record<string, unknown>;
 
     // Normalize any non-pass verdict to "rework" — fail is no longer terminal
     const rawVerdict = parsed.verdict;
@@ -100,14 +92,14 @@ export function parseReviewResult(text: string): ReviewGateResult {
       findings: Array.isArray(parsed.findings) ? parsed.findings : [],
       securityFindings: Array.isArray(parsed.securityFindings)
         ? parsed.securityFindings.map((sf: Record<string, unknown>) => ({
-            severity: sf.severity,
-            type: sf.type,
-            description: sf.description,
-            file: sf.file,
-            ...(sf.advisory ? { advisory: true } : {}),
+            severity: sf.severity as SecurityFinding["severity"],
+            type: sf.type as string,
+            description: sf.description as string,
+            file: sf.file as string | undefined,
+            ...(sf.advisory ? { advisory: true as const } : {}),
           }))
         : [],
-      verification: parsed.verification ?? {
+      verification: (parsed.verification as VerificationResult) ?? {
         testsRun: false,
         testsPassed: false,
         lintClean: false,
@@ -227,6 +219,7 @@ export async function reviewChanges(
     const response = await callClaude({
       prompt: userPrompt,
       model,
+      maxTokens: 8192,
       systemPrompt: getReviewPrompt(),
     });
 

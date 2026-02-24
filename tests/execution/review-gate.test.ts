@@ -3,10 +3,11 @@ import { cleanupTables, useTestDb } from "../setup.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-// Mock the SDK so we never call the real Anthropic API
-vi.mock("../../src/agents/sdk.js", () => ({
-  callClaude: vi.fn(),
-}));
+// Mock the SDK so we never call the real Anthropic API but keep extractJson
+vi.mock("../../src/agents/sdk.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../src/agents/sdk.js")>();
+  return { ...original, callClaude: vi.fn() };
+});
 
 // Mock db/connection.js so queries use our test database
 vi.mock("../../src/db/connection.js", async () => {
