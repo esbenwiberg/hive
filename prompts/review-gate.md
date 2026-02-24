@@ -30,7 +30,8 @@ Respond with a JSON object:
       "severity": "critical | high | medium | low",
       "type": "xss | injection | auth | secrets | other",
       "description": "Description of the security issue",
-      "file": "path/to/file.ts"
+      "file": "path/to/file.ts",
+      "advisory": false
     }
   ],
   "verification": {
@@ -63,3 +64,22 @@ Respond with a JSON object:
    outside that scope. Necessary auxiliary changes (imports, type updates,
    index re-exports) are acceptable. Substantive modifications to out-of-scope
    files that introduce regressions or unnecessary changes are "major" findings.
+9. For security findings that are architectural or design-level observations
+   (e.g. "consider rate limiting", "this endpoint could benefit from CSRF protection",
+   "input validation could be stricter") rather than concrete exploitable
+   vulnerabilities, set `"advisory": true`. Advisory findings are informational
+   and do not block the review verdict.
+
+## Rework Cycles
+
+When a "Rework Context" section is present in the input, this is a re-review
+of previously reworked code. Follow these rules:
+
+1. **Check prior findings first** — verify whether each previously reported issue
+   has been addressed. This is your primary task.
+2. **Do not introduce new minor/info findings on unchanged code** — if code was
+   not modified since the last cycle, do not flag new style, documentation, or
+   minor issues on it. Only flag new critical/major issues on unchanged code.
+3. **Pass when prior findings are addressed** — if all prior critical/major
+   findings have been resolved and no new critical/major issues exist, verdict
+   should be "pass" even if minor style issues remain.

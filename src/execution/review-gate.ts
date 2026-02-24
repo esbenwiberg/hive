@@ -98,7 +98,15 @@ export function parseReviewResult(text: string): ReviewGateResult {
     return {
       verdict,
       findings: Array.isArray(parsed.findings) ? parsed.findings : [],
-      securityFindings: Array.isArray(parsed.securityFindings) ? parsed.securityFindings : [],
+      securityFindings: Array.isArray(parsed.securityFindings)
+        ? parsed.securityFindings.map((sf: Record<string, unknown>) => ({
+            severity: sf.severity,
+            type: sf.type,
+            description: sf.description,
+            file: sf.file,
+            ...(sf.advisory ? { advisory: true } : {}),
+          }))
+        : [],
       verification: parsed.verification ?? {
         testsRun: false,
         testsPassed: false,
@@ -187,6 +195,32 @@ export async function reviewChanges(
       diff.substring(0, 50000), // Truncate very large diffs
       "```",
     );
+
+    // Inject rework context so the reviewer is aware of prior cycles
+    const reworkCount = task.reworkCount ?? 0;
+    if (reworkCount > 0) {
+      const reworkHistory = task.reworkHistory as Array<{
+        cycle: number;
+        findings?: Array<{ severity: string; file: string; message: string }>;
+        securityFindings?: Array<{ severity: string; type: string; description: string }>;
+      }> | null;
+
+      promptSections.push(``, `## Rework Context`);
+      promptSections.push(`This is rework cycle ${reworkCount}. The code has been revised to address prior review findings.`);
+
+      if (reworkHistory && reworkHistory.length > 0) {
+        const lastCycle = reworkHistory[reworkHistory.length - 1];
+        const priorFindings = [
+          ...(lastCycle.findings ?? []).map(f => `- [${f.severity}] ${f.file}: ${f.message}`),
+          ...(lastCycle.securityFindings ?? []).map(f => `- [${f.severity}] [security/${f.type}]: ${f.description}`),
+        ];
+        if (priorFindings.length > 0) {
+          promptSections.push(``, `### Prior Cycle Findings`, ...priorFindings);
+        }
+      }
+
+      promptSections.push(``, `Focus on whether the prior issues have been addressed. Do not introduce new minor/info findings on unchanged code.`);
+    }
 
     const userPrompt = promptSections.join("\n");
 

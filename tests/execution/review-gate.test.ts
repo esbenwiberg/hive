@@ -346,6 +346,43 @@ describe("reviewChanges", () => {
     ).rejects.toThrow();
   });
 
+  it("includes rework context in prompt when reworkCount > 0", async () => {
+    const { task } = await seedReviewingTask();
+    mockPassResponse();
+
+    // Set reworkCount and reworkHistory on the task
+    const { db } = await import("../setup.js");
+    const { tasks } = await import("../../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db.update(tasks).set({
+      reworkCount: 1,
+      reworkHistory: [
+        {
+          cycle: 1,
+          findings: [{ severity: "major", file: "src/auth.ts", line: 42, message: "Missing null check", category: "correctness" }],
+          securityFindings: [],
+        },
+      ],
+    }).where(eq(tasks.id, task.id));
+
+    await reviewChanges(task.id, sampleWorktree);
+
+    const call = mockCallClaude.mock.calls[0][0];
+    expect(call.prompt).toContain("## Rework Context");
+    expect(call.prompt).toContain("rework cycle 1");
+    expect(call.prompt).toContain("Missing null check");
+  });
+
+  it("does not include rework context on first review (reworkCount = 0)", async () => {
+    const { task } = await seedReviewingTask();
+    mockPassResponse();
+
+    await reviewChanges(task.id, sampleWorktree);
+
+    const call = mockCallClaude.mock.calls[0][0];
+    expect(call.prompt).not.toContain("## Rework Context");
+  });
+
   it("truncates very large diffs", async () => {
     const { task } = await seedReviewingTask();
 
@@ -458,6 +495,26 @@ describe("parseReviewResult", () => {
     expect(result.verdict).toBe("pass");
     expect(result.findings).toEqual([]);
     expect(result.securityFindings).toEqual([]);
+  });
+
+  it("preserves advisory field on security findings", () => {
+    const input = JSON.stringify({
+      verdict: "rework",
+      findings: [],
+      securityFindings: [
+        { severity: "medium", type: "auth", description: "Consider rate limiting", file: "src/api.ts", advisory: true },
+        { severity: "critical", type: "injection", description: "SQL injection", file: "src/db.ts", advisory: false },
+        { severity: "low", type: "other", description: "Missing CSRF", file: "src/routes.ts" },
+      ],
+      verification: { testsRun: true, testsPassed: true, lintClean: true, buildSucceeded: true, notes: [] },
+    });
+
+    const result = parseReviewResult(input);
+
+    expect(result.securityFindings).toHaveLength(3);
+    expect(result.securityFindings[0].advisory).toBe(true);
+    expect(result.securityFindings[1].advisory).toBeUndefined();
+    expect(result.securityFindings[2].advisory).toBeUndefined();
   });
 });
 

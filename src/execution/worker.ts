@@ -146,11 +146,26 @@ function formatReviewComment(taskId: string, result: ReviewGateResult): string {
     sections.push("\nNo issues found.");
   }
 
-  // Security
-  if (result.securityFindings.length > 0) {
-    sections.push(`\n### Security\n${result.securityFindings.map(f =>
+  // Security — separate blocking from advisory
+  const blockingSecFindings = result.securityFindings.filter(f => !f.advisory);
+  const advisorySecFindings = result.securityFindings.filter(f => f.advisory);
+
+  if (blockingSecFindings.length > 0) {
+    sections.push(`\n### Security\n${blockingSecFindings.map(f =>
       `- **${f.severity}** [${f.type}] ${f.file ? `\`${f.file}\`` : ""} — ${f.description}`
     ).join("\n")}`);
+  }
+
+  if (advisorySecFindings.length > 0) {
+    sections.push(`\n### Security Notes (Advisory)\n${advisorySecFindings.map(f =>
+      `- **${f.severity}** [${f.type}] ${f.file ? `\`${f.file}\`` : ""} — ${f.description}`
+    ).join("\n")}`);
+  }
+
+  // Forced pass note: findings present but verdict is pass (auto-approved at max cycles)
+  const hasOutstandingFindings = result.findings.length > 0 || blockingSecFindings.length > 0;
+  if (result.verdict === "pass" && hasOutstandingFindings) {
+    sections.push(`\n> **Note:** This PR was auto-approved after max rework cycles. Outstanding findings above are for human review.`);
   }
 
   sections.push(`\n---\n_Automated review by Hive - Task ${taskId}_`);
@@ -685,163 +700,29 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     await addEvent(taskId, "review_complete", "worker", `Review: ${reviewResult.verdict}`);
     await heartbeat(taskId);
 
-    if (reviewResult.verdict === "pass") {
-      // Commit and push
-      const creds = await resolveGitCredentials(task.createdBy, repo.provider);
-      const gitProvider = getGitProvider(repo.provider);
+    // ── Soft-pass filter: on rework cycles, only critical/major block ──────
+    const reworkCount = task.reworkCount ?? 0;
+    const maxCyclesReview = task.maxReworkCycles ?? MAX_REWORK_CYCLES;
 
-      // Milestone-based tasks commit per-milestone on the first run.
-      // Rework cycles use the single-call path, so changes need a commit here too.
-      if (!hasMilestones || isReworkCycle) {
-        await gitProvider.commitAll(worktree.path, `${task.title}\n\nTask: ${taskId}`);
-      }
-      await gitProvider.push(worktree.path, branchName, creds);
-
-      // ── Preview + browser validation (before PR) ──────────────────────────
-      let previewUrl: string | undefined;
-      const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
-      const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
-      const previewEnabled = !task.skipPreview
-        && ((repoPreview.enabled as boolean | undefined) ?? config.preview.enabled);
-
-      // .hive.yaml takes precedence; fall back to repo settings
-      const previewConfig = parseHiveYaml(worktree.path)
-        ?? buildPreviewConfigFromSettings(repoPreview);
-
-      if (previewConfig && previewEnabled) {
-        try {
-          const previewInfo = await previewManager.startPreview(taskId, worktree.path, previewConfig);
-          previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
-          logger.info({ taskId, previewUrl }, "Preview environment started");
-
-          // Persist previewUrl on the task
-          await db
-            .update(tasks)
-            .set({ previewUrl, updatedAt: new Date() })
-            .where(eq(tasks.id, taskId));
-
-          // Run browser validation
-          try {
-            const { validateWithBrowser } = await import("../agents/browser-validator.js");
-            const validation = await validateWithBrowser(taskId, previewUrl);
-
-            if (validation.verdict === "fail") {
-              // Stop preview to free resources
-              try { await previewManager.stopPreview(taskId); } catch { /* swallow */ }
-
-              const maxCycles = task.maxReworkCycles ?? MAX_REWORK_CYCLES;
-              if ((task.reworkCount ?? 0) < maxCycles) {
-                // Send for rework with browser findings
-                await updateStatus(taskId, "rework");
-
-                // Do NOT reset completedMilestones — rework uses targeted single-call fix.
-
-                // Get changed files from the worktree for scope-aware refinement
-                const browserSha = await validateBaseSha(worktree!.path, worktree!.baseSha);
-                const browserChangedFiles = await execFileAsync(
-                  "git", ["diff", "--name-only", browserSha],
-                  { cwd: worktree!.path },
-                ).then(r => r.stdout.trim().split("\n").filter(Boolean)).catch(() => [] as string[]);
-
-                const browserReviewResult: ReviewGateResult = {
-                  verdict: "rework",
-                  findings: validation.findings.map((f) => ({
-                    severity: "major" as const,
-                    file: "",
-                    message: f,
-                    category: "browser-validation",
-                  })),
-                  securityFindings: [],
-                  verification: { testsRun: false, testsPassed: false, lintClean: false, buildSucceeded: false, notes: [] },
-                  costUsd: validation.costUsd,
-                  changedFiles: browserChangedFiles,
-                };
-                await refineTask(taskId, browserReviewResult);
-
-                logger.info({ taskId, reworkCount: (task.reworkCount ?? 0) + 1 }, "Browser validation failed — sent for rework");
-                return { success: false, branch: branchName, reviewResult: browserReviewResult, error: "Browser validation failed — rework" };
-              }
-
-              // Max rework cycles exhausted
-              const reason = `Browser validation failed after max rework cycles (${maxCycles})`;
-              await addEvent(taskId, "error", "worker", `Failed: ${reason}`);
-              await db
-                .update(tasks)
-                .set({ failureReason: reason, updatedAt: new Date() })
-                .where(eq(tasks.id, taskId));
-              await updateStatus(taskId, "failed");
-
-              return { success: false, branch: branchName, reviewResult, error: reason };
-            }
-          } catch (validationErr) {
-            logger.warn({ taskId, err: validationErr }, "Browser validation error — continuing to PR");
-          }
-        } catch (previewErr) {
-          logger.warn({ taskId, err: previewErr }, "Failed to start preview — continuing without");
-        }
-      }
-
-      // ── Create PR ─────────────────────────────────────────────────────────
-      const prBody = formatPRBody(taskId, task.body, architectData);
-      const prUrl = await gitProvider.createPR(
-        repo.fullName,
-        branchName,
-        repo.defaultBranch ?? "main",
-        task.title,
-        prBody,
-        creds,
+    if (reworkCount > 0 && reviewResult.verdict === "rework") {
+      const blockingFindings = reviewResult.findings.filter(
+        f => f.severity === "critical" || f.severity === "major",
+      );
+      const blockingSecFindings = reviewResult.securityFindings.filter(
+        f => (f.severity === "critical" || f.severity === "high") && !f.advisory,
       );
 
-      // Post review summary as a PR comment
-      try {
-        const reviewComment = formatReviewComment(taskId, reviewResult);
-        await gitProvider.commentOnPR(repo.fullName, prUrl, reviewComment, creds);
-        logger.info({ taskId, prUrl }, "Review summary posted as PR comment");
-      } catch (commentErr) {
-        logger.warn({ taskId, err: commentErr }, "Failed to post review comment on PR — continuing");
+      if (blockingFindings.length === 0 && blockingSecFindings.length === 0) {
+        reviewResult.verdict = "pass";
+        await addEvent(taskId, "review_soft_pass", "worker",
+          `Soft pass on rework cycle ${reworkCount}: ${reviewResult.findings.length} non-blocking finding(s) remaining`);
+        logger.info({ taskId, reworkCount, remainingFindings: reviewResult.findings.length },
+          "Review soft-passed — only minor/info findings remain");
       }
-
-      // Post preview URL as PR comment if preview is running
-      if (previewUrl) {
-        try {
-          const timeoutMinutes = (repoPreview.cleanup_timeout_minutes as number | undefined) ?? config.preview.cleanup_timeout_minutes;
-          const comment = [
-            `## Preview Environment`,
-            ``,
-            `A preview environment is available for this PR:`,
-            ``,
-            `**URL:** ${previewUrl}`,
-            ``,
-            `_Preview will auto-cleanup when this PR is closed/merged or after ${timeoutMinutes} minutes of inactivity._`,
-            ``,
-            `---`,
-            `_Automated by Hive - Task ${taskId}_`,
-          ].join("\n");
-
-          await gitProvider.commentOnPR(repo.fullName, prUrl, comment, creds);
-          logger.info({ taskId, prUrl }, "Preview URL posted as PR comment");
-        } catch (commentErr) {
-          logger.warn({ taskId, err: commentErr }, "Failed to post preview comment on PR — continuing");
-        }
-      }
-
-      // Update task with PR URL + preview URL and transition to done
-      await db
-        .update(tasks)
-        .set({ prUrl, ...(previewUrl ? { previewUrl } : {}), updatedAt: new Date() })
-        .where(eq(tasks.id, taskId));
-
-      await addEvent(taskId, "pr_created", "worker", "PR created", { prUrl });
-      await updateStatus(taskId, "done");
-
-      logger.info({ taskId, prUrl, previewUrl }, "Task execution complete — PR created");
-
-      return { success: true, prUrl, previewUrl, branch: branchName, reviewResult };
     }
 
-    const maxCyclesReview = task.maxReworkCycles ?? MAX_REWORK_CYCLES;
-    if ((task.reworkCount ?? 0) < maxCyclesReview) {
-      // Always rework if under max cycles — no terminal "fail" verdict
+    // ── Rework if under max cycles ─────────────────────────────────────────
+    if (reviewResult.verdict === "rework" && reworkCount < maxCyclesReview) {
       await updateStatus(taskId, "rework");
 
       // Do NOT reset completedMilestones — rework uses a targeted single-call
@@ -849,25 +730,166 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
       await refineTask(taskId, reviewResult);
 
-      logger.info({ taskId, reworkCount: (task.reworkCount ?? 0) + 1 }, "Task sent for rework");
+      logger.info({ taskId, reworkCount: reworkCount + 1 }, "Task sent for rework");
 
       return { success: false, branch: branchName, reviewResult, error: "Sent for rework" };
     }
 
-    // Only fail when max rework cycles exhausted
-    const reason = `Max rework cycles (${maxCyclesReview}) exceeded`;
+    // ── Forced pass at max cycles (instead of failing) ─────────────────────
+    if (reviewResult.verdict === "rework") {
+      // At max cycles — force pass so the PR is created for human review
+      reviewResult.verdict = "pass";
+      await addEvent(taskId, "review_forced_pass", "worker",
+        `Forced pass at max rework cycles (${maxCyclesReview}): creating PR with outstanding findings for human review`);
+      logger.warn({ taskId, reworkCount, maxCycles: maxCyclesReview },
+        "Forced pass at max rework cycles — PR will include outstanding findings");
+    }
 
-    await addEvent(taskId, "error", "worker", `Failed: ${reason}`);
+    // ── Verdict is now guaranteed "pass" — commit, push, PR ────────────────
+    const creds = await resolveGitCredentials(task.createdBy, repo.provider);
+    const gitProvider = getGitProvider(repo.provider);
+
+    // Milestone-based tasks commit per-milestone on the first run.
+    // Rework cycles use the single-call path, so changes need a commit here too.
+    if (!hasMilestones || isReworkCycle) {
+      await gitProvider.commitAll(worktree.path, `${task.title}\n\nTask: ${taskId}`);
+    }
+    await gitProvider.push(worktree.path, branchName, creds);
+
+    // ── Preview + browser validation (before PR) ──────────────────────────
+    let previewUrl: string | undefined;
+    const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+    const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
+    const previewEnabled = !task.skipPreview
+      && ((repoPreview.enabled as boolean | undefined) ?? config.preview.enabled);
+
+    // .hive.yaml takes precedence; fall back to repo settings
+    const previewConfig = parseHiveYaml(worktree.path)
+      ?? buildPreviewConfigFromSettings(repoPreview);
+
+    if (previewConfig && previewEnabled) {
+      try {
+        const previewInfo = await previewManager.startPreview(taskId, worktree.path, previewConfig);
+        previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
+        logger.info({ taskId, previewUrl }, "Preview environment started");
+
+        // Persist previewUrl on the task
+        await db
+          .update(tasks)
+          .set({ previewUrl, updatedAt: new Date() })
+          .where(eq(tasks.id, taskId));
+
+        // Run browser validation
+        try {
+          const { validateWithBrowser } = await import("../agents/browser-validator.js");
+          const validation = await validateWithBrowser(taskId, previewUrl);
+
+          if (validation.verdict === "fail") {
+            // Stop preview to free resources
+            try { await previewManager.stopPreview(taskId); } catch { /* swallow */ }
+
+            const maxCycles = task.maxReworkCycles ?? MAX_REWORK_CYCLES;
+            if ((task.reworkCount ?? 0) < maxCycles) {
+              // Send for rework with browser findings
+              await updateStatus(taskId, "rework");
+
+              // Do NOT reset completedMilestones — rework uses targeted single-call fix.
+
+              // Get changed files from the worktree for scope-aware refinement
+              const browserSha = await validateBaseSha(worktree!.path, worktree!.baseSha);
+              const browserChangedFiles = await execFileAsync(
+                "git", ["diff", "--name-only", browserSha],
+                { cwd: worktree!.path },
+              ).then(r => r.stdout.trim().split("\n").filter(Boolean)).catch(() => [] as string[]);
+
+              const browserReviewResult: ReviewGateResult = {
+                verdict: "rework",
+                findings: validation.findings.map((f) => ({
+                  severity: "major" as const,
+                  file: "",
+                  message: f,
+                  category: "browser-validation",
+                })),
+                securityFindings: [],
+                verification: { testsRun: false, testsPassed: false, lintClean: false, buildSucceeded: false, notes: [] },
+                costUsd: validation.costUsd,
+                changedFiles: browserChangedFiles,
+              };
+              await refineTask(taskId, browserReviewResult);
+
+              logger.info({ taskId, reworkCount: (task.reworkCount ?? 0) + 1 }, "Browser validation failed — sent for rework");
+              return { success: false, branch: branchName, reviewResult: browserReviewResult, error: "Browser validation failed — rework" };
+            }
+
+            // Max rework cycles exhausted — force pass for browser validation too
+            await addEvent(taskId, "review_forced_pass", "worker",
+              `Browser validation failed at max rework cycles (${maxCycles}) — creating PR with findings for human review`);
+            logger.warn({ taskId }, "Browser validation failed at max cycles — forcing PR creation");
+          }
+        } catch (validationErr) {
+          logger.warn({ taskId, err: validationErr }, "Browser validation error — continuing to PR");
+        }
+      } catch (previewErr) {
+        logger.warn({ taskId, err: previewErr }, "Failed to start preview — continuing without");
+      }
+    }
+
+    // ── Create PR ─────────────────────────────────────────────────────────
+    const prBody = formatPRBody(taskId, task.body, architectData);
+    const prUrl = await gitProvider.createPR(
+      repo.fullName,
+      branchName,
+      repo.defaultBranch ?? "main",
+      task.title,
+      prBody,
+      creds,
+    );
+
+    // Post review summary as a PR comment
+    try {
+      const reviewComment = formatReviewComment(taskId, reviewResult);
+      await gitProvider.commentOnPR(repo.fullName, prUrl, reviewComment, creds);
+      logger.info({ taskId, prUrl }, "Review summary posted as PR comment");
+    } catch (commentErr) {
+      logger.warn({ taskId, err: commentErr }, "Failed to post review comment on PR — continuing");
+    }
+
+    // Post preview URL as PR comment if preview is running
+    if (previewUrl) {
+      try {
+        const timeoutMinutes = (repoPreview.cleanup_timeout_minutes as number | undefined) ?? config.preview.cleanup_timeout_minutes;
+        const comment = [
+          `## Preview Environment`,
+          ``,
+          `A preview environment is available for this PR:`,
+          ``,
+          `**URL:** ${previewUrl}`,
+          ``,
+          `_Preview will auto-cleanup when this PR is closed/merged or after ${timeoutMinutes} minutes of inactivity._`,
+          ``,
+          `---`,
+          `_Automated by Hive - Task ${taskId}_`,
+        ].join("\n");
+
+        await gitProvider.commentOnPR(repo.fullName, prUrl, comment, creds);
+        logger.info({ taskId, prUrl }, "Preview URL posted as PR comment");
+      } catch (commentErr) {
+        logger.warn({ taskId, err: commentErr }, "Failed to post preview comment on PR — continuing");
+      }
+    }
+
+    // Update task with PR URL + preview URL and transition to done
     await db
       .update(tasks)
-      .set({ failureReason: reason, updatedAt: new Date() })
+      .set({ prUrl, ...(previewUrl ? { previewUrl } : {}), updatedAt: new Date() })
       .where(eq(tasks.id, taskId));
 
-    await updateStatus(taskId, "failed");
+    await addEvent(taskId, "pr_created", "worker", "PR created", { prUrl });
+    await updateStatus(taskId, "done");
 
-    logger.warn({ taskId, reason }, "Task execution failed");
+    logger.info({ taskId, prUrl, previewUrl }, "Task execution complete — PR created");
 
-    return { success: false, branch: branchName, reviewResult, error: reason };
+    return { success: true, prUrl, previewUrl, branch: branchName, reviewResult };
 
   } catch (err) {
     // On unexpected error, try to transition to failed

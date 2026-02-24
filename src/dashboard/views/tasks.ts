@@ -690,7 +690,7 @@ function gateDecisionSection(task: TaskRow): string {
 interface ReworkHistoryEntry {
   cycle: number;
   findings?: { severity: string; file: string; line?: number; message: string; category?: string }[];
-  securityFindings?: { severity: string; type: string; description: string; file?: string }[];
+  securityFindings?: { severity: string; type: string; description: string; file?: string; advisory?: boolean }[];
   refinedInstructions?: string;
   timestamp?: string;
 }
@@ -720,6 +720,7 @@ function securityFindingsList(findings: ReworkHistoryEntry["securityFindings"]):
   const items = findings.map((f) =>
     `<div class="flex items-start gap-2 py-1.5">
       ${badge(f.severity, severityColor(f.severity))}
+      ${f.advisory ? badge("advisory", "slate") : ""}
       <div class="min-w-0">
         <span class="text-xs font-medium text-slate-400">${escapeHtml(f.type)}</span>
         ${f.file ? `<code class="ml-2 text-xs text-slate-500">${escapeHtml(f.file)}</code>` : ""}

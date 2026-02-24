@@ -141,6 +141,8 @@ export interface SecurityFinding {
   type: string;
   description: string;
   file?: string;
+  /** True for architectural/design-level observations that should not block rework cycles. */
+  advisory?: boolean;
 }
 
 export interface VerificationResult {
