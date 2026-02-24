@@ -158,6 +158,7 @@ const ALL_ENRICHER_NAMES = [
   "docs",
   "git-history",
   "dependencies",
+  "prism",
   "architect",
   "scorer",
 ] as const;

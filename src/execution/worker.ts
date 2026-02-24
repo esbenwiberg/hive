@@ -343,6 +343,9 @@ async function executeMilestones(
     // ── 4. Commit the milestone ───────────────────────────────────────────
     await commitMilestone(worktreePath, ms.title, task.id);
 
+    // ── 4b. Trigger Prism incremental structural reindex ────────────────
+    await triggerPrismReindex(worktreePath, task.id);
+
     // ── 5. Persist progress so we can resume on failure ──────────────────
     await db
       .update(tasks)
@@ -538,11 +541,11 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       }
       if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
         const slim: Record<string, unknown> = {};
-        for (const key of ["architect", "scorer"]) {
+        for (const key of ["architect", "scorer", "prism"]) {
           if (enrichObj[key]) slim[key] = enrichObj[key];
         }
         enrichmentStr = `\n## Enrichment Context (trimmed)\n${JSON.stringify(slim)}`;
-        logger.info({ taskId, chars: enrichmentStr.length }, "Trimmed enrichment to architect+scorer only");
+        logger.info({ taskId, chars: enrichmentStr.length }, "Trimmed enrichment to architect+scorer+prism only");
       }
       if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
         enrichmentStr = "";
@@ -1013,5 +1016,30 @@ export async function executeEpic(taskId: string): Promise<WorkerResult> {
     return { success: false, error: reason };
   } finally {
     await unregister(taskId);
+  }
+}
+
+// ── Prism incremental reindex ─────────────────────────────────────────────
+
+/**
+ * Trigger a Prism structural reindex after a milestone commit.
+ * Non-blocking — index staleness is acceptable, never fails the task.
+ */
+async function triggerPrismReindex(worktreePath: string, taskId: string): Promise<void> {
+  try {
+    const prismDbUrl = process.env.PRISM_DATABASE_URL;
+    if (!prismDbUrl) return;
+
+    const prism = await import("@prism/core");
+    prism.setActiveConnectionString(prismDbUrl);
+
+    const project = await prism.getProjectByPath(worktreePath);
+    if (!project) return;
+
+    // Incremental: only structural layer, only changed files
+    await prism.runPipeline(project, { layers: ["structural"], fullReindex: false });
+    logger.info({ taskId, projectId: project.id }, "Prism incremental reindex complete");
+  } catch (err) {
+    logger.warn({ taskId, err }, "Prism incremental reindex failed (non-blocking)");
   }
 }

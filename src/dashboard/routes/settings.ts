@@ -330,7 +330,7 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
     settings.producers = producers;
 
     // Enricher toggles
-    const ENRICHER_NAMES = ["codebase", "docs", "git-history", "dependencies", "architect", "scorer"];
+    const ENRICHER_NAMES = ["codebase", "docs", "git-history", "dependencies", "prism", "architect", "scorer"];
     const enrichers: Record<string, { enabled: boolean }> = {};
     for (const name of ENRICHER_NAMES) {
       const enabledKey = `enricher_enabled_${name}_${repoId}`;

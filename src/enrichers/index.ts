@@ -4,6 +4,7 @@ import { codebaseEnricher } from "./codebase.js";
 import { docsEnricher } from "./docs.js";
 import { gitHistoryEnricher } from "./git-history.js";
 import { dependenciesEnricher } from "./dependencies.js";
+import { prismEnricher } from "./prism.js";
 import { architectEnricher } from "./architect.js";
 import { scorerEnricher } from "./scorer.js";
 
@@ -14,6 +15,7 @@ export const ALL_ENRICHERS: Enricher[] = [
   docsEnricher,
   gitHistoryEnricher,
   dependenciesEnricher,
+  prismEnricher,
   architectEnricher,
   scorerEnricher,
 ];
