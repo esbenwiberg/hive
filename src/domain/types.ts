@@ -1,5 +1,15 @@
 import { randomBytes } from "node:crypto";
 
+// ── LLM Provider types ───────────────────────────────────────────────────────
+// Re-exported here so domain-level code can reference ModelProvider without
+// importing from the agents sub-tree.
+export type {
+  AnthropicProvider,
+  AzureOpenAIProvider,
+  AzureAnthropicProvider,
+  ModelProvider,
+} from "../agents/providers/types.js";
+
 // ── SessionUser ─────────────────────────────────────────────────────────────
 
 export interface SessionUser {
