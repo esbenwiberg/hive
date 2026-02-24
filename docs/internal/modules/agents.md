@@ -932,6 +932,213 @@ const response = await callClaudeWithTools({
 
 ---
 
+## Providers — `providers/`
+
+> **Location:** `src/agents/providers/`
+> **Purpose:** Unified LLM client factory that abstracts over Anthropic (direct), Azure AI Foundry (OpenAI-compatible), and Anthropic models hosted on Azure AI Foundry.
+
+The provider module is the single integration point for any LLM call. No agent constructs an SDK client directly — they receive a resolved `LlmClient` from `createLlmClient`.
+
+---
+
+### File Map
+
+| File | Purpose |
+|---|---|
+| `types.ts` | `ModelProvider` discriminated union and its three variants |
+| `client.ts` | `LlmClient` interface + `createLlmClient` factory |
+| `index.ts` | Public re-exports for the module |
+
+---
+
+### `ModelProvider` Type (`types.ts`)
+
+`ModelProvider` is a **discriminated union** keyed on the `type` field. Each variant carries exactly the credentials and routing information needed by the corresponding client implementation.
+
+```ts
+/** Use Anthropic's public API directly. */
+interface AnthropicProvider {
+  type: "anthropic";
+  model: string;
+  apiKey?: string;   // falls back to ANTHROPIC_API_KEY env var
+}
+
+/** Use an Azure AI Foundry deployment that exposes the OpenAI-compatible
+ *  /chat/completions endpoint (e.g. GPT-4o, GPT-4.1, o-series). */
+interface AzureOpenAIProvider {
+  type: "azure-openai";
+  endpoint: string;        // e.g. https://<project>.services.ai.azure.com
+  deploymentName: string;  // e.g. "gpt-4o-2"
+  apiKey: string;
+  model: string;
+}
+
+/** Use an Anthropic model deployed through Azure AI Foundry. */
+interface AzureAnthropicProvider {
+  type: "azure-anthropic";
+  endpoint: string;        // e.g. https://<project>.services.ai.azure.com
+  deploymentName: string;  // e.g. "claude-3-5-haiku"
+  apiKey: string;
+  model: string;
+}
+
+type ModelProvider = AnthropicProvider | AzureOpenAIProvider | AzureAnthropicProvider;
+```
+
+---
+
+### `LlmClient` Interface (`client.ts`)
+
+All provider implementations expose a single `sendMessage` method so callers are provider-agnostic:
+
+```ts
+interface LlmMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface LlmSendParams {
+  messages: LlmMessage[];
+  model?: string;          // per-call override of the provider default
+  maxTokens?: number;      // defaults to 4096
+  systemPrompt?: string;
+  tools?: Tool[];          // Anthropic-style tool definitions (azure-openai ignores)
+}
+
+interface LlmUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens?: number;  // Anthropic & azure-anthropic only
+  cacheReadInputTokens?: number;
+  providerType: string;               // "anthropic" | "azure-openai" | "azure-anthropic"
+  endpoint?: string;                  // Azure providers only
+  deploymentName?: string;            // Azure providers only
+}
+
+interface LlmResponse {
+  text: string;    // assistant's text reply
+  model: string;   // model identifier actually used
+  usage: LlmUsage;
+  raw: unknown;    // raw SDK / fetch response for provider-specific access
+}
+
+interface LlmClient {
+  readonly provider: ModelProvider;
+  sendMessage(params: LlmSendParams): Promise<LlmResponse>;
+}
+```
+
+---
+
+### `createLlmClient` Factory (`client.ts`)
+
+```ts
+export function createLlmClient(provider: ModelProvider): LlmClient
+```
+
+Dispatches on `provider.type` and returns the appropriate implementation:
+
+| `provider.type` | Transport | Auth header |
+|---|---|---|
+| `anthropic` | `@anthropic-ai/sdk` | `x-api-key` (SDK-managed) |
+| `azure-openai` | `fetch` to `/openai/deployments/{name}/chat/completions` | `api-key` |
+| `azure-anthropic` | `@anthropic-ai/sdk` with custom `baseURL` | `api-key` (custom header) |
+
+**Usage:**
+
+```ts
+import { createLlmClient } from "./providers/index.js";
+
+// Direct Anthropic
+const client = createLlmClient({ type: "anthropic", model: "claude-sonnet-4-6" });
+
+// Azure AI Foundry — OpenAI-compatible
+const azureClient = createLlmClient({
+  type: "azure-openai",
+  endpoint: "https://my-project.services.ai.azure.com",
+  deploymentName: "gpt-4o-2",
+  apiKey: process.env.AZURE_OPENAI_KEY!,
+  model: "gpt-4o",
+});
+
+// Azure AI Foundry — Anthropic model
+const azureAnthropicClient = createLlmClient({
+  type: "azure-anthropic",
+  endpoint: "https://my-project.services.ai.azure.com",
+  deploymentName: "claude-3-5-haiku",
+  apiKey: process.env.AZURE_ANTHROPIC_KEY!,
+  model: "claude-3-5-haiku-20241022",
+});
+
+const { text, usage } = await client.sendMessage({
+  messages: [{ role: "user", content: "Hello" }],
+  systemPrompt: "You are a helpful assistant.",
+});
+```
+
+---
+
+### Per-Component Config Resolution Flow
+
+Each pipeline component (router, gate, decomposer, enrichers, worker, review-gate, milestone-review, producers) can have its own model configuration declared in `autonomous.config.yaml` under the `models:` key. Resolution follows this priority chain:
+
+```
+autonomous.config.yaml models.<component>   (highest priority)
+  └─► component-specific provider block (type + endpoint + deploymentName + apiKey + model)
+          │
+          └─► if absent: autonomous.config.yaml models.default
+                  │
+                  └─► if absent: built-in default (anthropic / claude-sonnet-4-6)
+```
+
+The `getModelFor(componentName)` helper in `src/domain/autonomous-config.ts` implements this resolution and returns a fully typed `ModelProvider`. Agents call it once on startup:
+
+```ts
+import { getModelFor } from "../domain/autonomous-config.js";
+
+const provider = getModelFor("router");          // e.g. returns AnthropicProvider
+const client = createLlmClient(provider);
+
+const response = await client.sendMessage({ messages: [...] });
+```
+
+**Supported component names** (matches `autonomous.config.yaml` key names):
+
+| Key | Pipeline role |
+|---|---|
+| `router` | Task classifier (pending → queued) |
+| `gate` | Approval gate (enriched → approved/rejected/rework) |
+| `decomposer` | Epic splitter |
+| `enricher` | All six sequential enrichers |
+| `worker` | Code execution (keeper) |
+| `review-gate` | Post-execution code review |
+| `milestone-review` | Per-milestone review within epic execution |
+| `producer` | Auto task generators (all six producers) |
+
+---
+
+### Cost Tracking with Provider Metadata
+
+The `LlmUsage` object returned by every `LlmClient.sendMessage` call carries `providerType`, `endpoint`, and `deploymentName` fields. These are forwarded to the `costs` table alongside token counts so the dashboard can break down spend by provider and deployment.
+
+```ts
+await recordCost(
+  taskId,
+  task.createdBy,
+  AGENT_NAME,
+  response.usage.providerType,  // "azure-openai"
+  costUsd,
+  1,
+  durationMs,
+  {
+    endpoint: response.usage.endpoint,
+    deploymentName: response.usage.deploymentName,
+  }
+);
+```
+
+---
+
 ## See Also
 
 - [`docs/internal/architecture.md`](../architecture.md) — system-wide data flow and component map

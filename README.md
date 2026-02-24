@@ -238,6 +238,46 @@ preview:
 
 Settings can be overridden per-repo via the dashboard (stored in `repos.settings` JSONB column). Resolution order: repo settings > global DB config > YAML file defaults.
 
+#### Azure AI Foundry Support
+
+The Hive supports **Azure AI Foundry** as an alternative (or complement) to the Anthropic public API. You can route each pipeline component to a different provider and model — for example, use a cheap Azure-hosted Haiku deployment for the review gate but a powerful GPT-4.1 for the worker.
+
+Three provider types are supported in `autonomous.config.yaml` under `models.componentProviders`:
+
+| Type | Backend | Use case |
+|---|---|---|
+| `anthropic` | Anthropic public API | Default; uses `ANTHROPIC_API_KEY` |
+| `azure-openai` | Azure AI Foundry (OpenAI-compatible endpoint) | GPT-4o, GPT-4.1, o-series, etc. |
+| `azure-anthropic` | Anthropic models deployed on Azure AI Foundry | Claude on Azure without leaving your tenant |
+
+```yaml
+models:
+  default:
+    type: anthropic
+    model: claude-sonnet-4-6
+
+  componentProviders:
+    # Route the review gate to a cheap Haiku on Azure AI Foundry
+    review-gate:
+      type: azure-anthropic
+      endpoint: https://my-project.services.ai.azure.com
+      deploymentName: claude-3-5-haiku
+      apiKey: $AZURE_FOUNDRY_API_KEY
+      model: claude-3-5-haiku-20241022
+
+    # Use a powerful GPT deployment for code execution
+    worker:
+      type: azure-openai
+      endpoint: https://my-resource.openai.azure.com
+      deploymentName: gpt-4-1-deployment
+      apiKey: $AZURE_OPENAI_API_KEY
+      model: gpt-4.1
+```
+
+For a fully commented example covering all eight component names, see the `models:` block in [`autonomous.config.yaml`](./autonomous.config.yaml).
+
+For technical details on the provider abstraction layer, see [`docs/internal/modules/agents.md` — Providers section](./docs/internal/modules/agents.md).
+
 ### Auth Configuration
 
 The Hive uses Azure Entra ID for authentication. You need to register an application in Azure AD:

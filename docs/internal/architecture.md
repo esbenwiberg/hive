@@ -45,7 +45,7 @@ The heartbeat of the system. On startup it:
 
 ### 2. Agents (`src/agents/`)
 
-Stateless async functions that each wrap a Claude API call. They implement the intelligence of each pipeline stage:
+Stateless async functions that each wrap an LLM API call. They implement the intelligence of each pipeline stage.
 
 | Agent | Stage | Responsibility |
 |---|---|---|
@@ -60,7 +60,44 @@ Stateless async functions that each wrap a Claude API call. They implement the i
 | `browser-validator` | REVIEWING | Headless browser check of preview environments |
 | `code-quality-analyst` | post-review | Detect recurring review-finding patterns; generate learnings |
 
-All agents use `callClaude()` / `callClaudeWithTools()` from `src/agents/sdk.ts`, which handles retry on overload, cost recording, and active-agent registration.
+All agents obtain an `LlmClient` via `createLlmClient(getModelFor(componentName))` from `src/agents/providers/` and then call `client.sendMessage()`. The `sdk.ts` helpers handle retry on overload, cost recording, and active-agent registration.
+
+### 2a. LLM Provider Abstraction (`src/agents/providers/`)
+
+A thin abstraction layer that allows each pipeline component to use a **different LLM backend** — Anthropic directly, or any model deployed on **Azure AI Foundry** — without changing agent code.
+
+```
+autonomous.config.yaml
+  models:
+    componentProviders:
+      router: { type: azure-anthropic, ... }   ← per-component override
+      worker: { type: azure-openai,    ... }
+    default:  { type: anthropic, model: claude-sonnet-4-6 }
+            │
+            ▼
+    getModelFor("router")                        ← src/domain/autonomous-config.ts
+            │  returns ModelProvider
+            ▼
+    createLlmClient(provider)                    ← src/agents/providers/client.ts
+            │  returns LlmClient
+            ▼
+    client.sendMessage({ messages, systemPrompt })
+            │
+            ├─ AnthropicProvider   → @anthropic-ai/sdk  (x-api-key)
+            ├─ AzureOpenAIProvider → fetch /openai/deployments/…/chat/completions (api-key)
+            └─ AzureAnthropicProvider → @anthropic-ai/sdk + custom baseURL (api-key)
+```
+
+Key types exported from `src/agents/providers/`:
+
+| Symbol | Kind | Description |
+|---|---|---|
+| `ModelProvider` | type | Discriminated union: `AnthropicProvider \| AzureOpenAIProvider \| AzureAnthropicProvider` |
+| `LlmClient` | interface | `{ provider, sendMessage(params): Promise<LlmResponse> }` |
+| `createLlmClient` | function | Factory — maps a `ModelProvider` to the correct `LlmClient` implementation |
+| `LlmUsage` | interface | Token counts + `providerType`, `endpoint`, `deploymentName` for cost attribution |
+
+See [`docs/internal/modules/agents.md#providers`](./modules/agents.md#providers----providers) for full API documentation.
 
 ### 3. Enrichers (`src/enrichers/`)
 
@@ -258,7 +295,7 @@ PENDING ──► QUEUED ──► ENRICHING ──► READY ──► APPROVED 
 | Web framework | Express 4 |
 | Frontend | HTMX + TailwindCSS (server-rendered) |
 | Database | PostgreSQL 16 via Drizzle ORM |
-| AI engine | Anthropic Claude (Sonnet / Opus configurable per agent) |
+| AI engine | Anthropic Claude (direct) **or** Azure AI Foundry (OpenAI-compatible / Anthropic-via-Foundry) — configurable per pipeline component via `autonomous.config.yaml models:` |
 | Auth | Microsoft Entra ID (MSAL) + express-session |
 | Git providers | GitHub (REST + GraphQL) and Azure DevOps (REST v7.1) |
 | Secrets | Azure Key Vault (git tokens per user) |
