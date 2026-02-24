@@ -8,6 +8,12 @@ import { prismEnricher } from "./prism.js";
 import { architectEnricher } from "./architect.js";
 import { scorerEnricher } from "./scorer.js";
 
+export {
+  parseMarkdownBlueprint,
+  BLUEPRINT_MARKDOWN_TEMPLATE,
+} from "./external-blueprint.js";
+export type { Blueprint, BlueprintMilestone, ParseResult } from "./external-blueprint.js";
+
 // ── All enrichers ───────────────────────────────────────────────────────────
 
 export const ALL_ENRICHERS: Enricher[] = [
