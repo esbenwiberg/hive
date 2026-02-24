@@ -329,6 +329,61 @@ export async function listLearnings(opts?: {
 }
 
 /**
+ * Returns learning usage / retrieval stats for the dashboard.
+ */
+export async function getLearningUsageStats(): Promise<{
+  usedLast7d: number;
+  usedLast30d: number;
+  neverUsed: number;
+  stale: number;
+  totalReinforcements: number;
+  totalContradictions: number;
+  mostReinforced: { id: number; content: string; reinforcements: number; confidence: string | null }[];
+  recentlyUsed: { id: number; content: string; lastUsedAt: Date | null }[];
+}> {
+  const [countsRow] = await db
+    .select({
+      usedLast7d: sql<number>`count(*) filter (where ${learnings.lastUsedAt} >= now() - interval '7 days')::int`,
+      usedLast30d: sql<number>`count(*) filter (where ${learnings.lastUsedAt} >= now() - interval '30 days')::int`,
+      neverUsed: sql<number>`count(*) filter (where ${learnings.lastUsedAt} is null and ${learnings.supersededBy} is null)::int`,
+      stale: sql<number>`count(*) filter (where ${learnings.supersededBy} is null and ${learnings.lastUsedAt} is not null and ${learnings.lastUsedAt} < now() - interval '30 days')::int`,
+      totalReinforcements: sql<number>`coalesce(sum(${learnings.reinforcements}), 0)::int`,
+      totalContradictions: sql<number>`coalesce(sum(${learnings.contradictions}), 0)::int`,
+    })
+    .from(learnings);
+
+  const [mostReinforced, recentlyUsed] = await Promise.all([
+    db
+      .select({
+        id: learnings.id,
+        content: learnings.content,
+        reinforcements: sql<number>`${learnings.reinforcements}::int`,
+        confidence: learnings.confidence,
+      })
+      .from(learnings)
+      .where(isNull(learnings.supersededBy))
+      .orderBy(desc(learnings.reinforcements))
+      .limit(5),
+    db
+      .select({
+        id: learnings.id,
+        content: learnings.content,
+        lastUsedAt: learnings.lastUsedAt,
+      })
+      .from(learnings)
+      .where(and(isNull(learnings.supersededBy), isNotNull(learnings.lastUsedAt)))
+      .orderBy(desc(learnings.lastUsedAt))
+      .limit(5),
+  ]);
+
+  return {
+    ...countsRow,
+    mostReinforced,
+    recentlyUsed,
+  };
+}
+
+/**
  * Returns aggregate stats for the dashboard.
  */
 export async function getLearningStats(): Promise<{

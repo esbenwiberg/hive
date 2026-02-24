@@ -1,8 +1,8 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth, requireRole } from "../../auth/middleware.js";
-import { getLearningById, listLearnings, getLearningStats, dismissLearning } from "../../db/queries/learnings.js";
-import { getEventsForLearning } from "../../db/queries/learning-events.js";
+import { getLearningById, listLearnings, getLearningStats, getLearningUsageStats, dismissLearning } from "../../db/queries/learnings.js";
+import { getEventsForLearning, getEventCountsByType, getDailyEventVolume } from "../../db/queries/learning-events.js";
 import { getConfig } from "../../domain/config.js";
 import type { RetrospectiveReport } from "../../agents/retrospective.js";
 import type { HivemindPageData } from "../views/hivemind.js";
@@ -41,10 +41,14 @@ router.get("/hivemind", requireAuth, requireRole("admin"), async (req: Request, 
   try {
     const user = req.session.user!;
 
-    const [stats, { learnings, total }, latestReportRaw] = await Promise.all([
+    const [stats, { learnings, total }, latestReportRaw, usageRaw, eventsLast7d, eventsLast30d, dailyVolume] = await Promise.all([
       getLearningStats(),
       listLearnings({ limit: PAGE_SIZE, offset: 0 }),
       getConfig("lastRetrospectiveReport"),
+      getLearningUsageStats(),
+      getEventCountsByType(7),
+      getEventCountsByType(30),
+      getDailyEventVolume(30),
     ]);
 
     const latestReport = latestReportRaw
@@ -53,6 +57,12 @@ router.get("/hivemind", requireAuth, requireRole("admin"), async (req: Request, 
 
     const data: HivemindPageData = {
       stats,
+      usageStats: {
+        ...usageRaw,
+        eventsLast7d,
+        eventsLast30d,
+        dailyVolume,
+      },
       learnings,
       total,
       currentPage: 1,

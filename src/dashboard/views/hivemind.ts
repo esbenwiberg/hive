@@ -15,6 +15,20 @@ import { layout } from "./layout.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+export interface LearningUsageStats {
+  usedLast7d: number;
+  usedLast30d: number;
+  neverUsed: number;
+  stale: number;
+  totalReinforcements: number;
+  totalContradictions: number;
+  mostReinforced: { id: number; content: string; reinforcements: number; confidence: string | null }[];
+  recentlyUsed: { id: number; content: string; lastUsedAt: Date | null }[];
+  eventsLast7d: { eventType: string; count: number }[];
+  eventsLast30d: { eventType: string; count: number }[];
+  dailyVolume: { date: string; count: number }[];
+}
+
 export interface HivemindPageData {
   stats: {
     total: number;
@@ -25,6 +39,7 @@ export interface HivemindPageData {
     topCategories: { category: string; count: number }[];
     topScopes: { scope: string; count: number }[];
   };
+  usageStats: LearningUsageStats;
   learnings: LearningRow[];
   total: number;
   currentPage: number;
@@ -117,6 +132,185 @@ function statsRow(stats: HivemindPageData["stats"]): string {
   ];
 
   return `<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">${cards.join("")}</div>`;
+}
+
+// ── Usage stats section ─────────────────────────────────────────────────────
+
+function eventCountForType(events: { eventType: string; count: number }[], type: string): number {
+  return events.find((e) => e.eventType === type)?.count ?? 0;
+}
+
+function miniBar(value: number, max: number, color: string): string {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return `<div class="h-1.5 w-full rounded-full bg-slate-700">
+    <div class="${color} h-1.5 rounded-full" style="width: ${pct}%"></div>
+  </div>`;
+}
+
+function activityBreakdown(
+  label: string,
+  events: { eventType: string; count: number }[],
+): string {
+  const total = events.reduce((sum, e) => sum + e.count, 0);
+  const created = eventCountForType(events, "created");
+  const reinforced = eventCountForType(events, "reinforced");
+  const contradicted = eventCountForType(events, "contradicted");
+  const superseded = eventCountForType(events, "superseded");
+  const dismissed = eventCountForType(events, "dismissed");
+
+  const row = (name: string, count: number, color: string, barColor: string) => `
+    <div class="flex items-center gap-3">
+      <span class="w-24 text-xs ${color} truncate">${name}</span>
+      <div class="flex-1">${miniBar(count, total, barColor)}</div>
+      <span class="w-8 text-right text-xs font-mono text-slate-400">${count}</span>
+    </div>`;
+
+  return `<div class="space-y-2">
+    <div class="flex items-center justify-between">
+      <h4 class="text-sm font-medium text-slate-300">${label}</h4>
+      <span class="text-xs text-slate-500">${total} events</span>
+    </div>
+    <div class="space-y-1.5">
+      ${row("Created", created, "text-blue-400", "bg-blue-400")}
+      ${row("Reinforced", reinforced, "text-emerald-400", "bg-emerald-400")}
+      ${row("Contradicted", contradicted, "text-red-400", "bg-red-400")}
+      ${row("Superseded", superseded, "text-slate-400", "bg-slate-400")}
+      ${row("Dismissed", dismissed, "text-amber-400", "bg-amber-400")}
+    </div>
+  </div>`;
+}
+
+function sparkline(dailyVolume: { date: string; count: number }[]): string {
+  if (dailyVolume.length === 0) {
+    return `<p class="text-xs text-slate-500">No activity data yet.</p>`;
+  }
+
+  const max = Math.max(...dailyVolume.map((d) => d.count), 1);
+  const bars = dailyVolume.map((d) => {
+    const heightPct = Math.max(Math.round((d.count / max) * 100), 4);
+    const shortDate = d.date.slice(5); // MM-DD
+    return `<div class="group relative flex flex-col items-center" style="flex: 1; min-width: 0">
+      <div class="w-full flex items-end justify-center" style="height: 48px">
+        <div class="w-full max-w-[12px] rounded-t bg-amber-400/70 hover:bg-amber-400 transition-colors" style="height: ${heightPct}%"></div>
+      </div>
+      <div class="absolute -top-6 left-1/2 -translate-x-1/2 hidden group-hover:block rounded bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-200 whitespace-nowrap z-10">${shortDate}: ${d.count}</div>
+    </div>`;
+  });
+
+  return `<div class="space-y-1">
+    <div class="flex items-end gap-px">${bars.join("")}</div>
+    <div class="flex justify-between text-[10px] text-slate-600">
+      <span>${dailyVolume[0].date.slice(5)}</span>
+      <span>${dailyVolume[dailyVolume.length - 1].date.slice(5)}</span>
+    </div>
+  </div>`;
+}
+
+function topLearningsTable(
+  title: string,
+  items: { id: number; label: string; value: string }[],
+): string {
+  if (items.length === 0) {
+    return `<div class="space-y-2">
+      <h4 class="text-sm font-medium text-slate-300">${title}</h4>
+      <p class="text-xs text-slate-500">No data yet.</p>
+    </div>`;
+  }
+
+  const rows = items
+    .map(
+      (item) => `<div class="flex items-center gap-3 rounded-lg bg-slate-900 px-3 py-2 cursor-pointer hover:bg-slate-800 transition-colors"
+        hx-get="/hivemind/learnings/${item.id}"
+        hx-target="#detail-panel"
+        hx-swap="innerHTML">
+      <span class="shrink-0 text-xs font-mono text-slate-500">#${item.id}</span>
+      <span class="flex-1 text-xs text-slate-300 truncate">${escapeHtml(item.label)}</span>
+      <span class="shrink-0 text-xs font-mono text-slate-400">${item.value}</span>
+    </div>`,
+    )
+    .join("");
+
+  return `<div class="space-y-2">
+    <h4 class="text-sm font-medium text-slate-300">${title}</h4>
+    <div class="space-y-1">${rows}</div>
+  </div>`;
+}
+
+function usageStatsSection(usage: LearningUsageStats): string {
+  // Retrieval stat mini-cards
+  const retrievalCards = `<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div class="rounded-lg bg-slate-900 p-3 text-center">
+      <p class="text-xs text-slate-400">Used (7d)</p>
+      <p class="text-lg font-semibold text-emerald-400">${usage.usedLast7d}</p>
+    </div>
+    <div class="rounded-lg bg-slate-900 p-3 text-center">
+      <p class="text-xs text-slate-400">Used (30d)</p>
+      <p class="text-lg font-semibold text-blue-400">${usage.usedLast30d}</p>
+    </div>
+    <div class="rounded-lg bg-slate-900 p-3 text-center">
+      <p class="text-xs text-slate-400">Never Used</p>
+      <p class="text-lg font-semibold text-slate-400">${usage.neverUsed}</p>
+    </div>
+    <div class="rounded-lg bg-slate-900 p-3 text-center">
+      <p class="text-xs text-slate-400">Going Stale</p>
+      <p class="text-lg font-semibold text-amber-400">${usage.stale}</p>
+    </div>
+  </div>`;
+
+  // Totals row
+  const totalsRow = `<div class="flex items-center gap-6">
+    <div class="flex items-center gap-2">
+      <svg class="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" /></svg>
+      <span class="text-sm text-slate-300"><span class="font-semibold text-emerald-400">${usage.totalReinforcements}</span> total reinforcements</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <svg class="h-4 w-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3" /></svg>
+      <span class="text-sm text-slate-300"><span class="font-semibold text-red-400">${usage.totalContradictions}</span> total contradictions</span>
+    </div>
+  </div>`;
+
+  // Most reinforced learnings
+  const mostReinforcedTable = topLearningsTable(
+    "Most Reinforced",
+    usage.mostReinforced.map((l) => ({
+      id: l.id,
+      label: l.content,
+      value: `${l.reinforcements}x`,
+    })),
+  );
+
+  // Recently used learnings
+  const recentlyUsedTable = topLearningsTable(
+    "Recently Used",
+    usage.recentlyUsed.map((l) => ({
+      id: l.id,
+      label: l.content,
+      value: relativeTime(l.lastUsedAt),
+    })),
+  );
+
+  const inner = `<div class="space-y-6">
+    ${retrievalCards}
+    ${totalsRow}
+
+    <!-- Activity & Trend row -->
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div>${activityBreakdown("Last 7 Days", usage.eventsLast7d)}</div>
+      <div>${activityBreakdown("Last 30 Days", usage.eventsLast30d)}</div>
+      <div class="space-y-2">
+        <h4 class="text-sm font-medium text-slate-300">Event Trend (30d)</h4>
+        ${sparkline(usage.dailyVolume)}
+      </div>
+    </div>
+
+    <!-- Top learnings row -->
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      ${mostReinforcedTable}
+      ${recentlyUsedTable}
+    </div>
+  </div>`;
+
+  return card(inner, { title: "Learning Usage", padding: "compact" });
 }
 
 // ── Filter controls ─────────────────────────────────────────────────────────
@@ -514,6 +708,9 @@ export function hivemindPage(data: HivemindPageData, user: SessionUser): string 
 
   <!-- Stat cards -->
   ${statsRow(data.stats)}
+
+  <!-- Learning usage stats -->
+  ${usageStatsSection(data.usageStats)}
 
   <!-- Filters + learnings list -->
   ${card(`

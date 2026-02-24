@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { db } from "../connection.js";
 import { learningEvents } from "../schema.js";
 import type { LearningEventRow } from "../schema.js";
@@ -69,4 +69,38 @@ export async function getRecentEvents(
     .from(learningEvents)
     .orderBy(desc(learningEvents.createdAt))
     .limit(effectiveLimit);
+}
+
+/**
+ * Returns event counts grouped by event_type within a given number of days.
+ */
+export async function getEventCountsByType(
+  days: number,
+): Promise<{ eventType: string; count: number }[]> {
+  return db
+    .select({
+      eventType: learningEvents.eventType,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(learningEvents)
+    .where(sql`${learningEvents.createdAt} >= now() - make_interval(days => ${days})`)
+    .groupBy(learningEvents.eventType)
+    .orderBy(sql`count(*) desc`);
+}
+
+/**
+ * Returns daily event counts for the last N days (for trend display).
+ */
+export async function getDailyEventVolume(
+  days: number,
+): Promise<{ date: string; count: number }[]> {
+  return db
+    .select({
+      date: sql<string>`to_char(${learningEvents.createdAt}::date, 'YYYY-MM-DD')`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(learningEvents)
+    .where(sql`${learningEvents.createdAt} >= now() - make_interval(days => ${days})`)
+    .groupBy(sql`${learningEvents.createdAt}::date`)
+    .orderBy(sql`${learningEvents.createdAt}::date`);
 }
