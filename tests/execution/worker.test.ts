@@ -369,7 +369,7 @@ describe("executeTask", () => {
 
   // ── Max rework cycles exceeded ───────────────────────────────────────────
 
-  it("fails when max rework cycles exceeded", async () => {
+  it("force-passes when max rework cycles exceeded and creates PR with findings", async () => {
     const { task } = await seedApprovedTask();
 
     // Set reworkCount to 2 (the max)
@@ -386,12 +386,12 @@ describe("executeTask", () => {
 
     const result = await executeTask(task.id);
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Max rework cycles");
+    // At max cycles the worker force-passes and creates a PR
+    expect(result.success).toBe(true);
+    expect(result.branch).toBeDefined();
 
     const final = await getById(task.id);
-    expect(final!.status).toBe("failed");
-    expect(final!.failureReason).toContain("Max rework cycles");
+    expect(final!.status).toBe("done");
   });
 
   // ── Review fails (verdict = fail) ────────────────────────────────────────
