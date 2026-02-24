@@ -8,6 +8,7 @@
 
 import logger from "../logger.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import * as repoQueries from "../db/queries/repos.js";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
 
@@ -88,7 +89,25 @@ export const prismEnricher: Enricher = {
     prism.setActiveConnectionString(prismDbUrl);
 
     // ── Look up project ────────────────────────────────────────────────
-    const project = await prism.getProjectByPath(repoDir);
+    // Prefer slug-based lookup (owner/repo from Hive's repos.fullName),
+    // falling back to filesystem path for backward compatibility.
+    let project: import("@prism/core").Project | null | undefined = null;
+
+    if (task.repoId) {
+      try {
+        const repo = await repoQueries.getById(task.repoId);
+        if (repo?.fullName) {
+          project = await prism.getProjectBySlug(repo.fullName);
+        }
+      } catch (err) {
+        logger.warn({ taskId: task.id, err }, "Prism enricher: slug lookup failed, trying path fallback");
+      }
+    }
+
+    if (!project) {
+      project = await prism.getProjectByPath(repoDir);
+    }
+
     if (!project) {
       logger.info({ repoDir }, "Prism enricher: no project found for repo path, skipping");
       return { data: {}, durationMs: Date.now() - startTime };

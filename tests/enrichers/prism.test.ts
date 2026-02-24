@@ -8,6 +8,7 @@ const DUMMY_TASK = {
   id: 1,
   title: "Fix authentication bug",
   body: "The login flow breaks when using SSO tokens",
+  repoId: 5,
 } as unknown as TaskRow;
 
 const DEFAULT_CONFIG: EnricherConfig = { enabled: true };
@@ -41,6 +42,7 @@ function restoreEnv(): void {
 // the enricher picks up our stubs.
 const mockSetActiveConnectionString = vi.fn();
 const mockGetProjectByPath = vi.fn();
+const mockGetProjectBySlug = vi.fn();
 const mockCreateEmbedder = vi.fn();
 const mockSimpleSimilaritySearch = vi.fn();
 const mockGetSummariesByLevel = vi.fn();
@@ -49,10 +51,17 @@ const mockGetFindingsByProjectId = vi.fn();
 vi.mock("@prism/core", () => ({
   setActiveConnectionString: mockSetActiveConnectionString,
   getProjectByPath: mockGetProjectByPath,
+  getProjectBySlug: mockGetProjectBySlug,
   createEmbedder: mockCreateEmbedder,
   simpleSimilaritySearch: mockSimpleSimilaritySearch,
   getSummariesByLevel: mockGetSummariesByLevel,
   getFindingsByProjectId: mockGetFindingsByProjectId,
+}));
+
+const mockGetById = vi.fn();
+
+vi.mock("../../src/db/queries/repos.js", () => ({
+  getById: (...args: unknown[]) => mockGetById(...args),
 }));
 
 vi.mock("../../src/domain/autonomous-config.js", () => ({
@@ -100,6 +109,8 @@ describe("prismEnricher", () => {
 
   it("skips when no Prism project found for repo path", async () => {
     setEnv("PRISM_DATABASE_URL", "postgres://localhost/prism");
+    mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
+    mockGetProjectBySlug.mockResolvedValue(undefined);
     mockGetProjectByPath.mockResolvedValue(undefined);
 
     const enricher = await getEnricher();
@@ -107,12 +118,14 @@ describe("prismEnricher", () => {
 
     expect(result.data).toEqual({});
     expect(mockSetActiveConnectionString).toHaveBeenCalledWith("postgres://localhost/prism");
+    expect(mockGetProjectBySlug).toHaveBeenCalledWith("org/repo");
     expect(mockGetProjectByPath).toHaveBeenCalledWith("/tmp/repo");
   });
 
   it("skips when project is not indexed", async () => {
     setEnv("PRISM_DATABASE_URL", "postgres://localhost/prism");
-    mockGetProjectByPath.mockResolvedValue({
+    mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
+    mockGetProjectBySlug.mockResolvedValue({
       id: 1,
       indexStatus: "pending",
     });
@@ -126,7 +139,8 @@ describe("prismEnricher", () => {
   it("returns full enrichment data on happy path", async () => {
     setEnv("PRISM_DATABASE_URL", "postgres://localhost/prism");
 
-    mockGetProjectByPath.mockResolvedValue({
+    mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
+    mockGetProjectBySlug.mockResolvedValue({
       id: 42,
       indexStatus: "completed",
     });
@@ -227,7 +241,8 @@ describe("prismEnricher", () => {
   it("continues with summaries/findings when semantic search fails", async () => {
     setEnv("PRISM_DATABASE_URL", "postgres://localhost/prism");
 
-    mockGetProjectByPath.mockResolvedValue({
+    mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
+    mockGetProjectBySlug.mockResolvedValue({
       id: 42,
       indexStatus: "completed",
     });
@@ -269,7 +284,8 @@ describe("prismEnricher", () => {
   it("works with partial index status", async () => {
     setEnv("PRISM_DATABASE_URL", "postgres://localhost/prism");
 
-    mockGetProjectByPath.mockResolvedValue({
+    mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
+    mockGetProjectBySlug.mockResolvedValue({
       id: 10,
       indexStatus: "partial",
     });
@@ -295,7 +311,8 @@ describe("prismEnricher", () => {
     setEnv("PRISM_EMBEDDING_PROVIDER", "openai");
     setEnv("PRISM_EMBEDDING_MODEL", "text-embedding-3-small");
 
-    mockGetProjectByPath.mockResolvedValue({
+    mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
+    mockGetProjectBySlug.mockResolvedValue({
       id: 1,
       indexStatus: "completed",
     });

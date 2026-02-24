@@ -7,6 +7,7 @@ declare module "@prism/core" {
   export interface Project {
     id: string;
     indexStatus?: string;
+    slug?: string | null;
     [key: string]: unknown;
   }
 
@@ -47,6 +48,7 @@ declare module "@prism/core" {
 
   export function setActiveConnectionString(url: string): void;
   export function getProjectByPath(path: string): Promise<Project | null>;
+  export function getProjectBySlug(slug: string): Promise<Project | null>;
   export function runPipeline(project: Project, options?: PipelineOptions): Promise<void>;
   export function createEmbedder(options?: Record<string, unknown>): Embedder;
   export function simpleSimilaritySearch(
