@@ -41,6 +41,12 @@ export interface LlmUsage {
   outputTokens: number;
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
+  /** Provider type that produced this usage record. */
+  providerType: string;
+  /** Azure AI Foundry endpoint, if applicable. */
+  endpoint?: string;
+  /** Azure deployment name, if applicable. */
+  deploymentName?: string;
 }
 
 export interface LlmResponse {
@@ -111,8 +117,9 @@ function buildAnthropicClient(
         text,
         model: response.model,
         usage: {
-          inputTokens: u.input_tokens,
-          outputTokens: u.output_tokens,
+          providerType: "anthropic",
+          inputTokens: u.input_tokens ?? 0,
+          outputTokens: u.output_tokens ?? 0,
           cacheCreationInputTokens: u.cache_creation_input_tokens || undefined,
           cacheReadInputTokens: u.cache_read_input_tokens || undefined,
         },
@@ -179,6 +186,9 @@ function buildAzureOpenAIClient(
         text,
         model: json.model ?? model,
         usage: {
+          providerType: "azure-openai",
+          endpoint: provider.endpoint,
+          deploymentName: provider.deploymentName,
           inputTokens: json.usage?.prompt_tokens ?? 0,
           outputTokens: json.usage?.completion_tokens ?? 0,
         },
@@ -240,8 +250,11 @@ function buildAzureAnthropicClient(
         text,
         model: response.model,
         usage: {
-          inputTokens: u.input_tokens,
-          outputTokens: u.output_tokens,
+          providerType: "azure-anthropic",
+          endpoint: provider.endpoint,
+          deploymentName: provider.deploymentName,
+          inputTokens: u.input_tokens ?? 0,
+          outputTokens: u.output_tokens ?? 0,
           cacheCreationInputTokens: u.cache_creation_input_tokens || undefined,
           cacheReadInputTokens: u.cache_read_input_tokens || undefined,
         },

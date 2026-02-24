@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  normaliseAnthropicUsage,
+  normaliseOpenAIUsage,
+} from "../../../src/db/queries/code-reviews.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -297,5 +301,172 @@ describe("createLlmClient", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       createLlmClient({ type: "unknown-future-type" } as any),
     ).toThrow("Unknown provider type");
+  });
+
+  // ── usage normalisation (providerType metadata) ────────────────────────
+
+  describe("anthropic sendMessage usage contains providerType", () => {
+    it("returns providerType=anthropic in usage", async () => {
+      mockMessagesCreate.mockResolvedValue(fakeAnthropicResponse("pong"));
+      const client = createLlmClient({ type: "anthropic", model: "claude-haiku-4-5" });
+      const result = await client.sendMessage({
+        messages: [{ role: "user", content: "ping" }],
+      });
+      expect(result.usage.providerType).toBe("anthropic");
+      expect(result.usage.endpoint).toBeUndefined();
+      expect(result.usage.deploymentName).toBeUndefined();
+    });
+  });
+
+  describe("azure-openai sendMessage usage contains providerType and deployment", () => {
+    it("returns providerType=azure-openai with endpoint and deploymentName", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => fakeAzureOpenAIResponse("hi", "gpt-4o"),
+      });
+      const provider = {
+        type: "azure-openai" as const,
+        endpoint: "https://my-hub.openai.azure.com",
+        deploymentName: "gpt-4o-deploy",
+        apiKey: "az-key",
+        model: "gpt-4o",
+      };
+      const client = createLlmClient(provider);
+      const result = await client.sendMessage({
+        messages: [{ role: "user", content: "hi" }],
+      });
+      expect(result.usage.providerType).toBe("azure-openai");
+      expect(result.usage.endpoint).toBe("https://my-hub.openai.azure.com");
+      expect(result.usage.deploymentName).toBe("gpt-4o-deploy");
+      // OpenAI tokens mapped correctly
+      expect(result.usage.inputTokens).toBe(8);
+      expect(result.usage.outputTokens).toBe(4);
+    });
+  });
+
+  describe("azure-anthropic sendMessage usage contains providerType and deployment", () => {
+    it("returns providerType=azure-anthropic with endpoint and deploymentName", async () => {
+      mockMessagesCreate.mockResolvedValue(fakeAnthropicResponse("ok"));
+      const provider = {
+        type: "azure-anthropic" as const,
+        endpoint: "https://my-hub.services.ai.azure.com",
+        deploymentName: "claude-haiku-4-5",
+        apiKey: "az-ant-key",
+        model: "claude-haiku-4-5",
+      };
+      const client = createLlmClient(provider);
+      const result = await client.sendMessage({
+        messages: [{ role: "user", content: "hi" }],
+      });
+      expect(result.usage.providerType).toBe("azure-anthropic");
+      expect(result.usage.endpoint).toBe("https://my-hub.services.ai.azure.com");
+      expect(result.usage.deploymentName).toBe("claude-haiku-4-5");
+      expect(result.usage.inputTokens).toBe(10);
+      expect(result.usage.outputTokens).toBe(5);
+    });
+  });
+});
+
+// ── normaliseAnthropicUsage / normaliseOpenAIUsage ───────────────────────────
+
+describe("normaliseAnthropicUsage", () => {
+  const baseMeta = {
+    providerType: "anthropic",
+    model: "claude-haiku-4-5",
+    agent: "worker",
+  };
+
+  it("maps input_tokens and output_tokens to the standard fields", () => {
+    const record = normaliseAnthropicUsage(
+      { input_tokens: 100, output_tokens: 50 },
+      baseMeta,
+    );
+    expect(record.inputTokens).toBe(100);
+    expect(record.outputTokens).toBe(50);
+  });
+
+  it("maps cache tokens when present", () => {
+    const record = normaliseAnthropicUsage(
+      {
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_creation_input_tokens: 20,
+        cache_read_input_tokens: 10,
+      },
+      baseMeta,
+    );
+    expect(record.cacheCreationInputTokens).toBe(20);
+    expect(record.cacheReadInputTokens).toBe(10);
+  });
+
+  it("leaves cache tokens undefined when zero", () => {
+    const record = normaliseAnthropicUsage(
+      { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      baseMeta,
+    );
+    expect(record.cacheCreationInputTokens).toBeUndefined();
+    expect(record.cacheReadInputTokens).toBeUndefined();
+  });
+
+  it("defaults to 0 when tokens are missing", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const record = normaliseAnthropicUsage({} as any, baseMeta);
+    expect(record.inputTokens).toBe(0);
+    expect(record.outputTokens).toBe(0);
+  });
+
+  it("preserves provider metadata on the record", () => {
+    const record = normaliseAnthropicUsage(
+      { input_tokens: 1, output_tokens: 1 },
+      { ...baseMeta, endpoint: undefined, deploymentName: undefined },
+    );
+    expect(record.providerType).toBe("anthropic");
+    expect(record.model).toBe("claude-haiku-4-5");
+    expect(record.agent).toBe("worker");
+  });
+});
+
+describe("normaliseOpenAIUsage", () => {
+  const baseMeta = {
+    providerType: "azure-openai",
+    endpoint: "https://my-hub.openai.azure.com",
+    deploymentName: "gpt-4o-deploy",
+    model: "gpt-4o",
+    agent: "worker",
+  };
+
+  it("maps prompt_tokens → inputTokens and completion_tokens → outputTokens", () => {
+    const record = normaliseOpenAIUsage(
+      { prompt_tokens: 200, completion_tokens: 80 },
+      baseMeta,
+    );
+    expect(record.inputTokens).toBe(200);
+    expect(record.outputTokens).toBe(80);
+  });
+
+  it("defaults to 0 when tokens are missing", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const record = normaliseOpenAIUsage({} as any, baseMeta);
+    expect(record.inputTokens).toBe(0);
+    expect(record.outputTokens).toBe(0);
+  });
+
+  it("preserves provider metadata on the record", () => {
+    const record = normaliseOpenAIUsage(
+      { prompt_tokens: 10, completion_tokens: 5 },
+      baseMeta,
+    );
+    expect(record.providerType).toBe("azure-openai");
+    expect(record.endpoint).toBe("https://my-hub.openai.azure.com");
+    expect(record.deploymentName).toBe("gpt-4o-deploy");
+  });
+
+  it("does not include cache token fields (OpenAI has no cache tokens)", () => {
+    const record = normaliseOpenAIUsage(
+      { prompt_tokens: 10, completion_tokens: 5 },
+      baseMeta,
+    );
+    expect(record.cacheCreationInputTokens).toBeUndefined();
+    expect(record.cacheReadInputTokens).toBeUndefined();
   });
 });

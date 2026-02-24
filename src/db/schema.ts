@@ -150,6 +150,40 @@ export const costs = pgTable(
   ],
 );
 
+// ── llm_usage ──────────────────────────────────────────────────────────────
+//
+// Fine-grained per-call LLM usage records.  One row per `sendMessage` call,
+// capturing token counts normalised from either Anthropic or OpenAI response
+// shapes, plus provider metadata needed for Azure AI Foundry cost attribution.
+
+export const llmUsage = pgTable(
+  "llm_usage",
+  {
+    id: serial("id").primaryKey(),
+    taskId: text("task_id").references(() => tasks.id),
+    agent: text("agent").notNull(),
+    model: text("model").notNull(),
+    /** One of: 'anthropic' | 'azure-openai' | 'azure-anthropic' */
+    providerType: text("provider_type").notNull(),
+    /** Azure AI Foundry endpoint URL, null for direct Anthropic. */
+    endpoint: text("endpoint"),
+    /** Azure deployment name, null for direct Anthropic. */
+    deploymentName: text("deployment_name"),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    cacheCreationInputTokens: integer("cache_creation_input_tokens"),
+    cacheReadInputTokens: integer("cache_read_input_tokens"),
+    /** Estimated cost in USD (0 when per-token pricing is not configured). */
+    costUsd: numeric("cost_usd", { precision: 10, scale: 6 }).notNull().default("0"),
+    createdAt: timestamp("created_at", tz).defaultNow(),
+  },
+  (t) => [
+    index("llm_usage_task_idx").on(t.taskId),
+    index("llm_usage_provider_idx").on(t.providerType),
+    index("llm_usage_created_idx").on(t.createdAt),
+  ],
+);
+
 // ── gate_decisions ─────────────────────────────────────────────────────────
 
 export const gateDecisions = pgTable("gate_decisions", {
@@ -357,3 +391,4 @@ export type LearningRow = InferSelectModel<typeof learnings>;
 export type LearningEventRow = InferSelectModel<typeof learningEvents>;
 export type UserRepoAccessRow = InferSelectModel<typeof userRepoAccess>;
 export type EnrichmentRunRow = InferSelectModel<typeof enrichmentRuns>;
+export type LlmUsageRow = InferSelectModel<typeof llmUsage>;
