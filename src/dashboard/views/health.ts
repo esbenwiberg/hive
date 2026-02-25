@@ -1,6 +1,7 @@
 import type { SessionUser } from "../../domain/types.js";
 import { statCard, card, button, badge, escapeHtml } from "./components.js";
 import { layout } from "./layout.js";
+import type { DiskItem, CleanResult } from "../../execution/disk-cleaner.js";
 
 export interface SystemStats {
   cpuPercent: number;
@@ -108,6 +109,11 @@ export function healthPage(stats: SystemStats, user: SessionUser): string {
         <span id="upgrade-spinner" class="htmx-indicator ml-3 text-sm text-slate-400">Triggering...</span>
       `, { title: "Upgrade" })}
     </div>
+
+    ${user.role === "admin" ? `<!-- Disk Cleaner (admin only) -->
+    <div class="max-w-3xl">
+      ${diskCleanerSection()}
+    </div>` : ""}
   </div>`;
 
   return layout("Health", content, user);
@@ -119,6 +125,185 @@ export function upgradeSuccess(): string {
 
 export function upgradeError(message: string): string {
   return `<p class="text-sm text-red-400 mt-3">${badge("Error", "red")} ${escapeHtml(message)}</p>`;
+}
+
+// ─── Disk Cleaner helpers ─────────────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
+  if (bytes >= 1_024) return `${(bytes / 1_024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+function formatAge(createdAt: Date): string {
+  const diffMs = Date.now() - new Date(createdAt).getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  if (diffSecs < 60) return `${diffSecs} seconds ago`;
+  const diffMins = Math.floor(diffSecs / 60);
+  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? "" : "s"} ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+}
+
+/** Disk cleaner card shown only to admin users on the health page. */
+function diskCleanerSection(): string {
+  return card(`
+    <p class="text-sm text-slate-400 mb-4">
+      Scan the filesystem for orphan worktrees, stale preview artefacts, and
+      leftover temp directories. Select items to remove and free up disk space.
+    </p>
+
+    <div class="flex items-center gap-3 mb-4">
+      ${button("Scan Disk", {
+        variant: "secondary",
+        attrs: `hx-post="/health/disk-scan"
+          hx-target="#disk-scan-results"
+          hx-swap="innerHTML"
+          hx-indicator="#disk-scan-spinner"`,
+      })}
+      <span id="disk-scan-spinner" class="htmx-indicator text-sm text-slate-400">Scanning…</span>
+    </div>
+
+    <div id="disk-scan-results"></div>
+
+    <div class="mt-4">
+      ${button("Clean Selected", {
+        variant: "primary",
+        attrs: `id="disk-clean-btn"
+          disabled
+          hx-post="/health/disk-clean"
+          hx-target="#disk-scan-results"
+          hx-swap="innerHTML"
+          hx-include=".disk-item-checkbox:checked"
+          hx-indicator="#disk-scan-spinner"`,
+      })}
+    </div>
+
+    <script>
+      (function () {
+        function updateCleanBtn() {
+          var checked = document.querySelectorAll('.disk-item-checkbox:checked').length;
+          var btn = document.getElementById('disk-clean-btn');
+          if (!btn) return;
+          if (checked > 0) {
+            btn.removeAttribute('disabled');
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+          } else {
+            btn.setAttribute('disabled', '');
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+          }
+        }
+
+        function attachListeners() {
+          document.querySelectorAll('.disk-item-checkbox').forEach(function(cb) {
+            cb.removeEventListener('change', updateCleanBtn);
+            cb.addEventListener('change', updateCleanBtn);
+          });
+          var selectAll = document.getElementById('disk-select-all');
+          if (selectAll) {
+            selectAll.removeEventListener('change', onSelectAll);
+            selectAll.addEventListener('change', onSelectAll);
+          }
+          updateCleanBtn();
+        }
+
+        function onSelectAll() {
+          var checked = this.checked;
+          document.querySelectorAll('.disk-item-checkbox').forEach(function(cb) {
+            cb.checked = checked;
+          });
+          updateCleanBtn();
+        }
+
+        document.addEventListener('htmx:afterSwap', function(e) {
+          if (e.detail && e.detail.target && e.detail.target.id === 'disk-scan-results') {
+            attachListeners();
+          }
+        });
+      })();
+    </script>
+  `, { title: "Disk Cleaner" });
+}
+
+/** Renders the scan results table (or empty-state message) as an HTMX partial. */
+export function diskScanPartial(items: DiskItem[]): string {
+  if (items.length === 0) {
+    return `<p class="text-sm text-emerald-400 py-2">No orphan items found — disk is clean ✓</p>`;
+  }
+
+  const rows = items
+    .map((item, i) => {
+      const shortPath =
+        item.path.length > 60 ? `…${item.path.slice(-57)}` : item.path;
+      const typeBadgeColor =
+        item.type === "worktree" ? "blue" : item.type === "preview" ? "amber" : "slate";
+      return `<tr class="border-t border-slate-700 hover:bg-slate-800/50">
+        <td class="py-2 px-3">
+          <input
+            type="checkbox"
+            class="disk-item-checkbox accent-violet-500"
+            name="paths"
+            value="${escapeHtml(item.path)}"
+            id="disk-item-${i}"
+            aria-label="Select ${escapeHtml(item.path)}"
+          />
+        </td>
+        <td class="py-2 px-3">${badge(item.type, typeBadgeColor)}</td>
+        <td class="py-2 px-3 font-mono text-xs text-slate-300 max-w-xs truncate"
+            title="${escapeHtml(item.path)}">${escapeHtml(shortPath)}</td>
+        <td class="py-2 px-3 text-sm text-slate-300 whitespace-nowrap">${escapeHtml(formatBytes(item.sizeBytes))}</td>
+        <td class="py-2 px-3 text-sm text-slate-400 whitespace-nowrap">${escapeHtml(formatAge(item.createdAt))}</td>
+      </tr>`;
+    })
+    .join("");
+
+  return `<div class="overflow-x-auto">
+    <table class="w-full text-left text-sm">
+      <thead>
+        <tr class="text-slate-400 text-xs uppercase tracking-wide">
+          <th class="py-2 px-3">
+            <input
+              type="checkbox"
+              id="disk-select-all"
+              class="accent-violet-500"
+              aria-label="Select all"
+            />
+          </th>
+          <th class="py-2 px-3">Type</th>
+          <th class="py-2 px-3">Path</th>
+          <th class="py-2 px-3">Size</th>
+          <th class="py-2 px-3">Age</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+/** Renders the clean result summary as an HTMX partial. */
+export function diskCleanPartial(result: CleanResult): string {
+  const parts: string[] = [];
+
+  parts.push(
+    `<p class="text-sm text-emerald-400">${badge("Done", "emerald")} Removed ${result.removedCount} item${result.removedCount === 1 ? "" : "s"}, freed ${formatBytes(result.freedBytes)}.</p>`,
+  );
+
+  if (result.errors.length > 0) {
+    const errorItems = result.errors
+      .map((e) => `<li class="font-mono text-xs">${escapeHtml(e)}</li>`)
+      .join("");
+    parts.push(
+      `<div class="mt-2 text-red-400">
+        <p class="text-sm font-medium">Errors (${result.errors.length}):</p>
+        <ul class="list-disc list-inside mt-1 space-y-1">${errorItems}</ul>
+      </div>`,
+    );
+  }
+
+  return parts.join("");
 }
 
 export function statsPartial(stats: SystemStats): string {
