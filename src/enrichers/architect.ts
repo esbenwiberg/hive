@@ -5,6 +5,7 @@ import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js
 import { loadPrompt } from "../prompt-cache.js";
 import { retrieveRelevantLearnings, buildRetrievalTags } from "../db/queries/learnings.js";
 import { getById as getRepoById } from "../db/queries/repos.js";
+import { parseBlueprint as parseBlueprintMarkdown } from "../blueprints/parser.js";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
 import type { BlueprintTaskContext } from "../domain/types.js";
@@ -118,6 +119,19 @@ export function parseBlueprint(raw: string, hasAnswers = false): ArchitectBluepr
 }
 
 /**
+ * Infers task size from the number of milestones in a user-supplied blueprint.
+ *
+ * 0 milestones → 'small'
+ * 1–2 milestones → 'medium'
+ * 3+ milestones → 'large'
+ */
+export function inferSizeFromMilestoneCount(count: number): "small" | "medium" | "large" {
+  if (count === 0) return "small";
+  if (count <= 2) return "medium";
+  return "large";
+}
+
+/**
  * Builds the user prompt sent to Claude alongside the architect system prompt.
  *
  * When `blueprintContext` is provided the prompt signals to the architect that
@@ -149,6 +163,14 @@ function buildUserPrompt(
   // When the task was created from a user-supplied blueprint, surface it so
   // the architect can validate and refine rather than generate from scratch.
   if (blueprintContext) {
+    const inferredSize = blueprintContext.inferredSize ?? "medium";
+    const milestoneCount = blueprintContext.milestoneCount ?? 0;
+
+    // Override the size shown at the top of the prompt with the inferred value
+    // (the TaskRow may not have been updated yet when the enricher runs).
+    sections[0] = `Task ID: ${task.id}`;
+    sections[1] = `Size (inferred from blueprint — ${milestoneCount} milestone(s)): ${inferredSize}`;
+
     sections.push(
       "",
       "<blueprint_mode>",
@@ -160,11 +182,16 @@ function buildUserPrompt(
       "  3. If you spot gaps, ambiguities, or risks, surface them as clarification",
       "     questions rather than silently discarding the user's intent.",
       "  4. Do NOT ask questions that the blueprint has already answered.",
+      `  5. Inferred task size: ${inferredSize} (${milestoneCount} milestone(s)).`,
       "</blueprint_mode>",
       "",
-      "<user_supplied_blueprint>",
+      "<user_supplied_blueprint_markdown>",
       blueprintContext.rawMarkdown,
-      "</user_supplied_blueprint>",
+      "</user_supplied_blueprint_markdown>",
+      "",
+      "<user_supplied_blueprint_parsed>",
+      JSON.stringify(blueprintContext.parsed ?? blueprintContext.blueprint, null, 2),
+      "</user_supplied_blueprint_parsed>",
     );
   }
 
@@ -265,7 +292,47 @@ export const architectEnricher: Enricher = {
       logger.warn({ taskId: task.id, err }, "Architect: failed to retrieve learnings (non-blocking)");
     }
 
-    const userPrompt = buildUserPrompt(task, priorResults, clarificationAnswers, clarificationQuestions, learningsStr);
+    // ── Blueprint validation mode ─────────────────────────────────────────
+    // When the task was created from a user-supplied blueprint, parse and
+    // validate it before calling the LLM. If invalid, throw immediately.
+    let blueprintContext: BlueprintTaskContext | undefined;
+
+    if (task.blueprintSource === "user" && task.userBlueprintMarkdown) {
+      const parseResult = parseBlueprintMarkdown(task.userBlueprintMarkdown);
+
+      if (!parseResult.ok) {
+        const errorLines = parseResult.errors
+          .map((e) => `  - [${e.field}] ${e.message}`)
+          .join("\n");
+        throw new Error(
+          `User-supplied blueprint failed validation with ${parseResult.errors.length} error(s):\n${errorLines}`,
+        );
+      }
+
+      const parsedBp = parseResult.blueprint;
+      const milestoneCount = parsedBp.milestones?.length ?? 0;
+
+      blueprintContext = {
+        rawMarkdown: task.userBlueprintMarkdown,
+        parsed: parsedBp,
+        milestoneCount,
+        inferredSize: inferSizeFromMilestoneCount(milestoneCount),
+      };
+
+      logger.info(
+        { taskId: task.id, milestoneCount, inferredSize: blueprintContext.inferredSize },
+        "Architect enricher: user blueprint validated, entering validation mode",
+      );
+    }
+
+    const userPrompt = buildUserPrompt(
+      task,
+      priorResults,
+      clarificationAnswers,
+      clarificationQuestions,
+      learningsStr,
+      blueprintContext,
+    );
 
     // ── Call Claude ───────────────────────────────────────────────────────
     const response = await callClaude({
@@ -277,6 +344,13 @@ export const architectEnricher: Enricher = {
     // ── Parse response (skip clarification if answers already provided) ──
     const hasAnswers = !!clarificationAnswers && clarificationAnswers.length > 0;
     const blueprint = parseBlueprint(response.text, hasAnswers);
+
+    // When operating in blueprint validation mode, stamp the inferred size
+    // onto the blueprint so that downstream consumers can use it without
+    // needing to know the blueprint source.
+    if (blueprintContext?.inferredSize) {
+      (blueprint as unknown as Record<string, unknown>).inferredSize = blueprintContext.inferredSize;
+    }
 
     // ── Cost tracking ────────────────────────────────────────────────────
     const costUsd = estimateCostUsd(
@@ -298,6 +372,8 @@ export const architectEnricher: Enricher = {
         hasMilestones: !!blueprint.milestones,
         milestoneCount: blueprint.milestones?.length ?? 0,
         awaitingInput: blueprint.awaitingInput ?? false,
+        blueprintSource: task.blueprintSource ?? "architect",
+        blueprintInferredSize: blueprintContext?.inferredSize,
         durationMs,
       },
       "Architect enricher completed",

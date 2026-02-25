@@ -242,4 +242,10 @@ export interface BlueprintTaskContext {
   rawMarkdown: string;
   /** The validated, parsed blueprint (only present when parsing succeeded). */
   blueprint?: Blueprint;
+  /** Alias for `blueprint` — the successfully parsed blueprint object. */
+  parsed?: Blueprint;
+  /** Number of milestones found in the blueprint. */
+  milestoneCount?: number;
+  /** Task size inferred from the milestone count. */
+  inferredSize?: "small" | "medium" | "large";
 }
