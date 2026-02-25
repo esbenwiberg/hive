@@ -33,6 +33,7 @@ import { db } from "../../db/connection.js";
 import { tasks as tasksTable } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 import logger from "../../logger.js";
+import { parseMarkdownBlueprint, type Blueprint } from "../../enrichers/external-blueprint.js";
 
 const router = Router();
 
@@ -136,7 +137,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
 
 router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { title, body, repoId, type, size, visibility, skipPreview } = req.body;
+    const { title, body, repoId, type, size, visibility, skipPreview, externalBlueprint } = req.body;
     const user = req.session.user!;
 
     if (!title || typeof title !== "string" || title.trim().length === 0) {
@@ -207,6 +208,22 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       return;
     }
 
+    // Handle external blueprint submission
+    const rawBlueprint = typeof externalBlueprint === "string" ? externalBlueprint.trim() : "";
+    let parsedBlueprint: Blueprint | undefined;
+    let blueprintSource: "external" | undefined;
+
+    if (rawBlueprint.length > 0) {
+      const parseResult = parseMarkdownBlueprint(rawBlueprint);
+      if (!parseResult.ok) {
+        const errors = parseResult.errors.map((e) => `• ${e}`).join("\n");
+        res.status(400).send(`Blueprint validation failed:\n${errors}`);
+        return;
+      }
+      parsedBlueprint = parseResult.blueprint;
+      blueprintSource = "external";
+    }
+
     await taskQueries.create({
       title: title.trim(),
       body: trimmedBody,
@@ -217,6 +234,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       createdBy: user.id,
       visibility: resolvedVisibility,
       skipPreview: skipPreview === "true" || skipPreview === true,
+      ...(blueprintSource ? { blueprintSource, externalBlueprint: parsedBlueprint as unknown as Record<string, unknown> } : {}),
     });
 
     // Return updated task list

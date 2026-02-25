@@ -2,6 +2,7 @@
 
 import type { SessionUser, TaskFilters } from "../../domain/types.js";
 import type { TaskRow, RepoRow, TaskEventRow, CodeReviewRow, ActiveAgentRow, EnrichmentRunRow } from "../../db/schema.js";
+import { BLUEPRINT_MARKDOWN_TEMPLATE } from "../../enrichers/external-blueprint.js";
 import type { TaskCostBreakdownRow } from "../../db/queries/costs.js";
 import { getAvailableActions, getAllowedTargets } from "../../domain/state-machine.js";
 import {
@@ -1548,6 +1549,60 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         <span class="text-xs text-slate-500">(don't spin up a preview environment)</span>
       </label>
     </div>
+
+    <!-- Blueprint toggle -->
+    <div class="border-t border-slate-700 pt-4">
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" id="blueprint-toggle"
+          class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400 focus:ring-offset-slate-900"
+          onchange="toggleBlueprintSection(this.checked)" />
+        <span class="text-sm text-slate-300">I have a blueprint</span>
+        <span class="text-xs text-slate-500">(paste a Markdown blueprint to skip architect generation)</span>
+      </label>
+    </div>
+
+    <!-- Blueprint section (hidden by default) -->
+    <div id="blueprint-section" class="hidden space-y-3">
+      <div class="flex items-center justify-between">
+        <label class="block text-sm font-medium text-slate-300" for="externalBlueprint">Blueprint (Markdown)</label>
+        <button type="button"
+          onclick="toggleBlueprintTemplate()"
+          class="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2">
+          Show template
+        </button>
+      </div>
+
+      <!-- Inline validation error -->
+      <div id="blueprint-error" class="hidden rounded-md border border-red-600 bg-red-950/40 px-3 py-2 text-sm text-red-400"></div>
+
+      <!-- Template block (hidden by default) -->
+      <div id="blueprint-template" class="hidden">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs text-slate-400 font-medium">Blueprint template</span>
+          <button type="button"
+            onclick="copyBlueprintTemplate()"
+            class="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.688a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+            </svg>
+            Copy
+          </button>
+        </div>
+        <pre id="blueprint-template-content"
+          class="max-h-64 overflow-y-auto rounded-md border border-slate-600 bg-slate-900 p-3 text-xs text-slate-300 whitespace-pre-wrap font-mono">${escapeHtml(BLUEPRINT_MARKDOWN_TEMPLATE)}</pre>
+      </div>
+
+      <textarea
+        id="externalBlueprint"
+        name="externalBlueprint"
+        rows="10"
+        placeholder="Paste your Markdown blueprint here…"
+        class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+        oninput="clearBlueprintError()"
+        disabled></textarea>
+    </div>
+
     <script>
       var _previewRepoIds = ${JSON.stringify(previewRepoIds)};
       function toggleSkipPreview(repoId) {
@@ -1555,6 +1610,54 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         if (_previewRepoIds.includes(repoId)) { wrap.classList.remove('hidden'); }
         else { wrap.classList.add('hidden'); wrap.querySelector('input').checked = false; }
       }
+      function toggleBlueprintSection(checked) {
+        var section = document.getElementById('blueprint-section');
+        var ta = document.getElementById('externalBlueprint');
+        var tmpl = document.getElementById('blueprint-template');
+        var err = document.getElementById('blueprint-error');
+        if (checked) {
+          section.classList.remove('hidden');
+          ta.disabled = false;
+        } else {
+          section.classList.add('hidden');
+          ta.disabled = true;
+          ta.value = '';
+          tmpl.classList.add('hidden');
+          err.classList.add('hidden');
+          err.textContent = '';
+        }
+      }
+      function toggleBlueprintTemplate() {
+        var tmpl = document.getElementById('blueprint-template');
+        tmpl.classList.toggle('hidden');
+      }
+      function copyBlueprintTemplate() {
+        var content = document.getElementById('blueprint-template-content').textContent;
+        navigator.clipboard.writeText(content).catch(function() {
+          var ta = document.createElement('textarea');
+          ta.value = content;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        });
+      }
+      function clearBlueprintError() {
+        var err = document.getElementById('blueprint-error');
+        err.classList.add('hidden');
+        err.textContent = '';
+      }
+      // Client-side validation before HTMX submit
+      document.addEventListener('htmx:configRequest', function(evt) {
+        var toggle = document.getElementById('blueprint-toggle');
+        if (!toggle || !toggle.checked) return;
+        var ta = document.getElementById('externalBlueprint');
+        if (!ta || ta.value.trim() !== '') return;
+        evt.preventDefault();
+        var err = document.getElementById('blueprint-error');
+        err.textContent = 'Please paste a blueprint or uncheck the "I have a blueprint" option.';
+        err.classList.remove('hidden');
+      });
     </script>
 
     <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">
