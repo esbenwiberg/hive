@@ -1,42 +1,11 @@
 import type { Blueprint, BlueprintMilestone } from "../domain/types.js";
 
-/**
- * Canonical Markdown template for external blueprints.
- * Users copy this and fill in their approach and milestones.
- */
-export const BLUEPRINT_MARKDOWN_TEMPLATE = `# Approach
-
-Describe the overall strategy and approach to solving this task.
-
-## Milestones
-
-### Milestone 1: Title
-
-**Description:**
-Clear description of what this milestone accomplishes.
-
-**Files to Modify:**
-- src/file1.ts
-- src/file2.ts
-
-**Acceptance Criteria:**
-- Clear, testable criterion 1
-- Clear, testable criterion 2
-
-### Milestone 2: Title
-
-**Description:**
-Clear description of what this milestone accomplishes.
-
-**Files to Modify:**
-- src/file3.ts
-
-**Acceptance Criteria:**
-- Clear, testable criterion 1
-`;
+// Re-export Blueprint type for convenience
+export type { Blueprint } from "../domain/types.js";
 
 /**
- * Result of parsing and validating a Markdown blueprint.
+ * Result of parsing a Markdown blueprint.
+ * Either a successfully parsed Blueprint or a list of validation errors.
  */
 export interface ParseResult {
   ok: boolean;
@@ -45,89 +14,175 @@ export interface ParseResult {
 }
 
 /**
- * Parses a Markdown blueprint string into the canonical JSON shape.
- * Returns either a valid Blueprint or a list of human-readable errors.
+ * The canonical Markdown template for external blueprints.
+ * Users should use this as a reference when submitting blueprints directly.
+ */
+export const BLUEPRINT_MARKDOWN_TEMPLATE = `# Approach
+Provide a clear, high-level implementation strategy. Explain the core idea and why this approach is chosen.
+
+# Milestones
+
+## Milestone 1: First major work unit
+Brief description of what is completed in this milestone.
+
+**Files to modify:**
+- src/example/file1.ts
+- src/example/file2.ts
+
+**Acceptance criteria:**
+- [ ] Acceptance criterion 1
+- [ ] Acceptance criterion 2
+- [ ] Acceptance criterion 3
+
+## Milestone 2: Second major work unit
+Brief description of the next milestone.
+
+**Files to modify:**
+- src/example/file3.ts
+- docs/example.md
+
+**Acceptance criteria:**
+- [ ] Another criterion 1
+- [ ] Another criterion 2
+`;
+
+/**
+ * Parses a Markdown blueprint string into a typed Blueprint object.
  *
- * Expected format:
- * # Approach
- * <approach text>
+ * Validates:
+ * - The `# Approach` section exists and is non-empty
+ * - The `# Milestones` section exists
+ * - Each milestone has: title, description, filesToModify, acceptanceCriteria
+ * - Each milestone's fields are properly formatted
  *
- * ## Milestones
- *
- * ### Milestone <N>: <Title>
- *
- * **Description:**
- * <description>
- *
- * **Files to Modify:**
- * - file1
- * - file2
- *
- * **Acceptance Criteria:**
- * - criterion 1
- * - criterion 2
+ * Returns { ok: true, blueprint } on success.
+ * Returns { ok: false, errors: [...] } on failure with descriptive error messages.
  */
 export function parseMarkdownBlueprint(markdown: string): ParseResult {
+  if (!markdown || typeof markdown !== "string" || markdown.trim().length === 0) {
+    return {
+      ok: false,
+      errors: ["Blueprint cannot be empty"],
+    };
+  }
+
   const errors: string[] = [];
 
-  // Extract approach section (between "# Approach" and "## Milestones")
-  const approachMatch = markdown.match(
-    /^#\s+Approach\s*\n([\s\S]*?)^##\s+Milestones/m,
-  );
-  if (!approachMatch) {
-    errors.push("Missing '# Approach' section or '## Milestones' header");
-    return { ok: false, errors };
-  }
+  // ── Parse approach section ──────────────────────────────────────────────
 
-  const approach = approachMatch[1].trim();
+  const approachMatch = markdown.match(/^#\s+Approach\s*\n([\s\S]*?)(?=^#\s+|$)/m);
+  const approach = approachMatch
+    ? approachMatch[1].trim()
+    : "";
+
   if (!approach) {
-    errors.push("Approach section is empty");
-    return { ok: false, errors };
+    errors.push('Missing or empty "# Approach" section');
   }
 
-  // Extract milestones section (everything after "## Milestones")
-  const milestonesMatch = markdown.match(/^##\s+Milestones\s*\n([\s\S]*)$/m);
+  // ── Parse milestones section ────────────────────────────────────────────
+
+  const milestonesMatch = markdown.match(
+    /^#\s+Milestones\s*\n([\s\S]*?)$/m,
+  );
   if (!milestonesMatch) {
-    errors.push("Missing '## Milestones' section");
+    errors.push('Missing "# Milestones" section');
+  }
+
+  // If we already have critical errors, return early
+  if (errors.length > 0) {
     return { ok: false, errors };
   }
 
-  const milestonesText = milestonesMatch[1];
+  const milestonesText = milestonesMatch ? milestonesMatch[1] : "";
 
-  // Split milestones by "### Milestone"
-  const milestoneBlocks = milestonesText.split(/^###\s+Milestone\s+/m);
-  // First element is empty (before the first milestone), so skip it
-  milestoneBlocks.shift();
+  // Split by milestone headers (## Milestone N)
+  const milestoneBlocks = milestonesText
+    .split(/^##\s+/m)
+    .slice(1); // Skip the empty first element before the first ##
 
   if (milestoneBlocks.length === 0) {
-    errors.push(
-      "No milestones found. Each milestone should start with '### Milestone N: Title'",
-    );
-    return { ok: false, errors };
+    return {
+      ok: false,
+      errors: ['No milestones found under "# Milestones" section'],
+    };
   }
 
   const milestones: BlueprintMilestone[] = [];
 
   for (let i = 0; i < milestoneBlocks.length; i++) {
-    const block = milestoneBlocks[i];
-    const milestoneErrors = parseMilestoneBlock(block, i + 1);
-    if (milestoneErrors.hasError) {
-      errors.push(...milestoneErrors.messages);
+    const blockText = milestoneBlocks[i];
+    const blockNum = i + 1;
+
+    // Extract milestone title (first line)
+    const titleMatch = blockText.match(/^([^\n]+)/);
+    const title = titleMatch ? titleMatch[1].trim() : `Milestone ${blockNum}`;
+
+    if (!title || title.length === 0) {
+      errors.push(`Milestone ${blockNum}: missing or empty title`);
       continue;
     }
-    if (milestoneErrors.milestone) {
-      milestones.push(milestoneErrors.milestone);
+
+    // Extract description (text before "Files to modify:" or "Acceptance criteria:")
+    const descMatch = blockText.match(
+      /^[^\n]+\n([\s\S]*?)(?=\*\*Files to modify:|$)/i,
+    );
+    const description = descMatch
+      ? descMatch[1].trim()
+      : "";
+
+    if (!description) {
+      errors.push(`Milestone ${blockNum} (${title}): missing or empty description`);
+      continue;
     }
+
+    // Extract filesToModify
+    const filesMatch = blockText.match(
+      /\*\*Files to modify:\*\*\s*\n([\s\S]*?)(?=\*\*Acceptance criteria:|$)/i,
+    );
+    const filesText = filesMatch ? filesMatch[1] : "";
+    const filesToModify = filesText
+      .split("\n")
+      .map((line) => line.replace(/^[-*]\s+/, "").trim())
+      .filter((f) => f.length > 0);
+
+    if (filesToModify.length === 0) {
+      errors.push(
+        `Milestone ${blockNum} (${title}): missing or empty "Files to modify" list`,
+      );
+      continue;
+    }
+
+    // Extract acceptanceCriteria
+    const acMatch = blockText.match(
+      /\*\*Acceptance criteria:\*\*\s*\n([\s\S]*?)$/i,
+    );
+    const acText = acMatch ? acMatch[1] : "";
+    const acceptanceCriteria = acText
+      .split("\n")
+      .map((line) => line.replace(/^[-*]\s+\[\s*\]\s+/, "").trim())
+      .filter((c) => c.length > 0);
+
+    if (acceptanceCriteria.length === 0) {
+      errors.push(
+        `Milestone ${blockNum} (${title}): missing or empty "Acceptance criteria" list`,
+      );
+      continue;
+    }
+
+    milestones.push({
+      title,
+      description,
+      filesToModify,
+      acceptanceCriteria,
+    });
   }
 
+  // Return early if we found errors while parsing milestones
   if (errors.length > 0) {
     return { ok: false, errors };
   }
 
-  if (milestones.length === 0) {
-    errors.push("No valid milestones could be parsed");
-    return { ok: false, errors };
-  }
+  // ── Return successful parse ─────────────────────────────────────────────
 
   return {
     ok: true,
@@ -136,121 +191,4 @@ export function parseMarkdownBlueprint(markdown: string): ParseResult {
       milestones,
     },
   };
-}
-
-/**
- * Parses a single milestone block.
- * Returns validation errors and the parsed milestone if successful.
- */
-function parseMilestoneBlock(
-  block: string,
-  index: number,
-): {
-  hasError: boolean;
-  messages: string[];
-  milestone?: BlueprintMilestone;
-} {
-  const errors: string[] = [];
-
-  // Extract title from "N: Title" format
-  const titleMatch = block.match(/^(\d+):\s*(.+)\n/);
-  if (!titleMatch) {
-    errors.push(`Milestone ${index}: Invalid title format. Expected 'N: Title'`);
-    return { hasError: true, messages: errors };
-  }
-
-  const title = titleMatch[2].trim();
-  if (!title) {
-    errors.push(`Milestone ${index}: Title cannot be empty`);
-    return { hasError: true, messages: errors };
-  }
-
-  // Extract description (between "**Description:**" and next section)
-  const descMatch = block.match(
-    /\*\*Description:\*\*\s*\n([\s\S]*?)(?:\*\*Files to Modify:\*\*|$)/,
-  );
-  if (!descMatch) {
-    errors.push(
-      `Milestone '${title}': Missing or malformed '**Description:**' section`,
-    );
-    return { hasError: true, messages: errors };
-  }
-
-  const description = descMatch[1]
-    .trim()
-    .split("\n")
-    .filter((l) => l.trim())
-    .join(" ");
-  if (!description) {
-    errors.push(`Milestone '${title}': Description cannot be empty`);
-    return { hasError: true, messages: errors };
-  }
-
-  // Extract files to modify (bullet points after "**Files to Modify:**")
-  const filesMatch = block.match(
-    /\*\*Files to Modify:\*\*\s*\n([\s\S]*?)(?:\*\*Acceptance Criteria:\*\*|$)/,
-  );
-  if (!filesMatch) {
-    errors.push(
-      `Milestone '${title}': Missing or malformed '**Files to Modify:**' section`,
-    );
-    return { hasError: true, messages: errors };
-  }
-
-  const filesToModify = extractBulletList(filesMatch[1]);
-  if (filesToModify.length === 0) {
-    errors.push(
-      `Milestone '${title}': 'Files to Modify' list cannot be empty. Use bullet points like '- file.ts'`,
-    );
-    return { hasError: true, messages: errors };
-  }
-
-  // Extract acceptance criteria (bullet points after "**Acceptance Criteria:**")
-  const criteriaMatch = block.match(/\*\*Acceptance Criteria:\*\*\s*\n([\s\S]*?)$/);
-  if (!criteriaMatch) {
-    errors.push(
-      `Milestone '${title}': Missing or malformed '**Acceptance Criteria:**' section`,
-    );
-    return { hasError: true, messages: errors };
-  }
-
-  const acceptanceCriteria = extractBulletList(criteriaMatch[1]);
-  if (acceptanceCriteria.length === 0) {
-    errors.push(
-      `Milestone '${title}': 'Acceptance Criteria' cannot be empty. Use bullet points like '- Criterion text'`,
-    );
-    return { hasError: true, messages: errors };
-  }
-
-  return {
-    hasError: false,
-    messages: [],
-    milestone: {
-      title,
-      description,
-      filesToModify,
-      acceptanceCriteria,
-    },
-  };
-}
-
-/**
- * Extracts bullet-point items from a text block.
- * Handles "- Item" format and strips whitespace.
- */
-function extractBulletList(text: string): string[] {
-  const lines = text.split("\n");
-  const items: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("- ")) {
-      const item = trimmed.substring(2).trim();
-      if (item) {
-        items.push(item);
-      }
-    }
-  }
-
-  return items;
 }
