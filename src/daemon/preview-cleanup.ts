@@ -9,6 +9,9 @@ import { tasks } from "../db/schema.js";
 import { getById as getTask } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
 
+/** Directory-name prefix used for preview artefact directories on disk. */
+export const PREVIEW_DIR_PREFIX = "hive-preview-";
+
 /**
  * Cleans up expired preview environments.
  *

@@ -6,7 +6,9 @@ import { requireAuth, requireRole } from "../../auth/middleware.js";
 import { resolveGitCredentials } from "../../execution/worktree.js";
 import logger from "../../logger.js";
 import type { SystemStats } from "../views/health.js";
-import { healthPage, statsPartial, upgradeSuccess, upgradeError } from "../views/health.js";
+import { healthPage, statsPartial, upgradeSuccess, upgradeError, diskScanPartial, diskCleanPartial, escapeHtml } from "../views/health.js";
+import { scan, clean, validatePaths } from "../../execution/disk-cleaner.js";
+import type { CleanResult } from "../../execution/disk-cleaner.js";
 
 const router = Router();
 
@@ -73,6 +75,49 @@ router.get("/health/stats", requireAuth, requireRole("admin"), async (req: Reque
   try {
     const stats = getStats();
     res.send(statsPartial(stats));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /health/disk-scan ─ Scan for orphan artefacts ───────────────────────
+
+router.post("/health/disk-scan", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const items = await scan();
+    logger.info({ count: items.length }, "health: disk scan requested");
+    res.send(diskScanPartial(items));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /health/disk-clean ─ Delete selected artefacts ──────────────────────
+
+router.post("/health/disk-clean", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Accept both a single string and an array of strings from form body
+    const raw = req.body?.paths;
+    const paths: string[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+    if (paths.length === 0) {
+      res.status(400).send(`<div id="disk-clean-results" class="mt-4 p-4 rounded bg-yellow-50 border border-yellow-200 text-yellow-800">No paths selected for deletion.</div>`);
+      return;
+    }
+
+    // Validate all paths first – return 400 without deleting anything if any path is invalid
+    try {
+      await validatePaths(paths);
+    } catch (validationErr) {
+      const msg = validationErr instanceof Error ? validationErr.message : String(validationErr);
+      logger.warn({ paths, msg }, "health: disk-clean rejected due to path validation failure");
+      res.status(400).send(`<div id="disk-clean-results" class="mt-4 p-4 rounded bg-red-50 border border-red-200 text-red-800"><strong>Invalid path rejected:</strong> ${escapeHtml(msg)}</div>`);
+      return;
+    }
+
+    const result = await clean(paths);
+    logger.info({ removedCount: result.removedCount, freedBytes: result.freedBytes }, "health: disk clean complete");
+    res.send(diskCleanPartial(result));
   } catch (err) {
     next(err);
   }
