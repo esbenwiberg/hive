@@ -43,19 +43,21 @@ Estimate the total cost in USD based on realistic token usage for an agentic cod
 
 - **Enrichment cost**: ~5,000 input tokens and ~2,000 output tokens per enricher stage. With 6 enrichers, that is roughly 30,000 input + 12,000 output tokens total.
 - **Execution cost**: Each milestone runs an agentic loop that reads source files, writes code, and executes shell commands over multiple turns. Expect **30,000–100,000 input tokens and 3,000–12,000 output tokens per milestone**, depending on codebase size and task complexity. Small tasks with no milestones use a single pass in the lower range.
-- **Review cost**: Each milestone gets a review pass (~8,000 input tokens, ~2,000 output tokens). Failed reviews trigger rework cycles (estimate 1 rework per 3 milestones on average, at the same cost as execution).
+- **Milestone review cost (calculate at max: 2 iterations per milestone)**: Each milestone runs up to 3 review passes (~8,000 input + ~2,000 output tokens each) and up to 2 fix passes (same token range as milestone execution). At max: ~24,000 input + 6,000 output for reviews, plus 2× the execution token range for fixes.
+- **Final review gate (calculate at max: 3 passes total = initial + 2 rework cycles)**: Each review gate pass processes the full PR diff (~20,000 input + 5,000 output tokens). Each rework cycle also runs a targeted fix execution (~50,000 input + 7,000 output tokens). At max: 3 gate passes + 2 rework executions.
+- **PR follow-up for human review**: Add one targeted fix execution (~50,000 input + 7,000 output tokens) and one review gate pass (~20,000 input + 5,000 output tokens) for the expected human PR review cycle.
 
 Use these token costs for estimation:
 - Input: $3 per million tokens
 - Output: $15 per million tokens
 
-**Reference totals — calibrate your estimate against these:**
-- Small task (1 milestone): ~$0.15–$0.40
-- Medium task (4–6 milestones): ~$0.80–$2.50
-- Large task (10–15 milestones): ~$2.50–$8.00
-- Very large task (20+ milestones): ~$8.00–$18.00
+**Reference totals — calibrate your estimate against these (calculated at max review turns + max rework + PR follow-up):**
+- Small task (1 milestone): ~$1.00–$2.50
+- Medium task (4–6 milestones): ~$3.50–$7.00
+- Large task (10–15 milestones): ~$7.00–$15.00
+- Very large task (20+ milestones): ~$14.00–$25.00
 
-If your calculated total exceeds $20, you have almost certainly overestimated token counts — re-check your per-milestone math using the ranges above.
+If your calculated total exceeds $30, you have almost certainly overestimated token counts — re-check your per-milestone math using the ranges above.
 
 Provide a breakdown of enrichment, execution, and review costs, plus the total.
 

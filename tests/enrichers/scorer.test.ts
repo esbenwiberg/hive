@@ -183,7 +183,7 @@ describe("scorerEnricher", () => {
     expect(scorer.recommendation).toBe("approve");
 
     const costEstimate = scorer.costEstimate as Record<string, unknown>;
-    expect(costEstimate.totalUsd).toBe(0.05);
+    expect(costEstimate.totalUsd).toBe(0.80);
   });
 
   it("clamps scores to 1-10 range", () => {
