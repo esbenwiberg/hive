@@ -574,6 +574,90 @@ function docsEnrichmentContent(docs: Record<string, unknown>): string {
   return `<div>${countBadge ? `<p class="text-xs text-slate-400 mb-2">Total${countBadge}</p>` : ""}${catSections}</div>`;
 }
 
+/**
+ * Dedicated renderer for the `prism` enricher result.
+ */
+function prismEnrichmentContent(prism: Record<string, unknown>): string {
+  const relevantCode = Array.isArray(prism.relevantCode) ? prism.relevantCode as Array<Record<string, unknown>> : [];
+  const findings = Array.isArray(prism.findings) ? prism.findings as Array<Record<string, unknown>> : [];
+  const moduleSummaries = Array.isArray(prism.moduleSummaries) ? prism.moduleSummaries as Array<Record<string, unknown>> : [];
+
+  const parts: string[] = [];
+
+  if (relevantCode.length > 0) {
+    const items = relevantCode.map((rc) => {
+      const file = rc.filePath ? escapeHtml(String(rc.filePath)) : null;
+      const symbol = rc.symbolName ? escapeHtml(String(rc.symbolName)) : null;
+      const kind = rc.symbolKind ? `<span class="text-slate-500 ml-1">${escapeHtml(String(rc.symbolKind))}</span>` : "";
+      const score = typeof rc.score === "number" ? rc.score.toFixed(2) : null;
+      const summary = rc.summary ? escapeHtml(String(rc.summary).slice(0, 120)) : null;
+      const label = symbol ? `<code class="text-violet-300">${symbol}</code>${kind} ${file ? `<span class="text-slate-500">in</span> <code class="text-slate-300 break-all">${file}</code>` : ""}` : (file ? `<code class="text-slate-300 break-all">${file}</code>` : "—");
+      return `<li class="py-1 border-b border-slate-800 last:border-0">
+        <div class="flex items-start justify-between gap-2">
+          <span class="text-xs">${label}</span>
+          ${score !== null ? `<span class="shrink-0 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">${score}</span>` : ""}
+        </div>
+        ${summary ? `<p class="text-xs text-slate-500 mt-0.5 truncate" title="${escapeHtml(summary)}">${escapeHtml(summary)}</p>` : ""}
+      </li>`;
+    }).join("");
+    parts.push(`<div class="mb-3">
+      <p class="text-xs font-medium text-slate-400 mb-1">Relevant Code (${relevantCode.length})</p>
+      <ul class="list-none">${items}</ul>
+    </div>`);
+  }
+
+  if (findings.length > 0) {
+    const SEVERITY_COLORS: Record<string, string> = {
+      critical: "bg-red-500/20 text-red-300",
+      high: "bg-orange-500/20 text-orange-300",
+      medium: "bg-amber-500/20 text-amber-300",
+      low: "bg-slate-500/20 text-slate-300",
+      info: "bg-blue-500/20 text-blue-300",
+    };
+    const items = findings.map((f) => {
+      const sev = String(f.severity ?? "").toLowerCase();
+      const sevColor = SEVERITY_COLORS[sev] ?? "bg-slate-500/20 text-slate-300";
+      const title = f.title ? escapeHtml(String(f.title)) : "—";
+      const desc = f.description ? escapeHtml(String(f.description).slice(0, 200)) : null;
+      const suggestion = f.suggestion ? escapeHtml(String(f.suggestion).slice(0, 160)) : null;
+      return `<li class="py-1.5 border-b border-slate-800 last:border-0">
+        <div class="flex items-start gap-2">
+          <span class="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${sevColor}">${escapeHtml(sev || "?")}</span>
+          <span class="text-xs font-medium text-slate-200">${title}</span>
+        </div>
+        ${desc ? `<p class="text-xs text-slate-400 mt-0.5 ml-0">${escapeHtml(desc)}</p>` : ""}
+        ${suggestion ? `<p class="text-xs text-slate-500 mt-0.5 italic">${escapeHtml(suggestion)}</p>` : ""}
+      </li>`;
+    }).join("");
+    parts.push(`<div class="mb-3">
+      <p class="text-xs font-medium text-slate-400 mb-1">Findings (${findings.length})</p>
+      <ul class="list-none">${items}</ul>
+    </div>`);
+  }
+
+  if (moduleSummaries.length > 0) {
+    parts.push(`<p class="text-xs text-slate-500">${moduleSummaries.length} module summar${moduleSummaries.length === 1 ? "y" : "ies"} available</p>`);
+  }
+
+  return parts.length > 0 ? parts.join("") : `<span class="text-slate-500 italic">no results</span>`;
+}
+
+/** Returns extra badge HTML for an enricher accordion header, or empty string. */
+function enrichmentHeaderExtra(key: string, value: unknown): string {
+  if (key === "prism" && typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const prism = value as Record<string, unknown>;
+    const stats = prism.stats as Record<string, number> | undefined;
+    if (!stats) return "";
+    const parts: string[] = [];
+    if (stats.searchResults) parts.push(`${stats.searchResults} code`);
+    if (stats.summariesReturned) parts.push(`${stats.summariesReturned} summaries`);
+    if (stats.findingsReturned) parts.push(`${stats.findingsReturned} findings`);
+    if (parts.length === 0) return "";
+    return `<span class="rounded-full bg-violet-900/40 px-2 py-0.5 text-xs text-violet-300 font-normal">${parts.join(" · ")}</span>`;
+  }
+  return "";
+}
+
 function enrichmentSection(task: TaskRow): string {
   const enrichment = task.enrichment as Record<string, unknown> | null;
 
@@ -584,14 +668,17 @@ function enrichmentSection(task: TaskRow): string {
   const sections = Object.entries(enrichment)
     .filter(([key]) => key !== "scorer" && key !== "architect")
     .map(([key, value]) => {
-      // Use a dedicated renderer for the docs enricher to display file paths properly
       const isDocs = key === "docs" && typeof value === "object" && value !== null && !Array.isArray(value);
-      const content = isDocs
+      const isPrism = key === "prism" && typeof value === "object" && value !== null && !Array.isArray(value);
+      const content = isPrism
+        ? prismEnrichmentContent(value as Record<string, unknown>)
+        : isDocs
         ? docsEnrichmentContent(value as Record<string, unknown>)
         : formatEnrichmentValue(value);
+      const headerExtra = enrichmentHeaderExtra(key, value);
       return `<details class="group">
         <summary class="flex cursor-pointer items-center justify-between rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800">
-          ${escapeHtml(key)}
+          <span class="flex items-center gap-2">${escapeHtml(key)}${headerExtra}</span>
           <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
           </svg>
