@@ -1081,12 +1081,7 @@ function reviewFindingsSection(task: TaskRow): string {
 }
 
 function latestReviewSection(review: CodeReviewRow): string {
-  const findings = review.findings as ReworkHistoryEntry["findings"] | null;
-  const secFindings = review.securityFindings as ReworkHistoryEntry["securityFindings"] | null;
-  const hasFindings = findings && findings.length > 0;
-  const hasSecFindings = secFindings && secFindings.length > 0;
-
-  if (!hasFindings && !hasSecFindings) return "";
+  if (!review.verdict) return "";
 
   const verdictColors: Record<string, "emerald" | "red" | "amber"> = {
     pass: "emerald",
@@ -1094,16 +1089,9 @@ function latestReviewSection(review: CodeReviewRow): string {
     fail: "red",
   };
 
-  return `<div>
-    <h4 class="text-sm font-medium text-slate-400 mb-2">Latest Review</h4>
-    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
-      <div class="flex items-center gap-2 mb-3">
-        ${badge(review.verdict, verdictColors[review.verdict] ?? "slate")}
-        <span class="text-xs text-slate-400">Cycle ${review.reworkCycle ?? 0}</span>
-      </div>
-      ${hasFindings ? findingsList(findings) : ""}
-      ${hasSecFindings ? `<div class="mt-2 pt-2 border-t border-slate-800"><p class="text-xs font-medium text-red-400 mb-1">Security</p>${securityFindingsList(secFindings)}</div>` : ""}
-    </div>
+  return `<div class="flex items-center gap-2">
+    ${badge(review.verdict, verdictColors[review.verdict] ?? "slate")}
+    <span class="text-xs text-slate-400">Cycle ${review.reworkCycle ?? 0}</span>
   </div>`;
 }
 
