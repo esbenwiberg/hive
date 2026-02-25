@@ -44,6 +44,14 @@ models:
     architect: claude-sonnet-4-6      # architecture design
     producer: claude-haiku-4-5-20251001        # task discovery — lightweight
 
+advisor:
+  # Whether the advisor agent runs between enrichers and the gate
+  enabled: true
+  # Confidence threshold (0-100): reports below this value automatically escalate to human review
+  confidenceThreshold: 50
+  # Whether to use Prism semantic-search indexes when available for this repo
+  usePrism: true
+
 enrichers:
   - name: codebase
     enabled: true

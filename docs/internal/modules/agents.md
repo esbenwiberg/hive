@@ -11,19 +11,20 @@
 2. [SDK — `sdk.ts`](#sdk--sdkts)
 3. [Pipeline Orchestrator — `pipeline.ts`](#pipeline-orchestrator--pipelinets)
 4. [Router — `router.ts`](#router--routerts)
-5. [Gate — `gate.ts`](#gate--gatets)
-6. [Decomposer — `decomposer.ts`](#decomposer--decomposerts)
-7. [Refiner — `refiner.ts`](#refiner--refinerts)
-8. [Feedback Loop — `feedback-loop.ts`](#feedback-loop--feedback-loopts)
-9. [Gate Analyst — `gate-analyst.ts`](#gate-analyst--gate-analystts)
-10. [Browser Validator — `browser-validator.ts`](#browser-validator--browser-validatorts)
-11. [Code Quality Analyst — `code-quality-analyst.ts`](#code-quality-analyst--code-quality-analystts)
-12. [Keeper — `keeper.ts`](#keeper--keeperts)
-13. [Retrospective — `retrospective.ts`](#retrospective--retrospectivets)
-14. [Retry Utilities — `retry.ts`](#retry-utilities--retryts)
-15. [Cost Utilities — `cost-utils.ts`](#cost-utilities--cost-utilsts)
-16. [Cross-Cutting Concerns](#cross-cutting-concerns)
-17. [Agent Integration Examples](#agent-integration-examples)
+5. [Advisor — `advisor.ts`](#advisor--advisorts)
+6. [Gate — `gate.ts`](#gate--gatets)
+7. [Decomposer — `decomposer.ts`](#decomposer--decomposerts)
+8. [Refiner — `refiner.ts`](#refiner--refinerts)
+9. [Feedback Loop — `feedback-loop.ts`](#feedback-loop--feedback-loopts)
+10. [Gate Analyst — `gate-analyst.ts`](#gate-analyst--gate-analystts)
+11. [Browser Validator — `browser-validator.ts`](#browser-validator--browser-validatorts)
+12. [Code Quality Analyst — `code-quality-analyst.ts`](#code-quality-analyst--code-quality-analystts)
+13. [Keeper — `keeper.ts`](#keeper--keeperts)
+14. [Retrospective — `retrospective.ts`](#retrospective--retrospectivets)
+15. [Retry Utilities — `retry.ts`](#retry-utilities--retryts)
+16. [Cost Utilities — `cost-utils.ts`](#cost-utilities--cost-utilsts)
+17. [Cross-Cutting Concerns](#cross-cutting-concerns)
+18. [Agent Integration Examples](#agent-integration-examples)
 
 ---
 
@@ -44,6 +45,7 @@ The `src/agents/` directory implements every intelligent component in The Hive. 
 | `sdk.ts` | Thin Anthropic wrapper | — (infrastructure) |
 | `pipeline.ts` | Orchestrator — sequences all agents | — (calls other agents) |
 | `router.ts` | Classifies a task: type, size, workflow | `callClaude` (single-turn) |
+| `advisor.ts` | Evaluates fit, design & risk; scores task before gate | `callClaude` (single-turn) |
 | `gate.ts` | Approve / reject / rework decision | `callClaude` (single-turn) |
 | `decomposer.ts` | Splits an epic into sub-tasks | `callClaude` (single-turn) |
 | `refiner.ts` | Enriches task with implementation plan | `callClaude` (single-turn) |
@@ -254,6 +256,102 @@ Source: <source>
 ### Error Handling
 
 If `parseClassification` receives invalid JSON or unknown enum values, it applies defaults from the autonomous config rather than throwing. This ensures every task gets routed even if Claude produces a partial or malformed response.
+
+---
+
+## Advisor — `advisor.ts`
+
+The Advisor is the pipeline's pre-gate evaluator. It runs **after** all enrichers have completed and **before** the gate makes its execution decision. Its job is to assess whether a task is a good fit for the codebase, well-designed, and safe to execute — and to surface that assessment as a structured report that both the Gate and human reviewers can act on.
+
+### Role in the Pipeline
+
+```
+Enrichers → [Advisor] → Gate → Executor
+```
+
+The Advisor is enabled and configured in `autonomous.config.yaml`:
+
+```yaml
+advisor:
+  enabled: true               # toggle the advisor on/off
+  confidenceThreshold: 50     # reports below this confidence auto-escalate
+  usePrism: true              # use Prism semantic-search indexes when available
+```
+
+### Inputs
+
+| Input | Source |
+|---|---|
+| Task title & body | Task record in the database |
+| Enrichment data | `task.enrichment` — produced by the Refiner and other enrichers |
+| Prism results *(optional)* | Semantically relevant code/doc snippets from the Prism index, fetched when `usePrism: true` and the repo has an index |
+
+### What It Evaluates
+
+1. **Fit & Alignment** — does the task fit the architecture and codebase patterns?
+2. **Design Quality** — is the task well-scoped, unambiguous, and idiomatic?
+3. **Feasibility & Risk** — is it achievable given current constraints? What are the risks?
+4. **User & Product Impact** — does it improve the user experience or risk regressing it?
+
+### Output — `AdvisorReport`
+
+The Advisor emits a structured `AdvisorReport` saved as a task event:
+
+```ts
+interface AdvisorReport {
+  recommendation: "approve" | "redesign" | "reject";
+  score: number;        // 0–100: overall quality and fit
+  confidence: number;   // 0–100: certainty in the recommendation
+  reasoning: string;    // human-readable explanation
+  flags: string[];      // specific positive/negative signals
+  escalate: boolean;    // true = route to human review
+}
+```
+
+### Scoring Rubric
+
+| Score range | Meaning |
+|---|---|
+| 85–100 | Excellent — strong approve |
+| 65–84 | Good — approve with notes |
+| 40–64 | Mediocre — redesign recommended |
+| 20–39 | Poor — high risk, redesign or reject |
+| 0–19 | Reject — fundamentally flawed or out of scope |
+
+### Escalation Behaviour
+
+`escalate: true` is set when **any** of the following apply:
+- `confidence` is below `advisor.confidenceThreshold` (default 50)
+- `recommendation` is `"reject"`
+- `score` is below 30
+- Risk flags from enrichment indicate security, data-loss, or breaking-change concerns the advisor cannot confidently assess
+
+When `escalate: true`, the Gate **always** routes the task to human review regardless of its own AI assessment.
+
+### Prism Integration
+
+When `advisor.usePrism: true` and a Prism semantic index exists for the repository, the Advisor queries the index with the task title and key terms from the body. The returned code snippets and documentation excerpts are injected into the advisor prompt, allowing it to ground its evaluation in actual repository code rather than relying solely on enrichment metadata.
+
+If no Prism index is available for the repo, the advisor falls back gracefully and evaluates using only the enrichment data.
+
+### Persistence
+
+The advisor report is stored as a `task_event` of type `"advisor-report"`, making it visible in the task detail view on the dashboard. It is also attached to `task.advisorReport` on the task record for the Gate to read during its own evaluation.
+
+### Agent Flow
+
+```
+task in "enriched" status
+  └─ getById(taskId)
+  └─ register(taskId, "advisor", model, "evaluating")
+  └─ [optional] fetchPrismResults(task)
+  └─ callClaude({ systemPrompt: loadPrompt("advisor"), userPrompt })
+  └─ parseAdvisorReport(response.text)   // JSON with safe fallback on parse error
+  └─ if confidence < threshold → report.escalate = true
+  └─ saveAdvisorReport(taskId, report)   // persists as task event
+  └─ recordCost(...)
+  └─ unregister(taskId)                  // always in finally block
+```
 
 ---
 

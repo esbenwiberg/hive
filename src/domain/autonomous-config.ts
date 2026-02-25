@@ -69,13 +69,19 @@ export interface PrismConfig {
 }
 
 export interface AdvisorConfig {
-  /** Whether the advisor agent is enabled. Defaults to false. */
+  /** Whether the advisor agent is enabled. Defaults to true. */
   enabled: boolean;
   /**
    * Confidence threshold (0–100).  Reports with confidence below this value
    * automatically set escalate=true, routing the task to human review.
+   * Defaults to 50.
    */
   confidenceThreshold: number;
+  /**
+   * Whether to use Prism semantic-search indexes when available for this repo.
+   * Defaults to true.
+   */
+  usePrism: boolean;
 }
 
 export interface ConcurrencyConfig {
@@ -129,7 +135,7 @@ const DEFAULTS: AutonomousConfig = {
   },
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
   prism: { apiUrl: "", apiKey: "" },
-  advisor: { enabled: false, confidenceThreshold: 70 },
+  advisor: { enabled: true, confidenceThreshold: 50, usePrism: true },
 };
 
 // ── Model helpers ────────────────────────────────────────────────────────────

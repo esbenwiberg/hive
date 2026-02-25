@@ -51,3 +51,17 @@ When you receive a milestone-scoped prompt (indicated by "Current Milestone"):
 2. Only modify listed files unless absolutely necessary
 3. Previous milestones already committed — build on their changes
 4. Ensure changes satisfy the milestone's acceptance criteria
+
+
+## Pipeline Context
+
+The Hive autonomous pipeline runs in this order:
+
+```
+Task Created → Enrichers → Advisor → Gate → Executor → Reviewer
+```
+
+The **Advisor** agent sits between the Enrichers and the Gate. It evaluates task fit,
+design quality, feasibility, and user impact, then produces a structured report with a
+`score`, `confidence`, `recommendation`, and `escalate` flag. If `escalate` is true the
+Gate always routes to human review, regardless of its own assessment.

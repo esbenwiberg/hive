@@ -98,7 +98,50 @@
 └──────────────────────────────────────────┬───────────────────────────────────────────────────────────┘
                                            ▼
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                           STAGE 3: GATE EVALUATION  (Gate Agent)                                    │
+│                           STAGE 3: ADVISOR EVALUATION  (Advisor Agent)          [optional]          │
+│                                                                                                     │
+│  ○ ENRICHING (advisor runs before status changes to READY)                                          │
+│                                                                                                     │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐ │
+│  │                                                                                                │ │
+│  │  Inputs:                                                                                      │ │
+│  │    • Task title + body                                                                        │ │
+│  │    • task.enrichment (metadata from enrichers)                                               │ │
+│  │    • Prism semantic-search results (if advisor.usePrism: true and index exists)              │ │
+│  │                                                                                                │ │
+│  │  Evaluates:                                                                                   │ │
+│  │    • Fit & Alignment  — does it match the architecture and purpose?                          │ │
+│  │    • Design Quality   — well-scoped, unambiguous, idiomatic?                                 │ │
+│  │    • Feasibility/Risk — technical risk, security, breaking changes?                          │ │
+│  │    • User Impact      — value delivered vs. regression risk?                                 │ │
+│  │                                                                                                │ │
+│  │  Output — AdvisorReport (saved as task event, visible in dashboard):                         │ │
+│  │    ┌──────────────────────────────────────────────────────────────────────────────┐          │ │
+│  │    │  recommendation: "approve" | "redesign" | "reject"                          │          │ │
+│  │    │  score:          0–100  (overall quality and fit)                            │          │ │
+│  │    │  confidence:     0–100  (certainty in recommendation)                       │          │ │
+│  │    │  reasoning:      string (concise explanation)                               │          │ │
+│  │    │  flags:          string[] (specific positive/negative signals)              │          │ │
+│  │    │  escalate:       boolean (true → always route to human review)             │          │ │
+│  │    └──────────────────────────────────────────────────────────────────────────────┘          │ │
+│  │                                                                                                │ │
+│  │  Escalation triggers:                                                                         │ │
+│  │    • confidence < advisor.confidenceThreshold (default 50) ──► escalate = true              │ │
+│  │    • recommendation = "reject"                              ──► escalate = true              │ │
+│  │    • score < 30                                             ──► escalate = true              │ │
+│  │    • Security / data-loss risk flags                        ──► escalate = true              │ │
+│  │                                                                                                │ │
+│  │  When escalate = true → Gate ALWAYS routes to human review                                   │ │
+│  │  When advisor.enabled = false → step skipped, pipeline continues unchanged                   │ │
+│  │                                                                                                │ │
+│  └─────────────────────────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                                     │
+│  Report persisted → task_events (type: "advisor-report") + task.advisorReport (JSONB)               │
+└──────────────────────────────────────────┬───────────────────────────────────────────────────────────┘
+                                           ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                           STAGE 4: GATE EVALUATION  (Gate Agent)                                    │
+│  [reads advisor.escalate to force human review when true]                                           │
 │                                                                                                     │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐ │
 │  │                                                                                                │ │
@@ -128,7 +171,7 @@
 └──────────────────────────────────────────┬───────────────────────────────────────────────────────────┘
                                            ▼
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                         STAGE 4: EXECUTION  (Worker Agent + Claude)                                 │
+│                         STAGE 5: EXECUTION  (Worker Agent + Claude)                                 │
 │                                                                                                     │
 │  ○ EXECUTING                                                                                        │
 │                                                                                                     │
