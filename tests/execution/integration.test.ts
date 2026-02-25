@@ -129,6 +129,7 @@ vi.mock("../../src/execution/worker-tools.js", () => ({
 // Mock hive-yaml parser
 vi.mock("../../src/hive-yaml.js", () => ({
   parseHiveYaml: vi.fn().mockReturnValue(null),
+  parseHiveBuildConfig: vi.fn().mockReturnValue(null),
 }));
 
 // Mock preview manager
