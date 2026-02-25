@@ -617,10 +617,7 @@ export class Daemon {
         const enrichers = (repoSettings.enrichers ?? {}) as Record<string, { enabled?: boolean }>;
         if (!enrichers.prism?.enabled) continue;
 
-        // Look up the Prism project by repo path (clone dir won't match;
-        // the project path should be registered by repo fullName or an
-        // explicit path set during initial Prism indexing)
-        const project = await prism.getProjectByPath(repo.fullName);
+        const project = await prism.getProjectBySlug(repo.fullName);
         if (!project) {
           logger.debug({ repo: repo.fullName }, "Daemon: prism-semantic no project found, skipping");
           continue;
