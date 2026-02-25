@@ -1,4 +1,4 @@
-import { eq, ilike, and, or, sql, count, desc, inArray, notInArray } from "drizzle-orm";
+import { eq, ilike, and, or, sql, count, desc, inArray, notInArray, isNotNull } from "drizzle-orm";
 import { db } from "../connection.js";
 import { tasks } from "../schema.js";
 import { generateTaskId } from "../../domain/types.js";
@@ -508,4 +508,15 @@ export async function getOpenTasksForDedup(options: {
     .where(where)
     .orderBy(desc(tasks.createdAt))
     .limit(limit);
+}
+
+/**
+ * Returns all tasks in 'done' status that have a PR URL set.
+ * Used by the auto-merge daemon to poll for merged PRs.
+ */
+export async function getDoneTasksWithPR() {
+  return db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.status, "done"), isNotNull(tasks.prUrl)));
 }

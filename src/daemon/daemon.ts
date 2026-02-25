@@ -27,7 +27,7 @@ import { getConfig, setConfig } from "../domain/config.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 import { getMaxConcurrent as getUserMaxConcurrent } from "../db/queries/users.js";
 import { cleanupExpiredPreviews } from "./preview-cleanup.js";
-import { cleanupClosedPRPreviews } from "./pr-close-cleanup.js";
+import { cleanupClosedPRPreviews, autoMergeDoneTasks } from "./pr-close-cleanup.js";
 import { pollPRFeedback } from "./pr-feedback-poll.js";
 import type { Producer, ProducerContext } from "../producers/base.js";
 
@@ -74,6 +74,7 @@ export class Daemon {
   private readonly decayScheduler: Scheduler;
   private readonly previewCleanupScheduler: Scheduler;
   private readonly prCloseCleanupScheduler: Scheduler;
+  private readonly autoMergeScheduler: Scheduler;
   private readonly prFeedbackPollScheduler: Scheduler;
   private stopping = false;
 
@@ -88,6 +89,7 @@ export class Daemon {
     this.decayScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._decayTick());
     this.previewCleanupScheduler = new Scheduler(PREVIEW_CLEANUP_INTERVAL_MS, () => cleanupExpiredPreviews());
     this.prCloseCleanupScheduler = new Scheduler(PR_CLOSE_CLEANUP_INTERVAL_MS, () => cleanupClosedPRPreviews(), { label: "pr-close-cleanup" });
+    this.autoMergeScheduler = new Scheduler(PR_CLOSE_CLEANUP_INTERVAL_MS, () => autoMergeDoneTasks(), { label: "auto-merge" });
     this.prFeedbackPollScheduler = new Scheduler(PR_FEEDBACK_POLL_INTERVAL_MS, () => pollPRFeedback(), { label: "pr-feedback-poll" });
   }
 
@@ -176,6 +178,9 @@ export class Daemon {
     // Start PR-close cleanup scheduler (60s interval)
     this.prCloseCleanupScheduler.start();
 
+    // Start auto-merge scheduler (60s interval)
+    this.autoMergeScheduler.start();
+
     // Start PR feedback poll scheduler (15min interval)
     this.prFeedbackPollScheduler.start();
 
@@ -202,6 +207,7 @@ export class Daemon {
     await this.decayScheduler.stop();
     await this.previewCleanupScheduler.stop();
     await this.prCloseCleanupScheduler.stop();
+    await this.autoMergeScheduler.stop();
     await this.prFeedbackPollScheduler.stop();
     await this.scheduler.stop();
 

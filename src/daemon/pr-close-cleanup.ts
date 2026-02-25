@@ -3,7 +3,7 @@ import { previewManager } from "../execution/preview/manager.js";
 import { getGitProvider } from "../execution/git-provider.js";
 import { resolveGitCredentials } from "../execution/worktree.js";
 import { cleanupWorktree } from "../execution/worktree.js";
-import { getById as getTask } from "../db/queries/tasks.js";
+import { getById as getTask, updateStatus, getDoneTasksWithPR } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
 import { addPreviewLog } from "../db/queries/preview-logs.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
@@ -105,6 +105,42 @@ export async function cleanupClosedPRPreviews(): Promise<void> {
       }
     } catch (err) {
       logger.error({ taskId, err }, "PR-close cleanup: error checking task");
+    }
+  }
+}
+
+/**
+ * Polls all tasks in 'done' status with a PR URL and automatically
+ * transitions them to 'merged' once their PR is merged.
+ * Runs on the same 60s interval as cleanupClosedPRPreviews.
+ */
+export async function autoMergeDoneTasks(): Promise<void> {
+  const doneTasks = await getDoneTasksWithPR();
+  if (doneTasks.length === 0) return;
+
+  for (const task of doneTasks) {
+    try {
+      const repo = await getRepo(task.repoId);
+      if (!repo) continue;
+
+      let creds;
+      try {
+        creds = await resolveGitCredentials(task.createdBy, repo.provider);
+      } catch (credErr) {
+        logger.warn({ taskId: task.id, err: credErr }, "Auto-merge: could not resolve creds, skipping");
+        continue;
+      }
+
+      const gitProvider = getGitProvider(repo.provider);
+      const prState = await gitProvider.getPRState(repo.fullName, task.prUrl!, creds);
+
+      if (prState === "merged") {
+        await updateStatus(task.id, "merged");
+        logger.info({ taskId: task.id }, "Auto-merge: transitioned to merged after PR merge");
+        triggerPostMergePrismReindex(repo.fullName, task.id);
+      }
+    } catch (err) {
+      logger.error({ taskId: task.id, err }, "Auto-merge: error checking task");
     }
   }
 }
