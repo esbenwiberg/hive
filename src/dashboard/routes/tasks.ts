@@ -229,7 +229,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       blueprintSource = "external";
     }
 
-    await taskQueries.create({
+    const taskData: Parameters<typeof taskQueries.create>[0] = {
       title: title.trim(),
       body: trimmedBody,
       source: "user",
@@ -239,8 +239,14 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       createdBy: user.id,
       visibility: resolvedVisibility,
       skipPreview: skipPreview === "true" || skipPreview === true,
-      ...(blueprintSource ? { blueprintSource, externalBlueprint: parsedBlueprint } : {}),
-    });
+    };
+
+    if (blueprintSource && parsedBlueprint) {
+      taskData.blueprintSource = blueprintSource;
+      taskData.externalBlueprint = parsedBlueprint;
+    }
+
+    await taskQueries.create(taskData);
 
     // Return updated task list
     const accessibleRepoIds = await getAccessibleRepoIds(user);
