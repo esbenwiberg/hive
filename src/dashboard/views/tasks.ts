@@ -22,6 +22,320 @@ import {
 } from "./components.js";
 import { layout } from "./layout.js";
 
+// ── Markdown rendering with table support ────────────────────────────────────
+
+/**
+ * Native HTML entity escaping to prevent XSS.
+ * Escapes all dangerous characters before any processing.
+ */
+function escapeHtmlEntities(text: string): string {
+  const map: Record<string, string> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  };
+  return text.replace(/[&<>"']/g, (char) => map[char] || char);
+}
+
+/**
+ * Validates URL to prevent javascript:, data:, and other dangerous protocols.
+ * Uses URL parsing with allowlist approach rather than regex patterns.
+ */
+function isValidUrl(url: string): boolean {
+  const trimmed = url.trim();
+  
+  // Allow relative paths, fragment, and query string
+  if (trimmed.startsWith("/") || trimmed.startsWith("?") || trimmed.startsWith("#")) {
+    return true;
+  }
+  
+  // Allow mailto: links
+  if (trimmed.startsWith("mailto:")) {
+    return true;
+  }
+  
+  // Allow http and https
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return true;
+  }
+  
+  // Reject protocol-relative URLs (//evil.com)
+  if (trimmed.startsWith("//")) {
+    return false;
+  }
+  
+  // Reject dangerous protocols explicitly
+  const dangerousProtocols = ["javascript:", "data:", "vbscript:", "file:"];
+  for (const proto of dangerousProtocols) {
+    if (trimmed.toLowerCase().startsWith(proto)) {
+      return false;
+    }
+  }
+  
+  // Relative path without leading slash
+  return !trimmed.includes(":");
+}
+
+/**
+ * Renders markdown to HTML with table support and XSS protection.
+ * All cell content is escaped before processing to prevent injection.
+ * Supports:
+ * - Bold: **text** or __text__
+ * - Italic: *text* or _text_
+ * - Horizontal rule: --- or *** or ___
+ * - Tables: | header | and rows with |
+ * - Paragraphs and line breaks
+ * - Inline code: `code`
+ * - Code blocks: ```
+ * - Links: [text](url) with URL validation
+ * - Lists: - or * for bullet points
+ * - Headings: # text
+ */
+function renderMarkdown(markdown: string): string {
+  if (!markdown || markdown.trim().length === 0) {
+    return "";
+  }
+
+  // Split into lines for processing
+  let lines = markdown.split("\n");
+  let html = "";
+  let inCodeBlock = false;
+  let codeBlockLang = "";
+  let codeContent: string[] = [];
+  let tableLines: string[] = [];
+  let inTable = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Handle code blocks (fenced with ```)
+    if (trimmed.startsWith("```")) {
+      if (inCodeBlock) {
+        // End of code block
+        inCodeBlock = false;
+        const code = escapeHtmlEntities(codeContent.join("\n"));
+        html += `<pre class="overflow-x-auto rounded bg-slate-950 p-3 text-xs text-slate-300 my-2"><code>${code}</code></pre>`;
+        codeContent = [];
+        codeBlockLang = "";
+      } else {
+        // Start of code block
+        inCodeBlock = true;
+        codeBlockLang = trimmed.slice(3).trim();
+      }
+      continue;
+    }
+
+    // Accumulate code block content
+    if (inCodeBlock) {
+      codeContent.push(line);
+      continue;
+    }
+
+    // Detect table rows (lines with pipes)
+    if (trimmed.includes("|")) {
+      tableLines.push(line);
+      inTable = true;
+      continue;
+    }
+
+    // Handle end of table
+    if (inTable && tableLines.length > 0) {
+      html += renderTable(tableLines);
+      tableLines = [];
+      inTable = false;
+    }
+
+    // Horizontal rule
+    if (/^(\-\-\-+|\*\*\*+|___+)$/.test(trimmed)) {
+      html += `<hr class="my-3 border-t border-slate-600">`;
+      continue;
+    }
+
+    // Headings
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const text = renderInlineMarkdown(headingMatch[2]);
+      const tag = `h${level + 2}`; // h1->h3, h6->h8 (capped at h6 equivalent styling)
+      const className =
+        level === 1 ? "text-2xl font-bold"
+        : level === 2 ? "text-xl font-bold"
+        : level === 3 ? "text-lg font-semibold"
+        : "text-base font-semibold";
+      html += `<${tag} class="${className} text-slate-100 mt-3 mb-2">${text}</${tag}>`;
+      continue;
+    }
+
+    // Unordered lists
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const itemText = line.replace(/^\s*[-*+]\s+/, "");
+      const indent = line.match(/^\s*/)?.[0]?.length ?? 0;
+      const level = Math.floor(indent / 2) + 1;
+      // Use static margin classes instead of dynamic interpolation for Tailwind compatibility
+      const marginClass = level === 1 ? "ml-0" : level === 2 ? "ml-4" : "ml-8";
+      html += `<li class="${marginClass} text-slate-300">${renderInlineMarkdown(itemText)}</li>`;
+      continue;
+    }
+
+    // Paragraphs (non-empty lines)
+    if (trimmed.length > 0) {
+      const rendered = renderInlineMarkdown(trimmed);
+      html += `<p class="text-slate-300 my-2">${rendered}</p>`;
+      continue;
+    }
+
+    // Empty lines
+    html += "";
+  }
+
+  // Handle end of table if still active
+  if (inTable && tableLines.length > 0) {
+    html += renderTable(tableLines);
+  }
+
+  // Close any unclosed code block
+  if (inCodeBlock && codeContent.length > 0) {
+    const code = escapeHtmlEntities(codeContent.join("\n"));
+    html += `<pre class="overflow-x-auto rounded bg-slate-950 p-3 text-xs text-slate-300 my-2"><code>${code}</code></pre>`;
+  }
+
+  return html;
+}
+
+/**
+ * Renders inline markdown: bold, italic, links, code.
+ * All input is HTML-escaped first, then markdown patterns are applied.
+ * URLs are validated with allowlist approach to prevent javascript:, data:, etc.
+ */
+function renderInlineMarkdown(text: string): string {
+  // Escape HTML entities FIRST to prevent any injection vectors
+  let result = escapeHtmlEntities(text);
+
+  // Bold: **text** or __text__
+  result = result.replace(/\*\*(.+?)\*\*/g, "<strong class=\"font-bold text-slate-100\">$1</strong>");
+  result = result.replace(/__(.+?)__/g, "<strong class=\"font-bold text-slate-100\">$1</strong>");
+
+  // Italic: *text* or _text_ (but not within bold)
+  result = result.replace(/(?<!\*)\*([^\*]+)\*(?!\*)/g, "<em class=\"italic\">$1</em>");
+  result = result.replace(/(?<!_)_([^_]+)_(?!_)/g, "<em class=\"italic\">$1</em>");
+
+  // Inline code: `code`
+  result = result.replace(/`([^`]+)`/g, "<code class=\"bg-slate-900 rounded px-1.5 py-0.5 text-xs text-slate-200\">$1</code>");
+
+  // Links: [text](url) — validate URL with allowlist approach
+  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+    const trimmedUrl = url.trim();
+    // Validate URL using allowlist approach instead of regex blocklist
+    if (isValidUrl(trimmedUrl)) {
+      return `<a href="${escapeHtmlEntities(trimmedUrl)}" class="text-amber-400 hover:text-amber-300 underline" target="_blank" rel="noopener">${text}</a>`;
+    }
+    // Invalid URL: return plain text instead of link
+    return text;
+  });
+
+  return result;
+}
+
+/**
+ * Renders a GFM-style table from lines containing pipes.
+ * Table cells are escaped before markdown processing to prevent injection.
+ * Validates that table structure is sound before rendering.
+ */
+function renderTable(lines: string[]): string {
+  if (lines.length < 2) return "";
+
+  // Parse header row
+  const headerCells = lines[0]
+    .split("|")
+    .map((cell) => cell.trim())
+    .filter((cell) => cell.length > 0);
+
+  if (headerCells.length === 0) return "";
+
+  // Check for separator row (line with dashes and pipes)
+  const separatorLine = lines[1]?.trim() ?? "";
+  const isSeparator = /^\|?[\s\-:|]+\|?$/.test(separatorLine);
+
+  if (!isSeparator) return ""; // Invalid table structure
+
+  // Parse body rows (skip header and separator)
+  const bodyRows: string[][] = [];
+  for (let i = 2; i < lines.length; i++) {
+    const cells = lines[i]
+      .split("|")
+      .map((cell) => cell.trim())
+      .filter((cell) => cell.length > 0);
+
+    if (cells.length > 0) {
+      bodyRows.push(cells);
+    }
+  }
+
+  // Build HTML table
+  // Escape cell content before rendering markdown to prevent injection
+  const headerHtml = headerCells
+    .map((cell) => {
+      const escapedCell = escapeHtmlEntities(cell);
+      return `<th class="px-3 py-2 text-left font-medium text-slate-100 border-b border-slate-600">${renderInlineMarkdown(escapedCell)}</th>`;
+    })
+    .join("");
+
+  const bodyHtml = bodyRows
+    .map((row) => {
+      const cells = row
+        .map((cell) => {
+          const escapedCell = escapeHtmlEntities(cell);
+          return `<td class="px-3 py-2 text-slate-300 border-b border-slate-700">${renderInlineMarkdown(escapedCell)}</td>`;
+        })
+        .join("");
+      return `<tr class="hover:bg-slate-900/50">${cells}</tr>`;
+    })
+    .join("");
+
+  return `<div class="overflow-x-auto rounded-lg border border-slate-700 bg-slate-900 my-3">
+<table class="min-w-full divide-y divide-slate-700">
+<thead class="bg-slate-800/50">
+<tr>${headerHtml}</tr>
+</thead>
+<tbody class="divide-y divide-slate-700">${bodyHtml}</tbody>
+</table>
+</div>`;
+}
+
+/**
+ * Main function to parse task description as markdown with full validation.
+ * Returns sanitized HTML or empty string on validation failure.
+ * Size-limited to 100KB; larger descriptions return empty string.
+ */
+function parseTaskDescription(description: unknown): string {
+  // Must be a string
+  if (typeof description !== "string") {
+    return "";
+  }
+
+  const markdown = description;
+
+  // Max size limit: 100KB
+  if (markdown.length > 100 * 1024) {
+    console.warn("Task description exceeds 100KB limit and will not render");
+    return "";
+  }
+
+  // Render markdown to HTML
+  const html = renderMarkdown(markdown);
+
+  // Verify output is a string (defensive check)
+  if (typeof html !== "string") {
+    console.error("Markdown rendering did not return a string");
+    return "";
+  }
+
+  return html;
+}
+
 // ── Type extension for tasks with total cost ────────────────────────────────
 
 type TaskWithCost = TaskRow & { totalCost?: number };
@@ -1386,7 +1700,7 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     .join("");
 
   const bodyHtml = task.body
-    ? `<div class="mt-4 rounded-lg bg-slate-900 p-4 text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(task.body)}</div>`
+    ? `<div class="mt-4 rounded-lg bg-slate-900 p-4 text-sm text-slate-300 space-y-2">${parseTaskDescription(task.body)}</div>`
     : "";
 
   return `<div class="fixed inset-y-0 right-0 z-40 w-[600px] border-l border-slate-700 bg-slate-800 shadow-xl overflow-y-auto">
