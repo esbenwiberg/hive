@@ -1,211 +1,234 @@
 import { describe, it, expect } from "vitest";
-import { parseMarkdownBlueprint, BLUEPRINT_MARKDOWN_TEMPLATE } from "../../src/enrichers/external-blueprint.js";
+import {
+  parseMarkdownBlueprint,
+  BLUEPRINT_MARKDOWN_TEMPLATE,
+  type ParseResult,
+} from "../../src/enrichers/external-blueprint.js";
 
-describe("external-blueprint parser", () => {
-  describe("parseMarkdownBlueprint — happy path", () => {
-    it("parses a valid full blueprint with approach and milestones", () => {
-      const markdown = `# Approach
+describe("External Blueprint Parser", () => {
+  describe("parseMarkdownBlueprint", () => {
+    it("parses a valid full blueprint with multiple milestones", () => {
+      const markdown = `## Approach
 
-This is the implementation strategy.
+This is the high-level strategy for implementing the feature.
 
 ## Milestones
 
-### Milestone One
+### Milestone 1: Set up database
 
-Implement the first part.
+**Description:**
+Create the database schema and migrations.
 
-**Files to modify**
-- src/module.ts
-- src/index.ts
+**Files to Modify:**
+- src/db/schema.ts
+- drizzle/0001_initial.sql
 
-**Acceptance criteria**
-- The function works
-- Tests pass
+**Acceptance Criteria:**
+- Database migration runs successfully
+- Schema is created with all required columns
+
+### Milestone 2: Implement API
+
+**Description:**
+Build the API endpoints for the feature.
+
+**Files to Modify:**
+- src/api/routes.ts
+- src/api/handlers.ts
+
+**Acceptance Criteria:**
+- All endpoints are implemented
+- Unit tests pass
 `;
 
       const result = parseMarkdownBlueprint(markdown);
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.blueprint.approach).toContain("implementation strategy");
-        expect(result.blueprint.milestones).toHaveLength(1);
-        expect(result.blueprint.milestones[0].title).toBe("Milestone One");
-        expect(result.blueprint.milestones[0].filesToModify).toContain("src/module.ts");
-        expect(result.blueprint.milestones[0].acceptanceCriteria).toContain("The function works");
-      }
+      expect(result.blueprint).toBeDefined();
+      expect(result.blueprint?.approach).toContain("high-level strategy");
+      expect(result.blueprint?.milestones).toHaveLength(2);
+      expect(result.blueprint?.milestones?.[0].title).toBe("Set up database");
+      expect(result.blueprint?.milestones?.[0].filesToModify).toContain("src/db/schema.ts");
+      expect(result.blueprint?.milestones?.[1].title).toBe("Implement API");
     });
 
-    it("parses multiple milestones", () => {
-      const markdown = `# Approach
-
-Multi-milestone approach.
-
-## Milestones
-
-### First Milestone
-
-First description.
-
-**Files to modify**
-- file1.ts
-
-**Acceptance criteria**
-- Criterion 1
-
-### Second Milestone
-
-Second description.
-
-**Files to modify**
-- file2.ts
-
-**Acceptance criteria**
-- Criterion 2
-`;
-
-      const result = parseMarkdownBlueprint(markdown);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.blueprint.milestones).toHaveLength(2);
-        expect(result.blueprint.milestones[0].title).toBe("First Milestone");
-        expect(result.blueprint.milestones[1].title).toBe("Second Milestone");
-      }
-    });
-  });
-
-  describe("parseMarkdownBlueprint — error cases", () => {
-    it("returns error when approach section is missing", () => {
+    it("returns error when 'Approach' section is missing", () => {
       const markdown = `## Milestones
 
-### Milestone One
+### Milestone 1: Work
 
-Description.
+**Description:**
+Some work.
 
-**Files to modify**
-- file.ts
+**Files to Modify:**
+- src/file.ts
 
-**Acceptance criteria**
-- Criterion
+**Acceptance Criteria:**
+- Criterion 1
 `;
 
       const result = parseMarkdownBlueprint(markdown);
       expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.errors.some((e) => e.toLowerCase().includes("approach"))).toBe(true);
-      }
+      expect(result.errors).toContain("Missing required section: '## Approach'");
     });
 
-    it("returns error when approach is empty", () => {
-      const markdown = `# Approach
+    it("returns error when 'Approach' section is empty", () => {
+      const markdown = `## Approach
 
 ## Milestones
 
-### Milestone One
+### Milestone 1: Work
 
-Description.
+**Description:**
+Some work.
 
-**Files to modify**
-- file.ts
+**Files to Modify:**
+- src/file.ts
 
-**Acceptance criteria**
-- Criterion
+**Acceptance Criteria:**
+- Criterion 1
 `;
 
       const result = parseMarkdownBlueprint(markdown);
       expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.errors.some((e) => e.toLowerCase().includes("approach"))).toBe(true);
-      }
+      expect(result.errors).toContain("'Approach' section is empty");
     });
 
-    it("returns error when milestones section is missing", () => {
-      const markdown = `# Approach
+    it("returns error when 'Milestones' section is missing", () => {
+      const markdown = `## Approach
 
-Implementation strategy here.
+This is the approach.
 `;
 
       const result = parseMarkdownBlueprint(markdown);
       expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.errors.some((e) => e.toLowerCase().includes("milestones"))).toBe(true);
-      }
+      expect(result.errors).toContain("Missing required section: '## Milestones'");
     });
 
-    it("returns error when milestones array is empty", () => {
-      const markdown = `# Approach
+    it("returns error when no milestones are defined", () => {
+      const markdown = `## Approach
 
-Implementation strategy here.
+This is the approach.
 
 ## Milestones
 `;
 
       const result = parseMarkdownBlueprint(markdown);
       expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.errors.some((e) => e.toLowerCase().includes("contains no milestones"))).toBe(true);
-      }
+      expect(result.errors).toContain("'Milestones' section must contain at least one milestone");
     });
 
-    it("returns error when milestone is missing files to modify", () => {
-      const markdown = `# Approach
+    it("returns error when milestone has empty acceptance criteria", () => {
+      const markdown = `## Approach
 
-Strategy.
+This is the approach.
 
 ## Milestones
 
-### Milestone One
+### Milestone 1: Work
 
-Description.
+**Description:**
+Some work.
 
-**Acceptance criteria**
-- Criterion
+**Files to Modify:**
+- src/file.ts
+
+**Acceptance Criteria:**
 `;
 
       const result = parseMarkdownBlueprint(markdown);
       expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.errors.some((e) => e.toLowerCase().includes("files to modify"))).toBe(true);
-      }
+      expect(result.errors?.length).toBeGreaterThan(0);
     });
 
-    it("returns error when milestone is missing acceptance criteria", () => {
-      const markdown = `# Approach
+    it("parses milestone with multiple files and criteria correctly", () => {
+      const markdown = `## Approach
 
-Strategy.
+Implementation strategy.
 
 ## Milestones
 
-### Milestone One
+### Milestone 1: Task
 
-Description.
+**Description:**
+Detailed description of the task.
 
-**Files to modify**
-- file.ts
+**Files to Modify:**
+- src/file1.ts
+- src/file2.ts
+- tests/file1.test.ts
+
+**Acceptance Criteria:**
+- First criterion is met
+- Second criterion passes
+- Third criterion verified
 `;
 
       const result = parseMarkdownBlueprint(markdown);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.errors.some((e) => e.toLowerCase().includes("acceptance criteria"))).toBe(true);
-      }
+      expect(result.ok).toBe(true);
+      expect(result.blueprint?.milestones?.[0].filesToModify).toHaveLength(3);
+      expect(result.blueprint?.milestones?.[0].filesToModify).toContain("src/file1.ts");
+      expect(result.blueprint?.milestones?.[0].acceptanceCriteria).toHaveLength(3);
+      expect(result.blueprint?.milestones?.[0].acceptanceCriteria[0]).toBe("First criterion is met");
     });
 
-    it("returns error when blueprint is empty", () => {
-      const result = parseMarkdownBlueprint("");
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.errors.some((e) => e.toLowerCase().includes("empty"))).toBe(true);
-      }
-    });
-  });
+    it("handles markdown with extra whitespace correctly", () => {
+      const markdown = `## Approach
 
-  describe("BLUEPRINT_MARKDOWN_TEMPLATE", () => {
-    it("is itself a valid blueprint", () => {
+   Some approach with leading spaces.
+
+## Milestones
+
+### Milestone 1:   Work with spaces
+
+**Description:**
+   Description with spaces.
+
+**Files to Modify:**
+-    src/file.ts
+
+**Acceptance Criteria:**
+-    Criterion with spaces
+`;
+
+      const result = parseMarkdownBlueprint(markdown);
+      expect(result.ok).toBe(true);
+      expect(result.blueprint?.milestones?.[0].title).toBe("Work with spaces");
+      expect(result.blueprint?.milestones?.[0].filesToModify).toContain("src/file.ts");
+    });
+
+    it("parses the template constant successfully", () => {
       const result = parseMarkdownBlueprint(BLUEPRINT_MARKDOWN_TEMPLATE);
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.blueprint.approach).toBeTruthy();
-        expect(result.blueprint.milestones.length).toBeGreaterThan(0);
-      }
+      expect(result.blueprint).toBeDefined();
+      expect(result.blueprint?.approach).toBeDefined();
+      expect(result.blueprint?.milestones?.length).toBeGreaterThan(0);
+    });
+
+    it("handles input with no milestones gracefully", () => {
+      const markdown = `## Approach
+
+This is the approach.
+
+## Other Section
+
+This is ignored.
+`;
+
+      const result = parseMarkdownBlueprint(markdown);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain("Missing required section: '## Milestones'");
+    });
+
+    it("rejects non-string input", () => {
+      const result = parseMarkdownBlueprint(null as unknown as string);
+      expect(result.ok).toBe(false);
+      expect(result.errors?.length).toBeGreaterThan(0);
+    });
+
+    it("rejects empty string input", () => {
+      const result = parseMarkdownBlueprint("");
+      expect(result.ok).toBe(false);
+      expect(result.errors?.length).toBeGreaterThan(0);
     });
   });
 });

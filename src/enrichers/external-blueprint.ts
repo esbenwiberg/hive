@@ -1,28 +1,11 @@
 /**
- * External blueprint parser & validator.
+ * External Blueprint Parser & Validator
  *
- * Allows users to paste a Markdown-formatted blueprint (produced outside the
- * hive, e.g. via a terminal conversation) and have it converted into the
- * canonical `Blueprint` JSON shape consumed by the rest of the pipeline.
- *
- * Expected Markdown structure
- * ───────────────────────────
- * # Approach
- * <one or more paragraphs>
- *
- * ## Milestones
- *
- * ### <Milestone title>
- * <description paragraphs>
- *
- * **Files to modify**
- * - path/to/file.ts
- *
- * **Acceptance criteria**
- * - Criterion one
+ * Parses user-provided Markdown blueprints into the canonical blueprint JSON shape
+ * and validates that all required fields are present and well-formed.
  */
 
-// ── Canonical types ──────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface BlueprintMilestone {
   title: string;
@@ -36,276 +19,208 @@ export interface Blueprint {
   milestones: BlueprintMilestone[];
 }
 
-// ── Parse result ─────────────────────────────────────────────────────────────
+export interface ParseResult {
+  ok: boolean;
+  blueprint?: Blueprint;
+  errors?: string[];
+}
 
-export type ParseResult =
-  | { ok: true; blueprint: Blueprint }
-  | { ok: false; errors: string[] };
+// ── Template ─────────────────────────────────────────────────────────────────
 
-// ── Markdown template ────────────────────────────────────────────────────────
+export const BLUEPRINT_MARKDOWN_TEMPLATE = `## Approach
 
-/**
- * Canonical Markdown template shown on the "submit external blueprint" form.
- * This string is guaranteed to parse successfully through `parseMarkdownBlueprint`.
- */
-export const BLUEPRINT_MARKDOWN_TEMPLATE = `# Approach
-
-Describe the high-level implementation strategy here. Explain the overall
-design decisions and why this approach was chosen.
+Brief high-level strategy for solving the task.
 
 ## Milestones
 
-### 1. Example milestone title
+### Milestone 1: First major piece of work
 
-Describe what this milestone accomplishes and any important implementation
-details the worker agent needs to know.
+**Description:**
+Detailed explanation of what this milestone accomplishes.
 
-**Files to modify**
-- src/example/module.ts
-- src/example/index.ts
+**Files to Modify:**
+- src/module/file1.ts
+- src/module/file2.ts
 
-**Acceptance criteria**
-- The module exports a \`doThing()\` function that returns the expected value
-- Unit tests pass for the happy path and the error case
+**Acceptance Criteria:**
+- Criterion 1 is met
+- Criterion 2 is implemented
+- Criterion 3 is verified
+
+### Milestone 2: Second major piece of work
+
+**Description:**
+Detailed explanation of what this milestone accomplishes.
+
+**Files to Modify:**
+- src/module/file3.ts
+- src/module/file4.ts
+
+**Acceptance Criteria:**
+- Criterion 1 is met
+- Criterion 2 is implemented
 `;
 
-// ── Internal helpers ─────────────────────────────────────────────────────────
+// ── Parser ───────────────────────────────────────────────────────────────────
 
 /**
- * Splits a Markdown document into named sections.
- *
- * Accepts two layout conventions:
- *
- *   Convention A (flat H1 headings):
- *     # Approach … # Milestones … ### Milestone title
- *
- *   Convention B (nested, H1 + H2 + H3):
- *     # Approach … ## Milestones … ### Milestone title
- *
- * Returns a map keyed by lowercased heading text, with each value being the
- * raw text body that follows the heading.
+ * Extracts content between markdown headers.
+ * Returns the text between the specified header and the next header at the same level or higher.
  */
-function splitTopLevelSections(markdown: string): Map<string, string> {
-  const sections = new Map<string, string>();
-
-  // Split on any H1 or H2 heading line (but not H3+ which are milestone titles)
-  const parts = markdown.split(/^(?=#{1,2}\s)/m).filter(Boolean);
-  const headingPattern = /^(#{1,2})\s+(.+)$/m;
-
-  for (const part of parts) {
-    const headingMatch = headingPattern.exec(part);
-    if (!headingMatch) continue;
-    const heading = headingMatch[2].trim().toLowerCase();
-    const body = part.slice(headingMatch[0].length).trim();
-    sections.set(heading, body);
+function extractSection(markdown: string, headerPattern: RegExp): string | null {
+  const headerMatch = markdown.match(headerPattern);
+  if (!headerMatch) {
+    return null;
   }
 
-  return sections;
+  // Find everything after the matched header
+  const startIdx = headerMatch.index! + headerMatch[0].length;
+  let endIdx = markdown.length;
+
+  // Find the next header at the same level or higher
+  const headerLevel = headerMatch[0].match(/#/g)?.length ?? 0;
+  const nextHeaderPattern = new RegExp(`^#{1,${headerLevel}}\\s+`, "m");
+  const nextHeaderMatch = markdown.substring(startIdx).match(nextHeaderPattern);
+
+  if (nextHeaderMatch) {
+    endIdx = startIdx + nextHeaderMatch.index!;
+  }
+
+  return markdown.substring(startIdx, endIdx).trim();
 }
 
 /**
- * Within a "Milestones" section body, split on H3 headings (`### …`) to get
- * individual milestone blocks.
+ * Splits markdown milestone section into individual milestones.
+ * Each milestone is introduced by `### Milestone <N>:` or similar h3 header.
  */
-function splitMilestoneBlocks(body: string): Array<{ title: string; content: string }> {
-  const blocks: Array<{ title: string; content: string }> = [];
-  const parts = body.split(/^(?=###\s)/m).filter(Boolean);
-
-  for (const part of parts) {
-    const headingMatch = /^###\s+(.+)$/m.exec(part);
-    if (!headingMatch) continue;
-    const title = headingMatch[1].trim();
-    const content = part.slice(headingMatch[0].length).trim();
-    blocks.push({ title, content });
+function parseMilestones(milestonesSection: string): BlueprintMilestone[] {
+  if (!milestonesSection) {
+    return [];
   }
 
-  return blocks;
+  const milestoneBlocks: string[] = [];
+  const lines = milestonesSection.split("\n");
+
+  let currentBlock = "";
+  for (const line of lines) {
+    if (line.match(/^###\s+/)) {
+      if (currentBlock) {
+        milestoneBlocks.push(currentBlock);
+      }
+      currentBlock = line + "\n";
+    } else {
+      currentBlock += line + "\n";
+    }
+  }
+  if (currentBlock) {
+    milestoneBlocks.push(currentBlock);
+  }
+
+  return milestoneBlocks.map((block) => parseSingleMilestone(block)).filter((m) => m !== null) as BlueprintMilestone[];
 }
 
 /**
- * Extracts a bullet list that immediately follows a bold label such as
- * `**Files to modify**` or `**Acceptance criteria**`.
- *
- * Uses a line-by-line parser to correctly handle bold text (`**text**`)
- * appearing inside bullet items (e.g., `- **Important** note`). Returns an
- * empty array when the label is absent.
- *
- * Algorithm:
- * 1. Find the bold label line using regex (line that is entirely bold)
- * 2. From the line after the label, collect all lines that start with a bullet marker (-, *, •)
- * 3. Stop when we hit a blank line or a NEW BOLD LABEL (entire line is bold, e.g., `**Section Title**`)
- * 4. For each bullet line, strip the leading marker and whitespace, keep trailing text
- * 5. Handle multi-line bullet items by joining indented continuation lines
- *
- * A section boundary is defined as a line where the entire trimmed content
- * matches `^\*\*[^*]+\*\*$` (entirely bold, nothing else).
+ * Parses a single markdown milestone block into a BlueprintMilestone.
+ * Expected format:
+ *   ### Milestone N: Title
+ *   **Description:**
+ *   ...
+ *   **Files to Modify:**
+ *   - file1
+ *   - file2
+ *   **Acceptance Criteria:**
+ *   - criterion1
+ *   - criterion2
  */
-function extractBulletList(content: string, labelPattern: RegExp): string[] {
-  const match = labelPattern.exec(content);
-  if (!match) return [];
-
-  const lines = content.split("\n");
-
-  // Find the line containing the label
-  let labelLineIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (labelPattern.test(lines[i])) {
-      labelLineIndex = i;
-      break;
-    }
+function parseSingleMilestone(block: string): BlueprintMilestone | null {
+  // Extract title from the header
+  const titleMatch = block.match(/^###\s+Milestone\s+\d+:\s*(.+)$/m);
+  if (!titleMatch) {
+    return null;
+  }
+  const title = titleMatch[1].trim();
+  if (!title) {
+    return null;
   }
 
-  if (labelLineIndex === -1) return [];
+  // Extract description (between "Description:" and next "**..." section)
+  const descMatch = block.match(/\*\*Description:\*\*\s*([\s\S]*?)(?=\*\*|$)/);
+  const description = descMatch ? descMatch[1].trim().replace(/\n+/g, " ") : "";
+  if (!description) {
+    return null;
+  }
 
-  const items: string[] = [];
-  let inBulletList = false;
-
-  // Process lines after the label line
-  for (let i = labelLineIndex + 1; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // Empty line ends the list
-    if (!trimmed) {
-      if (inBulletList) break;
-      continue;
-    }
-
-    // NEW BOLD LABEL (entire line is bold) ends the list.
-    // This pattern matches lines like `**Section Title**` or `**Files to modify**`
-    // but NOT `- **Important** note` (which has non-bold content).
-    if (/^\*\*[^*]+\*\*$/.test(trimmed)) {
-      break;
-    }
-
-    // Check if line is a bullet item (starts with -, *, •, or whitespace + bullet)
-    const bulletMatch = /^[\s]*([-*•])\s+(.*)$/.exec(line);
-    if (bulletMatch) {
-      inBulletList = true;
-      const item = bulletMatch[2].trim();
+  // Extract Files to Modify (list items)
+  const filesMatch = block.match(/\*\*Files to Modify:\*\*\s*([\s\S]*?)(?=\*\*|$)/);
+  const filesToModify: string[] = [];
+  if (filesMatch) {
+    const fileLines = filesMatch[1].split("\n");
+    for (const line of fileLines) {
+      const item = line.replace(/^[-*+]\s+/, "").trim();
       if (item) {
-        items.push(item);
+        filesToModify.push(item);
       }
-    } else if (inBulletList && line.match(/^\s+/)) {
-      // Continuation of previous item (indented line after a bullet)
-      const continuation = trimmed;
-      if (continuation && items.length > 0) {
-        items[items.length - 1] += " " + continuation;
-      }
-    } else if (inBulletList) {
-      // Non-bullet, non-indented line ends the list
-      break;
     }
   }
 
-  return items;
+  // Extract Acceptance Criteria (list items)
+  const criteriaMatch = block.match(/\*\*Acceptance Criteria:\*\*\s*([\s\S]*?)(?=\*\*|$)/);
+  const acceptanceCriteria: string[] = [];
+  if (criteriaMatch) {
+    const criteriaLines = criteriaMatch[1].split("\n");
+    for (const line of criteriaLines) {
+      const item = line.replace(/^[-*+]\s+/, "").trim();
+      if (item) {
+        acceptanceCriteria.push(item);
+      }
+    }
+  }
+
+  if (acceptanceCriteria.length === 0) {
+    return null;
+  }
+
+  return {
+    title,
+    description,
+    filesToModify,
+    acceptanceCriteria,
+  };
 }
 
 /**
- * Extracts the description text from a milestone block — everything before the
- * first bold label (`**…**`).
- */
-function extractDescription(content: string): string {
-  const boldLabelIndex = content.search(/\*\*[^*]+\*\*/m);
-  const raw = boldLabelIndex === -1 ? content : content.slice(0, boldLabelIndex);
-  return raw.trim();
-}
-
-// ── Public API ───────────────────────────────────────────────────────────────
-
-/**
- * Parses a Markdown string into the canonical `Blueprint` shape.
- *
- * Returns `{ ok: true, blueprint }` on success, or
- * `{ ok: false, errors }` with human-readable messages on failure.
+ * Parses a Markdown string into the canonical blueprint JSON shape.
+ * Returns { ok: true, blueprint } on success or { ok: false, errors } on failure.
  */
 export function parseMarkdownBlueprint(markdown: string): ParseResult {
+  if (!markdown || typeof markdown !== "string") {
+    return {
+      ok: false,
+      errors: ["Blueprint must be a non-empty string"],
+    };
+  }
+
   const errors: string[] = [];
 
-  if (!markdown || !markdown.trim()) {
-    return { ok: false, errors: ["Blueprint is empty. Please provide Markdown content."] };
+  // Extract Approach section
+  const approachText = extractSection(markdown, /^##\s+Approach\s*$/m);
+  if (!approachText) {
+    errors.push("Missing required section: '## Approach'");
+  }
+  const approach = approachText?.trim() || "";
+  if (!approach) {
+    errors.push("'Approach' section is empty");
   }
 
-  // ── Top-level sections ──────────────────────────────────────────────────
-  const topLevel = splitTopLevelSections(markdown);
-
-  // ── Approach ────────────────────────────────────────────────────────────
-  const approachKey = [...topLevel.keys()].find((k) => k === "approach");
-  const approachText = approachKey !== undefined ? topLevel.get(approachKey)! : "";
-
-  if (!approachKey) {
-    errors.push(
-      'Missing required section: "# Approach". Add an H1 or H2 heading named "Approach" followed by your implementation strategy.',
-    );
-  } else if (!approachText.trim()) {
-    errors.push(
-      'The "Approach" section is present but contains no content. Describe the implementation strategy.',
-    );
+  // Extract Milestones section
+  const milestonesText = extractSection(markdown, /^##\s+Milestones\s*$/m);
+  if (!milestonesText) {
+    errors.push("Missing required section: '## Milestones'");
   }
 
-  // ── Milestones section ──────────────────────────────────────────────────
-  const milestonesKey = [...topLevel.keys()].find((k) => k === "milestones");
-  const milestonesBody = milestonesKey !== undefined ? topLevel.get(milestonesKey)! : "";
-
-  if (!milestonesKey) {
-    errors.push(
-      'Missing required section: "Milestones". Add an H1 or H2 heading named "Milestones" containing at least one "### <title>" sub-section.',
-    );
-    // Cannot validate individual milestones without the section
-    if (errors.length > 0) return { ok: false, errors };
-  }
-
-  // ── Individual milestones ───────────────────────────────────────────────
-  const milestoneBlocks = splitMilestoneBlocks(milestonesBody);
-
-  if (milestoneBlocks.length === 0) {
-    errors.push(
-      'The "# Milestones" section contains no milestones. Add at least one milestone using a "### <title>" sub-heading.',
-    );
-  }
-
-  const parsedMilestones: BlueprintMilestone[] = [];
-
-  for (let i = 0; i < milestoneBlocks.length; i++) {
-    const { title, content } = milestoneBlocks[i];
-    const prefix = `Milestone ${i + 1} ("${title}")`;
-    const milestoneErrors: string[] = [];
-
-    const description = extractDescription(content);
-    if (!description) {
-      milestoneErrors.push(`${prefix}: missing description. Add a paragraph of text after the milestone heading.`);
-    }
-
-    const filesToModify = extractBulletList(
-      content,
-      /\*\*Files?\s+to\s+modify\*\*/i,
-    );
-    if (filesToModify.length === 0) {
-      milestoneErrors.push(
-        `${prefix}: missing "**Files to modify**" bullet list. List the files the worker should change.`,
-      );
-    }
-
-    const acceptanceCriteria = extractBulletList(
-      content,
-      /\*\*Acceptance\s+criteria\*\*/i,
-    );
-    if (acceptanceCriteria.length === 0) {
-      milestoneErrors.push(
-        `${prefix}: missing "**Acceptance criteria**" bullet list. List at least one testable criterion.`,
-      );
-    }
-
-    if (milestoneErrors.length > 0) {
-      errors.push(...milestoneErrors);
-    } else {
-      parsedMilestones.push({
-        title,
-        description,
-        filesToModify,
-        acceptanceCriteria,
-      });
-    }
+  const milestones = milestonesText ? parseMilestones(milestonesText) : [];
+  if (milestones.length === 0) {
+    errors.push("'Milestones' section must contain at least one milestone");
   }
 
   if (errors.length > 0) {
@@ -315,8 +230,8 @@ export function parseMarkdownBlueprint(markdown: string): ParseResult {
   return {
     ok: true,
     blueprint: {
-      approach: approachText.trim(),
-      milestones: parsedMilestones,
+      approach,
+      milestones,
     },
   };
 }
