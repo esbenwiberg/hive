@@ -12,7 +12,7 @@ export {
   parseMarkdownBlueprint,
   BLUEPRINT_MARKDOWN_TEMPLATE,
 } from "./external-blueprint.js";
-export type { Blueprint, BlueprintMilestone, ParseResult } from "./external-blueprint.js";
+export type { ParseResult } from "./external-blueprint.js";
 
 // ── All enrichers ───────────────────────────────────────────────────────────
 

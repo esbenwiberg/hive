@@ -196,3 +196,17 @@ export interface MilestoneSpec {
   index: number;
   total: number;
 }
+
+// ── Blueprint Types ─────────────────────────────────────────────────────────
+
+export interface BlueprintMilestone {
+  title: string;
+  description: string;
+  filesToModify: string[];
+  acceptanceCriteria: string[];
+}
+
+export interface Blueprint {
+  approach: string;
+  milestones: BlueprintMilestone[];
+}
