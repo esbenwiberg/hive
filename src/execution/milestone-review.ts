@@ -47,13 +47,30 @@ function getFixPrompt(): string {
  * Collects ALL failures rather than stopping at the first one.
  */
 export async function quickVerify(worktreePath: string): Promise<QuickVerifyResult> {
+  const failures: string[] = [];
+
+  // Install dependencies first — worktrees don't inherit node_modules from the parent.
+  try {
+    await execFileAsync("npm", ["install", "--prefer-offline"], {
+      cwd: worktreePath,
+      timeout: SHELL_TIMEOUT_MS,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    logger.debug({ worktreePath }, "quickVerify: npm install passed");
+  } catch (err: unknown) {
+    const error = err as { stdout?: string; stderr?: string; message?: string };
+    const output = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
+    const detail = output || error.message || "unknown error";
+    failures.push(`install failed: ${detail}`);
+    logger.warn({ worktreePath }, `quickVerify: npm install failed — skipping build/test`);
+    return { passed: false, failures };
+  }
+
   const commands: { label: string; args: string[] }[] = [
     { label: "lint", args: ["run", "lint", "--if-present"] },
     { label: "build", args: ["run", "build", "--if-present"] },
     { label: "test", args: ["run", "test", "--if-present"] },
   ];
-
-  const failures: string[] = [];
 
   for (const cmd of commands) {
     try {

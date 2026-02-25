@@ -206,6 +206,27 @@ export class GitHubProvider implements GitProvider {
 
     if (!response.ok) {
       const text = await response.text();
+      // 422 with "already exists" — find and return the existing PR URL.
+      if (response.status === 422 && text.includes("A pull request already exists")) {
+        logger.info({ repoFullName, head }, "PR already exists — fetching existing PR URL");
+        const [headOwner] = repoFullName.split("/");
+        const listResponse = await fetch(
+          `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?head=${encodeURIComponent(`${headOwner}:${head}`)}&state=open`,
+          {
+            headers: {
+              Authorization: `Bearer ${creds.token}`,
+              Accept: "application/vnd.github+json",
+            },
+          },
+        );
+        if (listResponse.ok) {
+          const prs = (await listResponse.json()) as Array<{ html_url: string }>;
+          if (prs.length > 0) {
+            logger.info({ prUrl: prs[0].html_url }, "Reusing existing GitHub PR");
+            return prs[0].html_url;
+          }
+        }
+      }
       throw new Error(`GitHub PR creation failed (${response.status}): ${text}`);
     }
 
