@@ -92,6 +92,13 @@
       "when": 1771704800000,
       "tag": "0012_backfill_learning_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1772038433064,
+      "tag": "0013_rapid_vector",
+      "breakpoints": true
     }
   ]
 }

@@ -87,6 +87,16 @@ export function isValidTaskSize(v: string): v is TaskSizeValue {
   return TASK_SIZE_VALUES.has(v as TaskSizeValue);
 }
 
+// ── Blueprint Source ─────────────────────────────────────────────────────────
+
+export const BlueprintSource = {
+  ARCHITECT: "architect",
+  USER: "user",
+} as const;
+
+export type BlueprintSourceValue =
+  (typeof BlueprintSource)[keyof typeof BlueprintSource];
+
 // ── Task Visibility ──────────────────────────────────────────────────────────
 
 export const TaskVisibility = {
