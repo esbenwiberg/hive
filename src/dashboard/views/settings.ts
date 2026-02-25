@@ -502,8 +502,8 @@ export function globalSettingsPartial(
       placeholder: "https://prism.example.com",
     }),
     input("prismApiKey", "API Key", {
-      value: config.prism.apiKey,
-      placeholder: "sk-...",
+      type: "password",
+      placeholder: config.prism.apiKey ? "Leave blank to keep saved key" : "sk-...",
     }),
   ].join("");
 
