@@ -1884,10 +1884,47 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
 </div>`;
 }
 
+// ── Blueprint template (canonical format shown as helper) ───────────────────
+
+const BLUEPRINT_TEMPLATE = `## Approach
+
+Describe your overall implementation strategy in 2–5 sentences. Explain why you chose this approach and which layers of the stack are involved.
+
+---
+
+## Milestone 1: Short imperative title
+
+One or two sentences describing what this milestone delivers and why it is scoped this way.
+
+### Files to Modify
+
+- \`path/to/file.ts\`
+- \`path/to/another-file.ts\`
+
+### Acceptance Criteria
+
+- Observable, testable outcome that confirms this milestone is complete.
+- Another independently verifiable criterion.
+
+---
+
+## Milestone 2: Short imperative title
+
+Description of what this milestone delivers.
+
+### Files to Modify
+
+- \`path/to/file.ts\`
+
+### Acceptance Criteria
+
+- Criterion.
+- Criterion.`;
+
 /**
  * Task create form in a slide-over panel.
  */
-export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFullName?: string): string {
+export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFullName?: string, blueprintErrors?: string[], blueprintMarkdown?: string): string {
   const isAdmin = user?.role === "admin";
   const repoOptions = [
     { value: "", label: "Select a repository" },
@@ -1922,8 +1959,22 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
     { value: "large", label: "Large" },
   ];
 
+  // Blueprint validation error banner
+  const blueprintErrorBanner = blueprintErrors && blueprintErrors.length > 0
+    ? `<div class="rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-3">
+        <p class="text-sm font-medium text-red-400 mb-2">Blueprint validation failed — please fix the following:</p>
+        <ul class="space-y-1">
+          ${blueprintErrors.map((e) => `<li class="flex items-start gap-2 text-sm text-red-300"><span class="mt-1 shrink-0 h-1.5 w-1.5 rounded-full bg-red-400"></span>${escapeHtml(e)}</li>`).join("")}
+        </ul>
+      </div>`
+    : "";
+
+  // Whether to render the blueprint panel open (re-submission after errors)
+  const blueprintActive = !!blueprintMarkdown || (blueprintErrors && blueprintErrors.length > 0);
+  const escapedBlueprint = blueprintMarkdown ? escapeHtml(blueprintMarkdown) : "";
+
   return `<div id="create-panel"
-  class="fixed inset-y-0 right-0 z-40 w-[480px] border-l border-slate-700 bg-slate-800 shadow-xl overflow-y-auto transform translate-x-full transition-transform duration-200">
+  class="fixed inset-y-0 right-0 z-40 w-[480px] border-l border-slate-700 bg-slate-800 shadow-xl overflow-y-auto transform ${blueprintActive ? "" : "translate-x-full"} transition-transform duration-200">
   <!-- Header -->
   <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-700 bg-slate-800 px-6 py-4">
     <h3 class="text-lg font-semibold text-slate-50">New Task</h3>
@@ -1940,8 +1991,49 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         hx-target="#task-list"
         hx-swap="innerHTML"
         hx-on::after-request="if(event.detail.successful) document.getElementById('create-panel').classList.add('translate-x-full')">
+    ${blueprintErrorBanner}
     ${input("title", "Title", { required: true, placeholder: "Brief task title" })}
-    ${textarea("body", "Description", { required: true, placeholder: "Describe the task in detail...", rows: 6 })}
+    ${textarea("body", "Description", { placeholder: "Describe the task in detail...", rows: 4 })}
+
+    <!-- Blueprint toggle -->
+    <div>
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" id="blueprint-toggle" name="blueprintMode" value="true"
+          ${blueprintActive ? "checked" : ""}
+          onchange="toggleBlueprintMode(this.checked)"
+          class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400 focus:ring-offset-slate-900" />
+        <span class="text-sm text-slate-300">Provide blueprint</span>
+        <span class="text-xs text-slate-500">(paste a pre-written markdown blueprint)</span>
+      </label>
+    </div>
+
+    <!-- Blueprint panel (shown when toggle is on) -->
+    <div id="blueprint-panel" class="${blueprintActive ? "" : "hidden"} space-y-3">
+      <!-- Blueprint template helper -->
+      <details class="group rounded-lg border border-slate-700 bg-slate-900">
+        <summary class="flex cursor-pointer items-center justify-between px-3 py-2 text-xs font-medium text-slate-400 hover:text-slate-300">
+          <span>Blueprint template</span>
+          <svg class="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </summary>
+        <div class="border-t border-slate-700 px-3 py-2">
+          <pre class="overflow-x-auto whitespace-pre-wrap text-xs text-slate-400 leading-relaxed">${escapeHtml(BLUEPRINT_TEMPLATE)}</pre>
+          <button type="button"
+            onclick="document.getElementById('blueprint-input').value = ${JSON.stringify(BLUEPRINT_TEMPLATE)}"
+            class="mt-2 text-xs text-amber-400 hover:text-amber-300 underline">Copy template into editor</button>
+        </div>
+      </details>
+
+      <!-- Blueprint textarea -->
+      <div>
+        <label class="block text-sm font-medium text-slate-300 mb-1" for="blueprint-input">Blueprint (Markdown)</label>
+        <textarea id="blueprint-input" name="blueprintMarkdown" rows="14"
+          placeholder="Paste your blueprint markdown here…"
+          class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-amber-500 focus:outline-none font-mono">${escapedBlueprint}</textarea>
+      </div>
+    </div>
+
     ${select("repoId", "Repository", repoOptions, undefined, `onchange="toggleSkipPreview(this.value)"`)}
     ${select("type", "Type", typeOptions)}
     ${select("size", "Size", sizeOptions)}
@@ -1967,6 +2059,11 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         var wrap = document.getElementById('skip-preview-wrap');
         if (_previewRepoIds.includes(repoId)) { wrap.classList.remove('hidden'); }
         else { wrap.classList.add('hidden'); wrap.querySelector('input').checked = false; }
+      }
+      function toggleBlueprintMode(enabled) {
+        var panel = document.getElementById('blueprint-panel');
+        if (enabled) { panel.classList.remove('hidden'); }
+        else { panel.classList.add('hidden'); }
       }
     </script>
 
