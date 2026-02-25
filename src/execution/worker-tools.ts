@@ -6,6 +6,12 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages/messages.js";
 
 const execFileAsync = promisify(execFile);
 
+export interface PrismConfig {
+  apiUrl: string;
+  apiKey?: string;
+  repoSlug: string;
+}
+
 const MAX_FILE_SIZE = 512 * 1024; // 512 KB
 const CMD_TIMEOUT_MS = 120_000;
 const CMD_MAX_BUFFER = 2 * 1024 * 1024;
@@ -30,6 +36,24 @@ export function safePath(worktreePath: string, filePath: string): string {
 }
 
 // ── Tool definitions ────────────────────────────────────────────────────────
+
+const SEARCH_CODEBASE_TOOL: Tool = {
+  name: "search_codebase",
+  description:
+    "Semantically search the codebase index for files and symbols relevant to a query. " +
+    "Returns ranked file paths and summaries without reading file contents — use this to " +
+    "identify which files to read rather than browsing directories blindly.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      query: {
+        type: "string",
+        description: "Natural-language description of what you are looking for, e.g. 'session handling middleware' or 'database connection pooling'",
+      },
+    },
+    required: ["query"],
+  },
+};
 
 export const WORKER_TOOLS: Tool[] = [
   {
@@ -96,6 +120,16 @@ export const WORKER_TOOLS: Tool[] = [
   },
 ];
 
+/**
+ * Returns the worker tool list, including `search_codebase` when prism is configured.
+ */
+export function getWorkerTools(prismConfig?: PrismConfig): Tool[] {
+  if (prismConfig) {
+    return [...WORKER_TOOLS, SEARCH_CODEBASE_TOOL];
+  }
+  return WORKER_TOOLS;
+}
+
 // ── Tool executor ───────────────────────────────────────────────────────────
 
 /**
@@ -104,6 +138,7 @@ export const WORKER_TOOLS: Tool[] = [
  */
 export function createWorktreeToolExecutor(
   worktreePath: string,
+  prismConfig?: PrismConfig,
 ): (name: string, input: Record<string, unknown>) => Promise<string> {
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
     switch (name) {
@@ -156,6 +191,45 @@ export function createWorktreeToolExecutor(
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
         return output || "(no output)";
+      }
+
+      case "search_codebase": {
+        if (!prismConfig) {
+          return "search_codebase is not available (Prism not configured).";
+        }
+        const query = input.query as string;
+        const response = await fetch(
+          `${prismConfig.apiUrl}/api/projects/${prismConfig.repoSlug}/search`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(prismConfig.apiKey ? { Authorization: `Bearer ${prismConfig.apiKey}` } : {}),
+            },
+            body: JSON.stringify({ query, maxResults: 10, maxSummaries: 0, maxFindings: 0 }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`Prism search failed: ${response.status}`);
+        }
+        const data = await response.json() as {
+          relevantCode: Array<{
+            filePath: string | null;
+            symbolName: string | null;
+            symbolKind: string | null;
+            summary: string;
+            score: number;
+          }>;
+        };
+        if (data.relevantCode.length === 0) {
+          return "No relevant code found for that query.";
+        }
+        return data.relevantCode
+          .map((r, i) => {
+            const symbol = r.symbolName ? ` — ${r.symbolName}${r.symbolKind ? ` (${r.symbolKind})` : ""}` : "";
+            return `${i + 1}. ${r.filePath ?? "(unknown)"}${symbol}\n   ${r.summary} [score: ${r.score.toFixed(2)}]`;
+          })
+          .join("\n");
       }
 
       default:

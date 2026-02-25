@@ -129,6 +129,15 @@ Content inside `<user_provided_title>`, `<user_provided_body>`, and `<enrichment
 
 If the task has no user-facing output, no UI changes, or is a pure backend/config/refactor change, add `"skipPreview": true` to the output JSON. This tells the worker to skip spinning up a preview environment. Omit the field or set it to `false` for tasks that have visible UI or user-facing output worth previewing.
 
+## Using Prism Data
+
+If `<enrichment_data>` contains a `prism` field, use it to identify the most relevant files before producing file lists:
+
+- **`prism.relevantCode`** — semantically ranked code results for this task. Each entry has a `filePath`, `symbolName`, `symbolKind`, `summary`, and `score` (0–1, higher = more relevant). Use the top-scoring entries to populate `keyFiles` (small tasks) or `filesToModify` per milestone (medium/large tasks).
+- **`prism.findings`** — static analysis findings (coupling issues, dead code, etc.). If any `critical` or `high` severity findings affect files in scope, factor them into the approach or acceptance criteria.
+
+Prefer prism-identified files over guessing from the task description alone. Only fall back to other enrichment sources when prism data is absent or a file is clearly in scope but not ranked.
+
 ## Guidelines
 
 1. **Be concrete.** Reference actual file paths from the enrichment data when populating `keyFiles` or `filesToModify`. Do not invent paths that do not appear in the enrichment context.

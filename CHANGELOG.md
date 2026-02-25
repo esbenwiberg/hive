@@ -1,10 +1,39 @@
 # Changelog
 
+## 2026-02-25
+- fix: increase scorer cost estimates to account for max review turns and PR follow-up
+- Merge pull request #27 from esbenwiberg/hive/HIVE-20260222-116ce634
+- Broken references in docs/internal/modules/dashboard.md
+- feat: display prism enricher data in task panel
+- fix: remove duplicate findings from latest review section, show verdict only
+- fix: add parseHiveBuildConfig to hive-yaml mock in worker and integration tests
+- fix: update tests to match createPR object return and --include=dev install arg
+- feat: add .NET/C# and hybrid dotnet+npm build system support
+- fix: install devDeps in worktree and log PR reuse in event timeline
+- feat: auto-transition done tasks to merged when PR is merged
+- fix: do not expose prism api key in settings UI
+- fix: update tests to match HTTP API refactor and npm install step
+- fix: run npm install in worktree before verify, reuse existing PR on 422
+- Merge pull request #25 from esbenwiberg/hive/HIVE-20260222-86648148
+- refactor: replace Prism library integration with HTTP API
+- Merge pull request #23 from esbenwiberg/hive/HIVE-20260224-0fda0bc1
+- Disk cleaner
+- feat: Health page UI — disk cleaner section
+- fix: reindex Prism after PR merge instead of milestone commits
+- feat: Health route API endpoints for disk scan and clean
+
 ## 2026-02-24
+- feat: add comprehensive learning usage stats to hivemind page
+- fix: capture container logs on preview health check failure
+- feat: use slug-based lookup for Hive↔Prism project matching
+- feat: add Prism configuration to global settings UI
+- fix: resolve learning tag mismatch preventing hivemind retrieval and reinforcement
+- chore: regenerate changelog
 - feat: add PR feedback polling daemon to rework tasks on human review comments
 - feat: add manual preview start from dashboard with PR comment
 - fix: add final build/test verification after review gate pass
 - fix: prevent review gate JSON truncation by increasing maxTokens and using extractJson
+- Task description field
 - fix: update max rework cycles test to match forced-pass behavior
 - fix: add ambient type declarations for optional @prism/core dependency
 - feat: integrate Prism semantic search into enrichment pipeline
@@ -44,6 +73,7 @@
 - chore: regenerate changelog
 - fix: clean up preview compose artifact from worktree
 - feat: surface concurrency limits in dashboard
+- feat: Disk scanner and cleaner service
 - fix: parse "pass (nothing to validate)" verdict as pass
 - fix: log browser validation findings and pass on nothing-to-validate
 - Merge pull request #14 from esbenwiberg/hive/HIVE-20260222-119c4eed

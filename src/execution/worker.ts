@@ -4,7 +4,7 @@ import { access } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { callClaudeWithTools } from "../agents/sdk.js";
-import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
+import { getWorkerTools, createWorktreeToolExecutor, type PrismConfig } from "./worker-tools.js";
 import { getById as getTask, updateStatus } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
 import { recordCost, checkBudget } from "../db/queries/costs.js";
@@ -218,6 +218,7 @@ async function executeMilestones(
   learningsStr: string,
   startFrom: number = 0,
   pushFn?: () => Promise<void>,
+  prismConfig?: PrismConfig,
 ): Promise<{ totalCostUsd: number }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
@@ -305,8 +306,8 @@ async function executeMilestones(
       prompt: milestonePrompt,
       model,
       systemPrompt,
-      tools: WORKER_TOOLS,
-      executeTool: createWorktreeToolExecutor(worktreePath),
+      tools: getWorkerTools(prismConfig),
+      executeTool: createWorktreeToolExecutor(worktreePath, prismConfig),
       onTurnComplete: () => heartbeat(task.id),
       maxNudges: 2,
       midLoopNudge: ({ toolsCalled, turns }) => {
@@ -393,6 +394,16 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
   const repo = await getRepo(task.repoId);
   if (!repo) throw new Error(`Repo ${task.repoId} not found for task ${taskId}`);
+
+  // Build prism config if available
+  const prismApiUrl = process.env.PRISM_API_URL || config.prism?.apiUrl;
+  const prismConfig: PrismConfig | undefined = prismApiUrl && repo.fullName
+    ? {
+        apiUrl: prismApiUrl,
+        apiKey: process.env.PRISM_API_KEY || config.prism?.apiKey,
+        repoSlug: encodeURIComponent(repo.fullName),
+      }
+    : undefined;
 
   // Check budget
   const remaining = await checkBudget(task.createdBy);
@@ -584,7 +595,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         await milestoneGitProvider.push(worktree!.path, branchName, milestoneCreds);
       };
 
-      const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn);
+      const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig);
       implCostUsd = totalCostUsd;
     } else {
       // Rework cycles (or non-milestone tasks): single targeted fix call.
@@ -612,8 +623,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         prompt: userPrompt,
         model: callModel,
         systemPrompt: getFlowPrompt(),
-        tools: WORKER_TOOLS,
-        executeTool: createWorktreeToolExecutor(worktree.path),
+        tools: getWorkerTools(prismConfig),
+        executeTool: createWorktreeToolExecutor(worktree.path, prismConfig),
         onTurnComplete: () => heartbeat(taskId),
         maxNudges: 2,
         midLoopNudge: ({ toolsCalled, turns }) => {
