@@ -11,6 +11,12 @@ import { addAdvisorEvent } from "../db/queries/task-events.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import type { AdvisorReport } from "../domain/types.js";
 
+// ── Default Prompt ──────────────────────────────────────────────────────────
+
+const DEFAULT_ADVISOR_PROMPT = `You are an expert advisor for a software engineering task orchestration system.
+Evaluate the provided task for fit, design quality, feasibility, and architectural alignment.
+Return a structured JSON response with your assessment.`;
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface AdvisorContext {
@@ -92,14 +98,22 @@ export async function runAdvisor(context: AdvisorContext): Promise<AdvisorReport
 
   try {
     // Register this agent as active
-    await register(taskId, "advisor", model, "advising").catch((err) =>
-      logger.warn("Advisor: failed to register active agent", {
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    await register(taskId, "advisor", model, "advising").catch((err) => {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.warn("Advisor: failed to register active agent — " + errorMsg);
+    });
 
-    const promptPath = resolve(dirname(fileURLToPath(import.meta.url)), "../..", "prompts/advisor.md");
-    const prompt = readFileSync(promptPath, "utf-8");
+    // Load the advisor prompt
+    const promptPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../prompts/advisor.md");
+    let prompt: string;
+
+    try {
+      prompt = readFileSync(promptPath, "utf-8");
+    } catch (err) {
+      const readErrorMsg = err instanceof Error ? err.message : String(err);
+      logger.warn("Advisor: failed to load prompt from file — " + readErrorMsg);
+      prompt = DEFAULT_ADVISOR_PROMPT;
+    }
 
     // Prepare context for the LLM
     const enrichmentSummary = formatEnrichment(context.enrichment);
@@ -114,7 +128,7 @@ export async function runAdvisor(context: AdvisorContext): Promise<AdvisorReport
     const originalLength = context.taskBody.length;
     const taskBodyPreview = context.taskBody.slice(0, 500);
     if (originalLength > 500) {
-      logger.warn("Advisor: task body truncated", { originalLength, truncatedLength: 500 });
+      logger.warn("Advisor: task body truncated — original: " + originalLength + ", shown: 500");
     }
 
     const userMessage = `
@@ -153,7 +167,7 @@ ${taskBodyPreview}
       model,
       systemPrompt: prompt,
       prompt: userMessage,
-      maxTokens: 2048,
+      maxTokens: 4000,
     });
 
     if (!response || !response.text) {
@@ -177,40 +191,38 @@ ${taskBodyPreview}
       cleanedResponse = cleanedResponse.trim();
 
       // Extract and parse JSON
-      const parsed = extractJson<AdvisorReport>(cleanedResponse);
+      const parsed = extractJson(cleanedResponse) as unknown;
 
       // Validate required fields
       if (
-        !["approve", "redesign", "reject"].includes(parsed.recommendation) ||
-        typeof parsed.score !== "number" ||
-        typeof parsed.confidence !== "number" ||
-        typeof parsed.reasoning !== "string"
+        typeof parsed !== "object" ||
+        parsed === null ||
+        !["approve", "redesign", "reject"].includes((parsed as Record<string, unknown>).recommendation as string) ||
+        typeof (parsed as Record<string, unknown>).score !== "number" ||
+        typeof (parsed as Record<string, unknown>).confidence !== "number" ||
+        typeof (parsed as Record<string, unknown>).reasoning !== "string"
       ) {
         throw new Error("Missing or invalid fields in advisor JSON response");
       }
 
+      const parsedData = parsed as Record<string, unknown>;
       report = {
-        recommendation: parsed.recommendation,
-        score: Math.max(0, Math.min(100, parsed.score)),
-        confidence: Math.max(0, Math.min(100, parsed.confidence)),
-        reasoning: String(parsed.reasoning),
-        flags: Array.isArray(parsed.flags) ? parsed.flags.map(String) : [],
-        escalate: Boolean(parsed.escalate),
+        recommendation: parsedData.recommendation as "approve" | "redesign" | "reject",
+        score: Math.max(0, Math.min(100, parsedData.score as number)),
+        confidence: Math.max(0, Math.min(100, parsedData.confidence as number)),
+        reasoning: String(parsedData.reasoning),
+        flags: Array.isArray(parsedData.flags) ? (parsedData.flags as unknown[]).map(String) : [],
+        escalate: Boolean(parsedData.escalate),
       };
     } catch (parseError) {
-      logger.error("Advisor: failed to parse JSON response", {
-        error: parseError instanceof Error ? parseError.message : String(parseError),
-        rawResponse: response.text.slice(0, 200),
-      });
+      const parseErrorMsg = parseError instanceof Error ? parseError.message : String(parseError);
+      logger.error("Advisor: failed to parse JSON response — " + parseErrorMsg);
       return fallbackReport("Failed to parse advisor response");
     }
 
     // Apply confidence threshold
     if (report.confidence < config.advisor.confidenceThreshold) {
-      logger.info("Advisor: confidence below threshold, escalating", {
-        confidence: report.confidence,
-        threshold: config.advisor.confidenceThreshold,
-      });
+      logger.info("Advisor: confidence below threshold, escalating — confidence: " + report.confidence + ", threshold: " + config.advisor.confidenceThreshold);
       report.escalate = true;
     }
 
@@ -229,36 +241,23 @@ ${taskBodyPreview}
         await insertAdvisorReport(taskId, report);
         await addAdvisorEvent(taskId, report);
       } catch (persistError) {
-        logger.warn("Advisor: failed to persist report", {
-          error: persistError instanceof Error ? persistError.message : String(persistError),
-        });
+        const persistErrorMsg = persistError instanceof Error ? persistError.message : String(persistError);
+        logger.warn("Advisor: failed to persist report — " + persistErrorMsg);
       }
     }
 
-    logger.info(
-      {
-        title: context.title,
-        recommendation: report.recommendation,
-        score: report.score,
-        confidence: report.confidence,
-        escalate: report.escalate,
-        costUsd: costUsd.toFixed(4),
-      },
-      "Advisor agent complete",
-    );
+    logger.info("Advisor agent complete — recommendation: " + report.recommendation + ", score: " + report.score + ", confidence: " + report.confidence + ", cost: $" + costUsd.toFixed(4));
 
     return report;
   } catch (error) {
-    logger.error("Advisor: unexpected error", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error("Advisor: unexpected error — " + errorMsg);
     return fallbackReport("Advisor encountered an error");
   } finally {
     // Unregister this agent
-    await unregister(taskId).catch((err) =>
-      logger.warn("Advisor: failed to unregister active agent", {
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    await unregister(taskId).catch((err) => {
+      const unregisterErrorMsg = err instanceof Error ? err.message : String(err);
+      logger.warn("Advisor: failed to unregister active agent — " + unregisterErrorMsg);
+    });
   }
 }
