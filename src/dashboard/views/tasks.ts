@@ -1475,11 +1475,29 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
 /**
  * Task create form in a slide-over panel.
  *
+ * The form includes a standard task creation flow (title, description, repo, type, size)
+ * plus an optional "I have a blueprint" toggle that reveals a Markdown textarea and
+ * a "Show template" button for the BLUEPRINT_MARKDOWN_TEMPLATE.
+ *
+ * When `blueprintToggle` is checked, the blueprint section is shown.
+ * When unchecked, the entire section is hidden (display: none).
+ * The textarea is always enabled when visible (no disabled state).
+ *
+ * Client-side validation: Only checks that the textarea is non-empty when toggle is checked,
+ * preventing unnecessary API calls.
+ * Server-side validation: Validates full Markdown structure and blueprint schema.
+ * (Client-side Markdown validation is deferred to server because syntax validation is
+ * complex and error-prone at the client layer.)
+ *
  * @param repos            Available repositories.
  * @param user             Authenticated session user.
  * @param selfRepoFullName Full name of the self-managed Hive repo, if any.
- * @param blueprintErrors  Validation errors to show inline (triggers blueprint section open).
- * @param prefillBlueprint Pre-fill the blueprint textarea with this value on re-render.
+ * @param blueprintErrors  Validation errors returned from server-side parsing. When present,
+ *                         the blueprint section is shown and errors are displayed inline above
+ *                         the textarea with the original user input pre-filled for correction.
+ * @param prefillBlueprint Markdown text to pre-fill the blueprint textarea when re-rendering
+ *                         after a validation error. Allows users to fix their input without
+ *                         losing work. Only used when blueprintErrors is non-empty.
  */
 export function taskCreateForm(
   repos: RepoRow[],
@@ -1565,9 +1583,8 @@ export function taskCreateForm(
     <!-- Blueprint toggle -->
     <div class="border-t border-slate-700 pt-4">
       <label class="flex items-center gap-3 cursor-pointer">
-        <input type="checkbox" id="blueprint-toggle"
+        <input type="checkbox" id="blueprint-toggle" data-blueprint-toggle
           class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400 focus:ring-offset-slate-900"
-          onchange="toggleBlueprintSection(this.checked)"
           ${blueprintErrors && blueprintErrors.length > 0 ? 'checked' : ''} />
         <span class="text-sm text-slate-300">I have a blueprint</span>
         <span class="text-xs text-slate-500">(paste a Markdown blueprint to skip architect generation)</span>
@@ -1578,14 +1595,13 @@ export function taskCreateForm(
     <div id="blueprint-section" class="${blueprintErrors && blueprintErrors.length > 0 ? '' : 'hidden'} space-y-3">
       <div class="flex items-center justify-between">
         <label class="block text-sm font-medium text-slate-300" for="externalBlueprint">Blueprint (Markdown)</label>
-        <button type="button"
-          onclick="toggleBlueprintTemplate()"
+        <button type="button" data-show-blueprint-template
           class="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2">
           Show template
         </button>
       </div>
 
-      <!-- Inline validation errors (server-side) -->
+      <!-- Inline validation errors (server-side); already escaped -->
       ${blueprintErrors && blueprintErrors.length > 0 ? `
       <div id="blueprint-error" class="rounded-md border border-red-600 bg-red-950/40 px-3 py-2 text-sm text-red-400">
         <p class="font-semibold mb-1">Blueprint validation failed:</p>
@@ -1600,8 +1616,7 @@ export function taskCreateForm(
       <div id="blueprint-template" class="hidden">
         <div class="flex items-center justify-between mb-1">
           <span class="text-xs text-slate-400 font-medium">Blueprint template</span>
-          <button type="button"
-            onclick="copyBlueprintTemplate()"
+          <button type="button" data-copy-template
             class="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1">
             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round"
@@ -1610,6 +1625,7 @@ export function taskCreateForm(
             Copy
           </button>
         </div>
+        <!-- template content already escaped -->
         <pre id="blueprint-template-content"
           class="max-h-64 overflow-y-auto rounded-md border border-slate-600 bg-slate-900 p-3 text-xs text-slate-300 whitespace-pre-wrap font-mono">${escapeHtml(BLUEPRINT_MARKDOWN_TEMPLATE)}</pre>
       </div>
@@ -1620,65 +1636,125 @@ export function taskCreateForm(
         rows="10"
         placeholder="Paste your Markdown blueprint here…"
         class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
-        oninput="clearBlueprintError()"
-        ${blueprintErrors && blueprintErrors.length > 0 ? '' : 'disabled'}>${prefillBlueprint ? escapeHtml(prefillBlueprint) : ''}</textarea>
+        data-blueprint-textarea>${prefillBlueprint ? escapeHtml(prefillBlueprint) : ''}</textarea>
     </div>
 
     <script>
-      var _previewRepoIds = ${JSON.stringify(previewRepoIds)};
-      function toggleSkipPreview(repoId) {
-        var wrap = document.getElementById('skip-preview-wrap');
-        if (_previewRepoIds.includes(repoId)) { wrap.classList.remove('hidden'); }
-        else { wrap.classList.add('hidden'); wrap.querySelector('input').checked = false; }
-      }
-      function toggleBlueprintSection(checked) {
-        var section = document.getElementById('blueprint-section');
-        var ta = document.getElementById('externalBlueprint');
-        var tmpl = document.getElementById('blueprint-template');
-        var err = document.getElementById('blueprint-error');
-        if (checked) {
-          section.classList.remove('hidden');
-          ta.disabled = false;
-        } else {
-          section.classList.add('hidden');
-          ta.disabled = true;
-          ta.value = '';
-          tmpl.classList.add('hidden');
-          err.classList.add('hidden');
-          err.textContent = '';
+      (function() {
+        var _previewRepoIds = ${JSON.stringify(previewRepoIds)};
+        
+        // Initialize task create form event handlers (delegated listeners).
+        function initTaskCreateForm() {
+          var container = document.getElementById('create-panel');
+          if (!container) return;
+          
+          // Blueprint toggle: show/hide the blueprint section
+          var toggle = container.querySelector('#blueprint-toggle');
+          if (toggle) {
+            toggle.addEventListener('change', function(e) {
+              var section = container.querySelector('#blueprint-section');
+              if (e.target.checked) {
+                section.classList.remove('hidden');
+              } else {
+                section.classList.add('hidden');
+                var ta = container.querySelector('#externalBlueprint');
+                if (ta) ta.value = '';
+                var tmpl = container.querySelector('#blueprint-template');
+                if (tmpl) tmpl.classList.add('hidden');
+                var err = container.querySelector('#blueprint-error');
+                if (err) {
+                  err.classList.add('hidden');
+                  err.textContent = '';
+                }
+              }
+            }, { once: false });
+          }
+          
+          // Show template button
+          var showTemplateBtn = container.querySelector('[data-show-blueprint-template]');
+          if (showTemplateBtn) {
+            showTemplateBtn.addEventListener('click', function(e) {
+              e.preventDefault();
+              var tmpl = container.querySelector('#blueprint-template');
+              if (tmpl) tmpl.classList.toggle('hidden');
+            }, { once: false });
+          }
+          
+          // Copy template button
+          var copyBtn = container.querySelector('[data-copy-template]');
+          if (copyBtn) {
+            copyBtn.addEventListener('click', function(e) {
+              e.preventDefault();
+              var content = container.querySelector('#blueprint-template-content');
+              if (content) {
+                navigator.clipboard.writeText(content.textContent).catch(function() {
+                  var ta = document.createElement('textarea');
+                  ta.value = content.textContent;
+                  document.body.appendChild(ta);
+                  ta.select();
+                  document.execCommand('copy');
+                  document.body.removeChild(ta);
+                });
+              }
+            }, { once: false });
+          }
+          
+          // Textarea input: clear error when user types
+          var ta = container.querySelector('#externalBlueprint');
+          if (ta) {
+            ta.addEventListener('input', function() {
+              var err = container.querySelector('#blueprint-error');
+              if (err && err.classList.contains('hidden')) return;
+              if (err) {
+                err.classList.add('hidden');
+                err.textContent = '';
+              }
+            }, { once: false });
+          }
+          
+          // Repo select: show/hide skip preview option
+          var repoSelect = container.querySelector('select[name="repoId"]');
+          if (repoSelect) {
+            repoSelect.addEventListener('change', function(e) {
+              var wrap = container.querySelector('#skip-preview-wrap');
+              if (wrap) {
+                if (_previewRepoIds.includes(e.target.value)) {
+                  wrap.classList.remove('hidden');
+                } else {
+                  wrap.classList.add('hidden');
+                  var cb = wrap.querySelector('input[name="skipPreview"]');
+                  if (cb) cb.checked = false;
+                }
+              }
+            }, { once: false });
+          }
+          
+          // Client-side validation: prevent empty blueprint submission
+          var form = container.querySelector('form');
+          if (form) {
+            form.addEventListener('submit', function(e) {
+              var toggle = form.querySelector('#blueprint-toggle');
+              if (toggle && toggle.checked) {
+                var ta = form.querySelector('#externalBlueprint');
+                if (!ta || ta.value.trim() === '') {
+                  e.preventDefault();
+                  var err = form.querySelector('#blueprint-error');
+                  if (err) {
+                    err.textContent = 'Please paste a blueprint or uncheck the "I have a blueprint" option.';
+                    err.classList.remove('hidden');
+                  }
+                  return false;
+                }
+              }
+            }, { once: false });
+          }
         }
-      }
-      function toggleBlueprintTemplate() {
-        var tmpl = document.getElementById('blueprint-template');
-        tmpl.classList.toggle('hidden');
-      }
-      function copyBlueprintTemplate() {
-        var content = document.getElementById('blueprint-template-content').textContent;
-        navigator.clipboard.writeText(content).catch(function() {
-          var ta = document.createElement('textarea');
-          ta.value = content;
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        });
-      }
-      function clearBlueprintError() {
-        var err = document.getElementById('blueprint-error');
-        err.classList.add('hidden');
-        err.textContent = '';
-      }
-      // Client-side validation before HTMX submit
-      document.addEventListener('htmx:configRequest', function(evt) {
-        var toggle = document.getElementById('blueprint-toggle');
-        if (!toggle || !toggle.checked) return;
-        var ta = document.getElementById('externalBlueprint');
-        if (!ta || ta.value.trim() !== '') return;
-        evt.preventDefault();
-        var err = document.getElementById('blueprint-error');
-        err.textContent = 'Please paste a blueprint or uncheck the "I have a blueprint" option.';
-        err.classList.remove('hidden');
-      });
+        
+        // Initialize on load and when HTMX swaps/settles content
+        initTaskCreateForm();
+        document.addEventListener('htmx:afterSwap', initTaskCreateForm);
+        document.addEventListener('htmx:afterSettle', initTaskCreateForm);
+      })();
     </script>
 
     <div class="flex justify-end gap-3 pt-4 border-t border-slate-700">

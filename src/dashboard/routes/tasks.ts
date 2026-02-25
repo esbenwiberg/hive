@@ -217,16 +217,12 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
     if (rawBlueprint.length > 0) {
       const parseResult = parseMarkdownBlueprint(rawBlueprint);
       if (!parseResult.ok) {
-        // Re-render the create form with inline errors and pre-filled content.
-        // Use HX-Retarget / HX-Reswap so HTMX replaces the panel instead of
-        // the task list that the form normally targets.
+        // Return 400 with form re-rendered and inline validation error messages.
+        // The form retains the user's original Markdown for correction.
         const allRepos = await repoQueries.listAll();
         const selfRepoFullName = HIVE_SELF_REPO || undefined;
         const formHtml = taskCreateForm(allRepos, user, selfRepoFullName, parseResult.errors, rawBlueprint);
-        res.status(200)
-          .setHeader("HX-Retarget", "#create-panel")
-          .setHeader("HX-Reswap", "outerHTML")
-          .send(formHtml);
+        res.status(400).send(formHtml);
         return;
       }
       parsedBlueprint = parseResult.blueprint;
@@ -243,7 +239,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       createdBy: user.id,
       visibility: resolvedVisibility,
       skipPreview: skipPreview === "true" || skipPreview === true,
-      ...(blueprintSource ? { blueprintSource, externalBlueprint: parsedBlueprint as unknown as Record<string, unknown> } : {}),
+      ...(blueprintSource ? { blueprintSource, externalBlueprint: parsedBlueprint } : {}),
     });
 
     // Return updated task list

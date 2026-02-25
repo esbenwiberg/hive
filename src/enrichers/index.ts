@@ -31,8 +31,10 @@ export const ALL_ENRICHERS: Enricher[] = [
  * Codebase, docs, dependencies, and prism enrichers are skipped because the
  * blueprint already captures the relevant context; we only need git-history,
  * architect (validate-only), and scorer.
+ * 
+ * This is an implementation detail and must not be exported.
  */
-export const EXTERNAL_BLUEPRINT_ENRICHERS: Enricher[] = [
+const EXTERNAL_BLUEPRINT_ENRICHERS: Enricher[] = [
   gitHistoryEnricher,
   architectEnricher,
   scorerEnricher,

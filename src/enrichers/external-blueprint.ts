@@ -126,23 +126,79 @@ function splitMilestoneBlocks(body: string): Array<{ title: string; content: str
  * Extracts a bullet list that immediately follows a bold label such as
  * `**Files to modify**` or `**Acceptance criteria**`.
  *
- * Returns an empty array when the label is absent.
+ * Uses a line-by-line parser to correctly handle bold text (`**text**`)
+ * appearing inside bullet items (e.g., `- **Important** note`). Returns an
+ * empty array when the label is absent.
+ *
+ * Algorithm:
+ * 1. Find the bold label line using regex (line that is entirely bold)
+ * 2. From the line after the label, collect all lines that start with a bullet marker (-, *, •)
+ * 3. Stop when we hit a blank line or a NEW BOLD LABEL (entire line is bold, e.g., `**Section Title**`)
+ * 4. For each bullet line, strip the leading marker and whitespace, keep trailing text
+ * 5. Handle multi-line bullet items by joining indented continuation lines
+ *
+ * A section boundary is defined as a line where the entire trimmed content
+ * matches `^\*\*[^*]+\*\*$` (entirely bold, nothing else).
  */
 function extractBulletList(content: string, labelPattern: RegExp): string[] {
   const match = labelPattern.exec(content);
   if (!match) return [];
 
-  // Everything after the label until the next bold label or end of string
-  const afterLabel = content.slice(match.index + match[0].length);
-  const nextBoldOrEnd = /\*\*[^*]+\*\*/m.exec(afterLabel);
-  const chunk = nextBoldOrEnd
-    ? afterLabel.slice(0, nextBoldOrEnd.index)
-    : afterLabel;
+  const lines = content.split("\n");
 
-  return chunk
-    .split("\n")
-    .map((line) => line.replace(/^[\s*\-•]+/, "").trim())
-    .filter(Boolean);
+  // Find the line containing the label
+  let labelLineIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (labelPattern.test(lines[i])) {
+      labelLineIndex = i;
+      break;
+    }
+  }
+
+  if (labelLineIndex === -1) return [];
+
+  const items: string[] = [];
+  let inBulletList = false;
+
+  // Process lines after the label line
+  for (let i = labelLineIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Empty line ends the list
+    if (!trimmed) {
+      if (inBulletList) break;
+      continue;
+    }
+
+    // NEW BOLD LABEL (entire line is bold) ends the list.
+    // This pattern matches lines like `**Section Title**` or `**Files to modify**`
+    // but NOT `- **Important** note` (which has non-bold content).
+    if (/^\*\*[^*]+\*\*$/.test(trimmed)) {
+      break;
+    }
+
+    // Check if line is a bullet item (starts with -, *, •, or whitespace + bullet)
+    const bulletMatch = /^[\s]*([-*•])\s+(.*)$/.exec(line);
+    if (bulletMatch) {
+      inBulletList = true;
+      const item = bulletMatch[2].trim();
+      if (item) {
+        items.push(item);
+      }
+    } else if (inBulletList && line.match(/^\s+/)) {
+      // Continuation of previous item (indented line after a bullet)
+      const continuation = trimmed;
+      if (continuation && items.length > 0) {
+        items[items.length - 1] += " " + continuation;
+      }
+    } else if (inBulletList) {
+      // Non-bullet, non-indented line ends the list
+      break;
+    }
+  }
+
+  return items;
 }
 
 /**

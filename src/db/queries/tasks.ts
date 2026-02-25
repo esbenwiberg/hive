@@ -19,6 +19,20 @@ function sqlTextArray(ids: string[]) {
 }
 
 /**
+ * Validates that blueprintSource is one of the allowed values.
+ * Throws an error if validation fails.
+ */
+function validateBlueprintSource(
+  value: "architect" | "external" | undefined,
+): "architect" | "external" {
+  if (value === undefined || value === "architect") return "architect";
+  if (value === "external") return "external";
+  throw new Error(
+    `Invalid blueprintSource value: '${value}'. Must be 'architect' or 'external'.`,
+  );
+}
+
+/**
  * Creates a new task with a generated HIVE-YYYYMMDD-xxxx id.
  * Status is always set to 'pending'.
  */
@@ -38,6 +52,9 @@ export async function create(data: {
 }) {
   const id = generateTaskId();
 
+  // Validate blueprintSource
+  const validatedBlueprintSource = validateBlueprintSource(data.blueprintSource);
+
   const [task] = await db
     .insert(tasks)
     .values({
@@ -53,7 +70,7 @@ export async function create(data: {
       visibility: data.visibility ?? "public",
       skipPreview: data.skipPreview ?? false,
       status: "pending",
-      blueprintSource: data.blueprintSource ?? "architect",
+      blueprintSource: validatedBlueprintSource,
       externalBlueprint: data.externalBlueprint ?? null,
     })
     .returning();

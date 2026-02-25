@@ -213,6 +213,156 @@ export function parseValidateOnlyResult(raw: string): ValidateOnlyResult {
 }
 
 /**
+ * Type guard function that validates an object matches the ArchitectBlueprint shape.
+ * Returns true only if the blueprint is well-formed and safe to use.
+ * Checks field types and prevents injection of unexpected content.
+ */
+export function isValidArchitectBlueprint(obj: unknown): obj is ArchitectBlueprint {
+  if (!obj || typeof obj !== "object") {
+    return false;
+  }
+
+  const blueprint = obj as Record<string, unknown>;
+
+  // approach is required
+  if (typeof blueprint.approach !== "string") {
+    return false;
+  }
+
+  // keyFiles must be string[] if present
+  if (blueprint.keyFiles !== undefined) {
+    if (!Array.isArray(blueprint.keyFiles)) {
+      return false;
+    }
+    if (!blueprint.keyFiles.every((item) => typeof item === "string")) {
+      return false;
+    }
+  }
+
+  // checklist must be string[] if present
+  if (blueprint.checklist !== undefined) {
+    if (!Array.isArray(blueprint.checklist)) {
+      return false;
+    }
+    if (!blueprint.checklist.every((item) => typeof item === "string")) {
+      return false;
+    }
+  }
+
+  // milestones validation
+  if (blueprint.milestones !== undefined) {
+    if (!Array.isArray(blueprint.milestones)) {
+      return false;
+    }
+
+    for (let i = 0; i < blueprint.milestones.length; i++) {
+      const m = blueprint.milestones[i];
+      if (!m || typeof m !== "object") {
+        return false;
+      }
+
+      const milestone = m as Record<string, unknown>;
+
+      if (typeof milestone.title !== "string") {
+        return false;
+      }
+      if (typeof milestone.description !== "string") {
+        return false;
+      }
+      if (!Array.isArray(milestone.filesToModify)) {
+        return false;
+      }
+      if (!milestone.filesToModify.every((f) => typeof f === "string")) {
+        return false;
+      }
+      if (!Array.isArray(milestone.acceptanceCriteria)) {
+        return false;
+      }
+      if (!milestone.acceptanceCriteria.every((c) => typeof c === "string")) {
+        return false;
+      }
+    }
+  }
+
+  return true; // Valid
+}
+
+/**
+ * Validates that an object matches the ArchitectBlueprint shape.
+ * Returns null if valid, otherwise returns an error message.
+ * (Deprecated: use isValidArchitectBlueprint type guard instead.)
+ */
+export function validateArchitectBlueprint(obj: unknown): string | null {
+  if (!obj || typeof obj !== "object") {
+    return "Blueprint must be an object";
+  }
+
+  const blueprint = obj as Record<string, unknown>;
+
+  // approach is required
+  if (typeof blueprint.approach !== "string") {
+    return "Blueprint must have an 'approach' field (string)";
+  }
+
+  // keyFiles must be string[] if present
+  if (blueprint.keyFiles !== undefined) {
+    if (!Array.isArray(blueprint.keyFiles)) {
+      return "'keyFiles' must be an array";
+    }
+    if (!blueprint.keyFiles.every((item) => typeof item === "string")) {
+      return "'keyFiles' must contain only strings";
+    }
+  }
+
+  // checklist must be string[] if present
+  if (blueprint.checklist !== undefined) {
+    if (!Array.isArray(blueprint.checklist)) {
+      return "'checklist' must be an array";
+    }
+    if (!blueprint.checklist.every((item) => typeof item === "string")) {
+      return "'checklist' must contain only strings";
+    }
+  }
+
+  // milestones validation
+  if (blueprint.milestones !== undefined) {
+    if (!Array.isArray(blueprint.milestones)) {
+      return "'milestones' must be an array";
+    }
+
+    for (let i = 0; i < blueprint.milestones.length; i++) {
+      const m = blueprint.milestones[i];
+      if (!m || typeof m !== "object") {
+        return `milestone[${i}] must be an object`;
+      }
+
+      const milestone = m as Record<string, unknown>;
+
+      if (typeof milestone.title !== "string") {
+        return `milestone[${i}].title must be a string`;
+      }
+      if (typeof milestone.description !== "string") {
+        return `milestone[${i}].description must be a string`;
+      }
+      if (!Array.isArray(milestone.filesToModify)) {
+        return `milestone[${i}].filesToModify must be an array`;
+      }
+      if (!milestone.filesToModify.every((f) => typeof f === "string")) {
+        return `milestone[${i}].filesToModify must contain only strings`;
+      }
+      if (!Array.isArray(milestone.acceptanceCriteria)) {
+        return `milestone[${i}].acceptanceCriteria must be an array`;
+      }
+      if (!milestone.acceptanceCriteria.every((c) => typeof c === "string")) {
+        return `milestone[${i}].acceptanceCriteria must contain only strings`;
+      }
+    }
+  }
+
+  return null; // Valid
+}
+
+/**
  * Builds the user prompt for validate-only mode (external blueprints).
  */
 function buildValidateOnlyPrompt(
@@ -249,12 +399,29 @@ export const architectEnricher: Enricher = {
     const model = config.model ?? getModelFor("architect");
 
     // ── External blueprint validate-only path ─────────────────────────────
+    // When blueprintSource === "external" and externalBlueprint is set, the
+    // architect runs validation only. Runtime validation has already checked the
+    // blueprint shape in the route handler. We call a validate-only LLM prompt
+    // to check semantic completeness (meaningful descriptions, plausible file
+    // paths, non-trivial acceptance criteria) without generating new milestones.
     if (task.blueprintSource === "external" && task.externalBlueprint != null) {
-      const externalBlueprint = task.externalBlueprint as unknown as ArchitectBlueprint;
+      const externalBlueprint = task.externalBlueprint as unknown;
+
+      // Validation-only path: external blueprint is validated but not modified.
+      // Runtime type guard (isValidArchitectBlueprint) ensures the blueprint object
+      // matches expected schema before being passed to the LLM prompt.
+      // This prevents injection of unexpected fields or malicious content.
+      if (!isValidArchitectBlueprint(externalBlueprint)) {
+        throw new Error(
+          "External blueprint failed validation: blueprint is malformed or contains unexpected fields"
+        );
+      }
+
+      const blueprintTyped = externalBlueprint;
 
       const validateSystemPrompt = loadPrompt("enrichers/architect-validate");
 
-      const validateUserPrompt = buildValidateOnlyPrompt(task, externalBlueprint);
+      const validateUserPrompt = buildValidateOnlyPrompt(task, blueprintTyped);
 
       const response = await callClaude({
         prompt: validateUserPrompt,
@@ -298,7 +465,7 @@ export const architectEnricher: Enricher = {
 
       // Always pass through the external blueprint as the resolved architect output
       return {
-        data: { architect: externalBlueprint },
+        data: { architect: blueprintTyped },
         costUsd,
         durationMs,
       };

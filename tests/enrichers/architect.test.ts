@@ -44,7 +44,7 @@ vi.mock("../../src/db/queries/task-events.js", () => ({
 
 import { callClaude } from "../../src/agents/sdk.js";
 import { addEvent } from "../../src/db/queries/task-events.js";
-import { architectEnricher, parseBlueprint, parseValidateOnlyResult } from "../../src/enrichers/architect.js";
+import { architectEnricher, parseBlueprint, parseValidateOnlyResult, validateArchitectBlueprint, isValidArchitectBlueprint } from "../../src/enrichers/architect.js";
 import type { TaskRow } from "../../src/db/schema.js";
 import type { EnricherConfig } from "../../src/enrichers/base.js";
 
@@ -492,6 +492,216 @@ describe("parseValidateOnlyResult", () => {
     const result = parseValidateOnlyResult(response);
     expect(result.valid).toBe(false);
     expect(result.warnings).toEqual(["Milestone 1 is vague"]);
+  });
+});
+
+// ── validateArchitectBlueprint unit tests ────────────────────────────────────
+
+describe("validateArchitectBlueprint", () => {
+  it("returns null for a valid simple blueprint", () => {
+    const blueprint = { approach: "Simple approach" };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBeNull();
+  });
+
+  it("returns null for a valid blueprint with all fields", () => {
+    const blueprint = {
+      approach: "Full blueprint",
+      keyFiles: ["src/a.ts", "src/b.ts"],
+      checklist: ["Task 1", "Task 2"],
+      milestones: [
+        {
+          title: "M1",
+          description: "First milestone",
+          filesToModify: ["src/file1.ts"],
+          acceptanceCriteria: ["Criterion 1"],
+        },
+      ],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBeNull();
+  });
+
+  it("rejects null", () => {
+    const error = validateArchitectBlueprint(null);
+    expect(error).toBe("Blueprint must be an object");
+  });
+
+  it("rejects a string", () => {
+    const error = validateArchitectBlueprint("not an object");
+    expect(error).toBe("Blueprint must be an object");
+  });
+
+  it("rejects a number", () => {
+    const error = validateArchitectBlueprint(42);
+    expect(error).toBe("Blueprint must be an object");
+  });
+
+  it("rejects an object without approach", () => {
+    const blueprint = { milestones: [] };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("Blueprint must have an 'approach' field (string)");
+  });
+
+  it("rejects an object with non-string approach", () => {
+    const blueprint = { approach: 123 };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("Blueprint must have an 'approach' field (string)");
+  });
+
+  it("rejects keyFiles if not an array", () => {
+    const blueprint = { approach: "test", keyFiles: "not-an-array" };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("'keyFiles' must be an array");
+  });
+
+  it("rejects keyFiles if it contains non-strings", () => {
+    const blueprint = { approach: "test", keyFiles: ["file.ts", 123] };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("'keyFiles' must contain only strings");
+  });
+
+  it("rejects checklist if not an array", () => {
+    const blueprint = { approach: "test", checklist: { item: "value" } };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("'checklist' must be an array");
+  });
+
+  it("rejects checklist if it contains non-strings", () => {
+    const blueprint = { approach: "test", checklist: ["item1", null] };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("'checklist' must contain only strings");
+  });
+
+  it("rejects milestones if not an array", () => {
+    const blueprint = { approach: "test", milestones: { title: "M1" } };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("'milestones' must be an array");
+  });
+
+  it("rejects a milestone that is not an object", () => {
+    const blueprint = { approach: "test", milestones: ["string milestone"] };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0] must be an object");
+  });
+
+  it("rejects a milestone without title", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [
+        {
+          description: "Missing title",
+          filesToModify: [],
+          acceptanceCriteria: [],
+        },
+      ],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].title must be a string");
+  });
+
+  it("rejects a milestone with non-string title", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: 123, description: "test", filesToModify: [], acceptanceCriteria: [] }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].title must be a string");
+  });
+
+  it("rejects a milestone without description", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: "M1", filesToModify: [], acceptanceCriteria: [] }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].description must be a string");
+  });
+
+  it("rejects a milestone with non-string description", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: "M1", description: null, filesToModify: [], acceptanceCriteria: [] }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].description must be a string");
+  });
+
+  it("rejects a milestone without filesToModify", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: "M1", description: "test", acceptanceCriteria: [] }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].filesToModify must be an array");
+  });
+
+  it("rejects a milestone with non-array filesToModify", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: "M1", description: "test", filesToModify: "file.ts", acceptanceCriteria: [] }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].filesToModify must be an array");
+  });
+
+  it("rejects a milestone with non-string filesToModify items", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: "M1", description: "test", filesToModify: ["file.ts", 123], acceptanceCriteria: [] }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].filesToModify must contain only strings");
+  });
+
+  it("rejects a milestone without acceptanceCriteria", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: "M1", description: "test", filesToModify: [] }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].acceptanceCriteria must be an array");
+  });
+
+  it("rejects a milestone with non-array acceptanceCriteria", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: "M1", description: "test", filesToModify: [], acceptanceCriteria: "criterion" }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].acceptanceCriteria must be an array");
+  });
+
+  it("rejects a milestone with non-string acceptanceCriteria items", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [{ title: "M1", description: "test", filesToModify: [], acceptanceCriteria: ["criterion", 456] }],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[0].acceptanceCriteria must contain only strings");
+  });
+
+  it("validates multiple milestones and returns error on first invalid one", () => {
+    const blueprint = {
+      approach: "test",
+      milestones: [
+        { title: "M1", description: "OK", filesToModify: ["file.ts"], acceptanceCriteria: ["OK"] },
+        { title: "M2", description: "Missing filesToModify", acceptanceCriteria: ["OK"] },
+      ],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBe("milestone[1].filesToModify must be an array");
+  });
+
+  it("allows empty arrays for keyFiles, checklist, filesToModify, acceptanceCriteria, and milestones", () => {
+    const blueprint = {
+      approach: "test",
+      keyFiles: [],
+      checklist: [],
+      milestones: [],
+    };
+    const error = validateArchitectBlueprint(blueprint);
+    expect(error).toBeNull();
   });
 });
 
