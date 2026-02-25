@@ -38,14 +38,20 @@ vi.mock("../../src/db/queries/repos.js", () => ({
   getById: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock("../../src/db/queries/task-events.js", () => ({
+  addEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { callClaude } from "../../src/agents/sdk.js";
-import { architectEnricher, parseBlueprint } from "../../src/enrichers/architect.js";
+import { addEvent } from "../../src/db/queries/task-events.js";
+import { architectEnricher, parseBlueprint, parseValidateOnlyResult } from "../../src/enrichers/architect.js";
 import type { TaskRow } from "../../src/db/schema.js";
 import type { EnricherConfig } from "../../src/enrichers/base.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const mockCallClaude = callClaude as ReturnType<typeof vi.fn>;
+const mockAddEvent = addEvent as ReturnType<typeof vi.fn>;
 
 const DUMMY_TASK = {
   id: "task-arch-test",
@@ -272,6 +278,220 @@ describe("architectEnricher", () => {
 
     const arch = result.data.architect as Record<string, unknown>;
     expect(arch.approach).toBe("Approach for null-size task");
+  });
+});
+
+// ── validate-only path tests ──────────────────────────────────────────────────
+
+const EXTERNAL_BLUEPRINT = {
+  approach: "Implement auth using JWT and OAuth2 strategy",
+  milestones: [
+    {
+      title: "Setup JWT signing",
+      description: "Configure RS256 key pair and signing middleware",
+      filesToModify: ["src/auth/jwt.ts", "src/middleware/auth.ts"],
+      acceptanceCriteria: [
+        "JWT tokens are signed with RS256",
+        "Middleware validates tokens on protected routes",
+      ],
+    },
+  ],
+};
+
+const EXTERNAL_TASK = {
+  ...DUMMY_TASK,
+  id: "task-external-bp",
+  blueprintSource: "external",
+  externalBlueprint: EXTERNAL_BLUEPRINT,
+} as unknown as TaskRow;
+
+describe("architectEnricher — validate-only mode (blueprintSource: external)", () => {
+  it("does NOT call the generation prompt; calls the validate prompt instead", async () => {
+    const { loadPrompt } = await import("../../src/prompt-cache.js");
+    const mockLoadPrompt = loadPrompt as ReturnType<typeof vi.fn>;
+    mockLoadPrompt.mockReturnValue("mocked validate system prompt");
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ valid: true }),
+      cost: makeCostMeta(),
+    });
+
+    await architectEnricher.run(EXTERNAL_TASK, "/tmp", {}, DEFAULT_CONFIG);
+
+    expect(mockCallClaude).toHaveBeenCalledOnce();
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    // Must NOT contain generation-specific prompt text
+    expect(callArgs.prompt).toContain("external_blueprint");
+    // Prompt should reference the blueprint JSON
+    expect(callArgs.prompt).toContain("Setup JWT signing");
+  });
+
+  it("passes through externalBlueprint as architect output when blueprint is valid", async () => {
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ valid: true }),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(EXTERNAL_TASK, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as typeof EXTERNAL_BLUEPRINT;
+    expect(arch.approach).toBe(EXTERNAL_BLUEPRINT.approach);
+    expect(arch.milestones).toHaveLength(1);
+    expect(arch.milestones[0].title).toBe("Setup JWT signing");
+  });
+
+  it("passes through externalBlueprint as architect output even when there are warnings", async () => {
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        valid: false,
+        warnings: ["Milestone 1 acceptance criteria are too vague"],
+      }),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(EXTERNAL_TASK, "/tmp", {}, DEFAULT_CONFIG);
+
+    // Blueprint still passes through
+    const arch = result.data.architect as typeof EXTERNAL_BLUEPRINT;
+    expect(arch.approach).toBe(EXTERNAL_BLUEPRINT.approach);
+    expect(arch.milestones).toHaveLength(1);
+  });
+
+  it("writes warning events to the task event log when validation finds issues", async () => {
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({
+        valid: false,
+        warnings: [
+          "Milestone 1 has a trivial acceptance criterion: 'it works'",
+          "File path 'utils.ts' has no directory structure",
+        ],
+      }),
+      cost: makeCostMeta(),
+    });
+
+    await architectEnricher.run(EXTERNAL_TASK, "/tmp", {}, DEFAULT_CONFIG);
+
+    expect(mockAddEvent).toHaveBeenCalledTimes(2);
+
+    const firstCall = mockAddEvent.mock.calls[0];
+    expect(firstCall[0]).toBe(EXTERNAL_TASK.id);
+    expect(firstCall[1]).toBe("blueprint_warning");
+    expect(firstCall[2]).toBe("architect");
+    expect(firstCall[3]).toBe("Milestone 1 has a trivial acceptance criterion: 'it works'");
+
+    const secondCall = mockAddEvent.mock.calls[1];
+    expect(secondCall[3]).toBe("File path 'utils.ts' has no directory structure");
+  });
+
+  it("writes NO warning events when the blueprint is valid", async () => {
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ valid: true }),
+      cost: makeCostMeta(),
+    });
+
+    await architectEnricher.run(EXTERNAL_TASK, "/tmp", {}, DEFAULT_CONFIG);
+
+    expect(mockAddEvent).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the normal generation path when blueprintSource is 'architect'", async () => {
+    const normalTask = {
+      ...DUMMY_TASK,
+      blueprintSource: "architect",
+      externalBlueprint: null,
+    } as unknown as TaskRow;
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ approach: "Generated by architect" }),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(normalTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    // Should use the generation prompt, not the validate prompt
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.prompt).not.toContain("external_blueprint");
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.approach).toBe("Generated by architect");
+  });
+
+  it("falls back to the normal generation path when blueprintSource is absent", async () => {
+    const normalTask = {
+      ...DUMMY_TASK,
+      blueprintSource: undefined,
+      externalBlueprint: null,
+    } as unknown as TaskRow;
+
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ approach: "Normal generation" }),
+      cost: makeCostMeta(),
+    });
+
+    const result = await architectEnricher.run(normalTask, "/tmp", {}, DEFAULT_CONFIG);
+
+    const callArgs = mockCallClaude.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.prompt).not.toContain("external_blueprint");
+
+    const arch = result.data.architect as Record<string, unknown>;
+    expect(arch.approach).toBe("Normal generation");
+  });
+
+  it("handles addEvent failure gracefully (non-blocking)", async () => {
+    mockCallClaude.mockResolvedValueOnce({
+      text: JSON.stringify({ valid: false, warnings: ["Some warning"] }),
+      cost: makeCostMeta(),
+    });
+    mockAddEvent.mockRejectedValueOnce(new Error("DB connection lost"));
+
+    // Should not throw even if addEvent fails
+    const result = await architectEnricher.run(EXTERNAL_TASK, "/tmp", {}, DEFAULT_CONFIG);
+
+    const arch = result.data.architect as typeof EXTERNAL_BLUEPRINT;
+    expect(arch.approach).toBe(EXTERNAL_BLUEPRINT.approach);
+  });
+});
+
+// ── parseValidateOnlyResult unit tests ───────────────────────────────────────
+
+describe("parseValidateOnlyResult", () => {
+  it("parses { valid: true } response", () => {
+    const result = parseValidateOnlyResult('{ "valid": true }');
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it("parses { valid: false, warnings: [...] } response", () => {
+    const result = parseValidateOnlyResult(
+      JSON.stringify({ valid: false, warnings: ["Issue A", "Issue B"] }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.warnings).toEqual(["Issue A", "Issue B"]);
+  });
+
+  it("returns safe fallback on invalid JSON", () => {
+    const result = parseValidateOnlyResult("This is not JSON at all");
+    expect(result.valid).toBe(false);
+    expect(result.warnings).toEqual(["Failed to parse validation output: no JSON object found"]);
+  });
+
+  it("returns safe fallback when JSON is malformed", () => {
+    const result = parseValidateOnlyResult("{ invalid json }");
+    expect(result.valid).toBe(false);
+    expect(result.warnings).toEqual(["Failed to parse validation output"]);
+  });
+
+  it("strips markdown code fences before parsing", () => {
+    const wrapped = "```json\n{ \"valid\": true }\n```";
+    const result = parseValidateOnlyResult(wrapped);
+    expect(result.valid).toBe(true);
+  });
+
+  it("handles prose-prefixed responses by finding the JSON object", () => {
+    const response = `Here is my analysis of the blueprint:\n\n{ "valid": false, "warnings": ["Milestone 1 is vague"] }`;
+    const result = parseValidateOnlyResult(response);
+    expect(result.valid).toBe(false);
+    expect(result.warnings).toEqual(["Milestone 1 is vague"]);
   });
 });
 

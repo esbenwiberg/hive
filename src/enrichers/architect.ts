@@ -5,6 +5,7 @@ import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js
 import { loadPrompt } from "../prompt-cache.js";
 import { retrieveRelevantLearnings } from "../db/queries/learnings.js";
 import { getById as getRepoById } from "../db/queries/repos.js";
+import { addEvent } from "../db/queries/task-events.js";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
 
@@ -178,6 +179,58 @@ function buildUserPrompt(
   return sections.join("\n");
 }
 
+// ── Validate-only helpers ─────────────────────────────────────────────────────
+
+/**
+ * Shape returned by the validate-only LLM prompt.
+ */
+export interface ValidateOnlyResult {
+  valid: boolean;
+  warnings?: string[];
+}
+
+/**
+ * Parses the validate-only LLM response into a ValidateOnlyResult.
+ * Wraps JSON.parse in try/catch and returns a safe fallback on failure.
+ */
+export function parseValidateOnlyResult(raw: string): ValidateOnlyResult {
+  const cleaned = stripCodeFences(raw);
+  // Find the first JSON object in the response
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) {
+    return { valid: false, warnings: ["Failed to parse validation output: no JSON object found"] };
+  }
+  try {
+    const parsed = JSON.parse(match[0]) as Record<string, unknown>;
+    const valid = parsed.valid === true;
+    const warnings = Array.isArray(parsed.warnings)
+      ? (parsed.warnings as unknown[]).map(String)
+      : [];
+    return { valid, warnings: warnings.length > 0 ? warnings : undefined };
+  } catch {
+    return { valid: false, warnings: ["Failed to parse validation output"] };
+  }
+}
+
+/**
+ * Builds the user prompt for validate-only mode (external blueprints).
+ */
+function buildValidateOnlyPrompt(
+  task: TaskRow,
+  blueprint: ArchitectBlueprint,
+): string {
+  return [
+    `Task ID: ${task.id}`,
+    `Task title: ${task.title}`,
+    "",
+    "<external_blueprint>",
+    JSON.stringify(blueprint, null, 2),
+    "</external_blueprint>",
+    "",
+    "Validate the blueprint above. Return JSON only.",
+  ].join("\n");
+}
+
 // ── Enricher ─────────────────────────────────────────────────────────────────
 
 export const architectEnricher: Enricher = {
@@ -194,6 +247,64 @@ export const architectEnricher: Enricher = {
     // ── Resolve model ─────────────────────────────────────────────────────
     const autonomousConfig = getAutonomousConfig();
     const model = config.model ?? getModelFor("architect");
+
+    // ── External blueprint validate-only path ─────────────────────────────
+    if (task.blueprintSource === "external" && task.externalBlueprint != null) {
+      const externalBlueprint = task.externalBlueprint as unknown as ArchitectBlueprint;
+
+      const validateSystemPrompt = loadPrompt("enrichers/architect-validate");
+
+      const validateUserPrompt = buildValidateOnlyPrompt(task, externalBlueprint);
+
+      const response = await callClaude({
+        prompt: validateUserPrompt,
+        model,
+        systemPrompt: validateSystemPrompt,
+      });
+
+      const validationResult = parseValidateOnlyResult(response.text);
+
+      const costUsd = estimateCostUsd(
+        response.cost.inputTokens,
+        response.cost.outputTokens,
+        autonomousConfig.models.inputCostPerM,
+        autonomousConfig.models.outputCostPerM,
+      );
+
+      const durationMs = Date.now() - startTime;
+
+      if (!validationResult.valid && validationResult.warnings && validationResult.warnings.length > 0) {
+        // Persist each warning as a task event visible in the dashboard
+        for (const warning of validationResult.warnings) {
+          try {
+            await addEvent(
+              task.id,
+              "blueprint_warning",
+              "architect",
+              warning,
+              { source: "validate-only", blueprintSource: "external" },
+            );
+          } catch (err) {
+            logger.warn({ taskId: task.id, err }, "Architect: failed to persist blueprint warning event (non-blocking)");
+          }
+        }
+        logger.warn(
+          { taskId: task.id, warnings: validationResult.warnings },
+          "Architect validate-only: external blueprint has semantic warnings",
+        );
+      } else {
+        logger.info({ taskId: task.id }, "Architect validate-only: external blueprint passed semantic validation");
+      }
+
+      // Always pass through the external blueprint as the resolved architect output
+      return {
+        data: { architect: externalBlueprint },
+        costUsd,
+        durationMs,
+      };
+    }
+
+    // ── Normal generation path (blueprintSource === 'architect' or absent) ─
 
     // ── Build prompt ──────────────────────────────────────────────────────
     const systemPrompt = loadPrompt("enrichers/architect");
