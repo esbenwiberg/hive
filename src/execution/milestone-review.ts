@@ -6,6 +6,7 @@ import { estimateCostUsd } from "../agents/cost-utils.js";
 import { getModelFor } from "../domain/autonomous-config.js";
 import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import { loadPrompt } from "../prompt-cache.js";
+import { detectBuildSystem } from "./build-system.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,50 +44,78 @@ function getFixPrompt(): string {
 // ── quickVerify ──────────────────────────────────────────────────────────────
 
 /**
- * Runs lint, build, and test sequentially via npm with `--if-present`.
+ * Runs a single shell command, pushing a failure message if it errors.
+ */
+async function runStep(
+  bin: string,
+  args: string[],
+  cwd: string,
+  label: string,
+  failures: string[],
+): Promise<boolean> {
+  try {
+    await execFileAsync(bin, args, {
+      cwd,
+      timeout: SHELL_TIMEOUT_MS,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    logger.debug({ step: label, cwd }, "quickVerify step passed");
+    return true;
+  } catch (err: unknown) {
+    const error = err as { stdout?: string; stderr?: string; message?: string };
+    const output = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
+    const detail = output || error.message || "unknown error";
+    const message = `${label} failed: ${detail}`;
+    failures.push(message);
+    logger.warn({ step: label, cwd }, message);
+    return false;
+  }
+}
+
+/**
+ * Runs lint, build, and test appropriate for the repo's build system.
+ * Detects npm / dotnet / dotnet+npm automatically (or via .hive.yaml override).
  * Collects ALL failures rather than stopping at the first one.
  */
 export async function quickVerify(worktreePath: string): Promise<QuickVerifyResult> {
   const failures: string[] = [];
 
-  // Install dependencies first — worktrees don't inherit node_modules from the parent.
-  try {
-    await execFileAsync("npm", ["install", "--prefer-offline", "--include=dev"], {
-      cwd: worktreePath,
-      timeout: SHELL_TIMEOUT_MS,
-      maxBuffer: 2 * 1024 * 1024,
-    });
-    logger.debug({ worktreePath }, "quickVerify: npm install passed");
-  } catch (err: unknown) {
-    const error = err as { stdout?: string; stderr?: string; message?: string };
-    const output = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
-    const detail = output || error.message || "unknown error";
-    failures.push(`install failed: ${detail}`);
-    logger.warn({ worktreePath }, `quickVerify: npm install failed — skipping build/test`);
-    return { passed: false, failures };
+  const info = await detectBuildSystem(worktreePath);
+  logger.info({ worktreePath, buildSystem: info.type }, "quickVerify: detected build system");
+
+  // ── npm steps ────────────────────────────────────────────────────────────
+  if (info.type === "npm" || info.type === "dotnet+npm") {
+    const npmDir = info.npmDir ?? worktreePath;
+
+    const installed = await runStep(
+      "npm", ["install", "--prefer-offline", "--include=dev"],
+      npmDir, "npm install", failures,
+    );
+
+    if (!installed) {
+      logger.warn({ npmDir }, "quickVerify: npm install failed — skipping npm build/test");
+      if (info.type === "npm") return { passed: false, failures };
+    } else {
+      await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", failures);
+      await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures);
+      await runStep("npm", ["run", "test", "--if-present"], npmDir, "npm test", failures);
+    }
   }
 
-  const commands: { label: string; args: string[] }[] = [
-    { label: "lint", args: ["run", "lint", "--if-present"] },
-    { label: "build", args: ["run", "build", "--if-present"] },
-    { label: "test", args: ["run", "test", "--if-present"] },
-  ];
+  // ── dotnet steps ─────────────────────────────────────────────────────────
+  if (info.type === "dotnet" || info.type === "dotnet+npm") {
+    const dotnetDir = info.dotnetDir ?? worktreePath;
 
-  for (const cmd of commands) {
-    try {
-      await execFileAsync("npm", cmd.args, {
-        cwd: worktreePath,
-        timeout: SHELL_TIMEOUT_MS,
-        maxBuffer: 2 * 1024 * 1024,
-      });
-      logger.debug({ step: cmd.label, worktreePath }, "quickVerify step passed");
-    } catch (err: unknown) {
-      const error = err as { stdout?: string; stderr?: string; message?: string };
-      const output = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
-      const detail = output || error.message || "unknown error";
-      const message = `${cmd.label} failed: ${detail}`;
-      failures.push(message);
-      logger.warn({ step: cmd.label, worktreePath }, message);
+    const restored = await runStep(
+      "dotnet", ["restore"],
+      dotnetDir, "dotnet restore", failures,
+    );
+
+    if (!restored) {
+      logger.warn({ dotnetDir }, "quickVerify: dotnet restore failed — skipping dotnet build/test");
+    } else {
+      await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures);
+      await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures);
     }
   }
 

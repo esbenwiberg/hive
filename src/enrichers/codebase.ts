@@ -14,6 +14,11 @@ const SKIP_DIRS = new Set([
   "coverage",
   ".turbo",
   "__pycache__",
+  "bin",
+  "obj",
+  ".vs",
+  "TestResults",
+  "packages",
 ]);
 
 const TEST_PATTERNS = [
@@ -21,6 +26,10 @@ const TEST_PATTERNS = [
   /\.spec\.[jt]sx?$/,
   /tests?\//,
   /__tests__\//,
+  /Tests\.cs$/,
+  /Spec\.cs$/,
+  /\.Tests\//,
+  /Tests\//,
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

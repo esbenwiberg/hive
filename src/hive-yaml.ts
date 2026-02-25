@@ -2,6 +2,59 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
 
+// ── Build system type ────────────────────────────────────────────────────────
+
+export type BuildSystemType = "npm" | "dotnet" | "dotnet+npm";
+
+// ── Build config ─────────────────────────────────────────────────────────────
+
+export interface HiveBuildConfig {
+  system?: BuildSystemType;
+  /** Relative path from repo root to the dir containing package.json */
+  npmDir?: string;
+}
+
+/**
+ * Reads `.hive.yaml` from the given path and returns the parsed `build`
+ * section, or null if the file is missing or has no build section.
+ */
+export function parseHiveBuildConfig(worktreePath: string): HiveBuildConfig | null {
+  const filePath = join(worktreePath, ".hive.yaml");
+
+  let contents: string;
+  try {
+    contents = readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+
+  let doc: Record<string, unknown>;
+  try {
+    doc = parse(contents) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  if (!doc || typeof doc !== "object" || !doc.build) {
+    return null;
+  }
+
+  const raw = doc.build as Record<string, unknown>;
+  const result: HiveBuildConfig = {};
+
+  const system = raw.system as string | undefined;
+  if (system && ["npm", "dotnet", "dotnet+npm"].includes(system)) {
+    result.system = system as BuildSystemType;
+  }
+
+  const npmDir = raw.npm_dir as string | undefined;
+  if (typeof npmDir === "string") {
+    result.npmDir = npmDir;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 // ── Preview type interfaces ─────────────────────────────────────────────────
 
 export interface BasePreviewConfig {

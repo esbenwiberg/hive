@@ -39,6 +39,7 @@ export interface Producer {
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "build", ".next", "coverage",
   ".turbo", "__pycache__", ".venv", "vendor",
+  "bin", "obj", ".vs", "TestResults", "packages",
 ]);
 
 const MAX_TREE_FILES = 200;
