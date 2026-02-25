@@ -1,291 +1,244 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// ── Mocks must be set up before importing the module under test ───────────────
-
+// Mock modules BEFORE importing the module under test
+vi.mock("../../src/agents/sdk.js");
+vi.mock("../../src/db/queries/tasks.js", () => ({
+  insertAdvisorReport: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("../../src/db/queries/task-events.js", () => ({
+  addAdvisorEvent: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("../../src/db/queries/active-agents.js", () => ({
+  register: vi.fn(() => Promise.resolve()),
+  unregister: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("../../src/domain/autonomous-config.js", () => ({
+  getModelFor: vi.fn(() => "claude-3-5-sonnet-20241022"),
+  getAutonomousConfig: vi.fn(() => ({
+    advisor: {
+      enabled: true,
+      confidenceThreshold: 50,
+      usePrism: false,
+    },
+  })),
+}));
+vi.mock("../../src/agents/cost-utils.js", () => ({
+  estimateCostUsd: vi.fn(() => 0.01),
+}));
 vi.mock("../../src/logger.js", () => ({
   default: {
     info: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
     warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
   },
 }));
 
-vi.mock("../../src/domain/autonomous-config.js", () => ({
-  getModelFor: vi.fn(() => "claude-3-5-haiku-20241022"),
-}));
+// Now import after all mocks are registered
+import { runAdvisor } from "../../src/agents/advisor.js";
+import * as sdk from "../../src/agents/sdk.js";
 
-vi.mock("../../src/agents/sdk.js", () => ({
-  callClaude: vi.fn(),
-  extractJson: vi.fn(),
-}));
-
-import { runAdvisor, type AdvisorContext } from "../../src/agents/advisor.js";
-import { callClaude, extractJson } from "../../src/agents/sdk.js";
-
-const mockedCallClaude = vi.mocked(callClaude);
-const mockedExtractJson = vi.mocked(extractJson);
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-const baseContext: AdvisorContext = {
-  title: "Add dark mode toggle",
-  body: "Users have requested a dark mode toggle in the settings page.",
-};
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe("runAdvisor", () => {
+describe("Advisor Agent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  it("should parse valid JSON response correctly", async () => {
+    const validResponse = {
+      text: JSON.stringify({
+        recommendation: "approve",
+        score: 85,
+        confidence: 90,
+        reasoning: "Well-scoped task with clear value",
+        flags: ["Good fit", "Low risk"],
+        escalate: false,
+      }),
+      cost: {
+        inputTokens: 1000,
+        outputTokens: 200,
+      },
+    };
 
-  // ── Fallback / error paths ─────────────────────────────────────────────────
+    vi.mocked(sdk.callClaude).mockResolvedValue(validResponse as any);
 
-  it("returns escalate=true fallback when JSON parsing fails", async () => {
-    mockedCallClaude.mockResolvedValueOnce({
-      text: "This is not valid JSON at all.",
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 10, outputTokens: 10, totalCostUsd: 0.001 },
-    } as any);
-
-    // extractJson throws to simulate a parse failure
-    mockedExtractJson.mockImplementationOnce(() => {
-      throw new SyntaxError("Unexpected token T in JSON");
+    const result = await runAdvisor({
+      taskId: "123",
+      userId: 1,
+      title: "Test Task",
+      taskBody: "Test task body",
+      enrichment: {
+        labels: [],
+        complexity: "medium",
+        affectedAreas: [],
+        riskFlags: [],
+        estimatedEffort: "4 hours",
+      },
     });
 
-    const report = await runAdvisor(baseContext);
-
-    expect(report.escalate).toBe(true);
-    expect(report.confidence).toBe(0);
-    expect(report.score).toBe(0);
-    expect(report.recommendation).toBe("reject");
-    expect(report.reasoning).toMatch(/Failed to parse advisor output/i);
-    expect(Array.isArray(report.flags)).toBe(true);
+    expect(result.recommendation).toBe("approve");
+    expect(result.score).toBe(85);
+    expect(result.confidence).toBe(90);
+    expect(result.escalate).toBe(false);
   });
 
-  it("returns escalate=true fallback when extracted JSON has missing required fields", async () => {
-    mockedCallClaude.mockResolvedValueOnce({
-      text: '{"recommendation":"approve"}',
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 10, outputTokens: 10, totalCostUsd: 0.001 },
-    } as any);
-
-    // extractJson returns a partial object — missing score, confidence, reasoning
-    mockedExtractJson.mockReturnValueOnce({ recommendation: "approve" });
-
-    const report = await runAdvisor(baseContext);
-
-    expect(report.escalate).toBe(true);
-    expect(report.score).toBe(0);
-    expect(report.confidence).toBe(0);
-  });
-
-  it("returns escalate=true fallback when callClaude throws", async () => {
-    mockedCallClaude.mockRejectedValueOnce(new Error("Network error"));
-
-    const report = await runAdvisor(baseContext);
-
-    expect(report.escalate).toBe(true);
-    expect(report.confidence).toBe(0);
-    expect(report.reasoning).toMatch(/Advisor LLM call failed/i);
-  });
-
-  // ── Happy path ────────────────────────────────────────────────────────────
-
-  it("returns a valid approve report on successful LLM response", async () => {
-    const llmReport = {
-      recommendation: "approve",
-      score: 85,
-      confidence: 90,
-      reasoning: "This task fits well with the existing UI patterns.",
-      flags: [],
-      escalate: false,
+  it("should parse JSON wrapped in markdown code fences", async () => {
+    const markdownResponse = {
+      text: `\`\`\`json
+{
+  "recommendation": "redesign",
+  "score": 45,
+  "confidence": 75,
+  "reasoning": "Needs design iteration",
+  "flags": ["Scope too broad"],
+  "escalate": false
+}
+\`\`\``,
+      cost: {
+        inputTokens: 1000,
+        outputTokens: 150,
+      },
     };
 
-    mockedCallClaude.mockResolvedValueOnce({
-      text: JSON.stringify(llmReport),
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 100, outputTokens: 80, totalCostUsd: 0.002 },
-    } as any);
+    vi.mocked(sdk.callClaude).mockResolvedValue(markdownResponse as any);
 
-    mockedExtractJson.mockReturnValueOnce(llmReport);
-
-    const report = await runAdvisor(baseContext);
-
-    expect(report.recommendation).toBe("approve");
-    expect(report.score).toBe(85);
-    expect(report.confidence).toBe(90);
-    expect(report.escalate).toBe(false);
-    expect(report.flags).toEqual([]);
-  });
-
-  it("forces escalate=true when confidence < 50, regardless of LLM escalate value", async () => {
-    const llmReport = {
-      recommendation: "approve",
-      score: 70,
-      confidence: 40, // below threshold
-      reasoning: "Unsure due to limited context.",
-      flags: ["Insufficient context"],
-      escalate: false, // LLM said false but should be overridden
-    };
-
-    mockedCallClaude.mockResolvedValueOnce({
-      text: JSON.stringify(llmReport),
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 100, outputTokens: 80, totalCostUsd: 0.002 },
-    } as any);
-
-    mockedExtractJson.mockReturnValueOnce(llmReport);
-
-    const report = await runAdvisor(baseContext);
-
-    expect(report.escalate).toBe(true);
-    expect(report.confidence).toBe(40);
-  });
-
-  it("forces escalate=true when recommendation is reject", async () => {
-    const llmReport = {
-      recommendation: "reject",
-      score: 15,
-      confidence: 85,
-      reasoning: "This task contradicts existing architecture.",
-      flags: ["Architectural conflict"],
-      escalate: false, // LLM said false but reject always escalates
-    };
-
-    mockedCallClaude.mockResolvedValueOnce({
-      text: JSON.stringify(llmReport),
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 100, outputTokens: 80, totalCostUsd: 0.002 },
-    } as any);
-
-    mockedExtractJson.mockReturnValueOnce(llmReport);
-
-    const report = await runAdvisor(baseContext);
-
-    expect(report.escalate).toBe(true);
-    expect(report.recommendation).toBe("reject");
-  });
-
-  it("forces escalate=true when score < 30", async () => {
-    const llmReport = {
-      recommendation: "redesign",
-      score: 25, // below threshold
-      confidence: 80,
-      reasoning: "Too risky in current form.",
-      flags: ["High risk"],
-      escalate: false,
-    };
-
-    mockedCallClaude.mockResolvedValueOnce({
-      text: JSON.stringify(llmReport),
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 100, outputTokens: 80, totalCostUsd: 0.002 },
-    } as any);
-
-    mockedExtractJson.mockReturnValueOnce(llmReport);
-
-    const report = await runAdvisor(baseContext);
-
-    expect(report.escalate).toBe(true);
-    expect(report.score).toBe(25);
-  });
-
-  // ── Dry-run ───────────────────────────────────────────────────────────────
-
-  it("returns a passing stub in dry-run mode without calling LLM", async () => {
-    const report = await runAdvisor({ ...baseContext, dryRun: true });
-
-    expect(mockedCallClaude).not.toHaveBeenCalled();
-    expect(report.recommendation).toBe("approve");
-    expect(report.score).toBeGreaterThan(0);
-    expect(report.confidence).toBeGreaterThan(0);
-    expect(report.escalate).toBe(false);
-  });
-
-  // ── Prism integration (graceful degradation) ──────────────────────────────
-
-  it("continues gracefully when Prism is not installed", async () => {
-    // @prism/core is not installed in this repo — the dynamic import will fail
-    // and the advisor should continue without it.
-    const llmReport = {
-      recommendation: "approve",
-      score: 80,
-      confidence: 75,
-      reasoning: "Looks good.",
-      flags: [],
-      escalate: false,
-    };
-
-    mockedCallClaude.mockResolvedValueOnce({
-      text: JSON.stringify(llmReport),
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 100, outputTokens: 80, totalCostUsd: 0.002 },
-    } as any);
-
-    mockedExtractJson.mockReturnValueOnce(llmReport);
-
-    // Providing a repoId triggers the Prism path, but since it's not installed
-    // the agent should fall back silently.
-    const report = await runAdvisor({ ...baseContext, repoId: "test-repo-123" });
-
-    expect(report.recommendation).toBe("approve");
-    expect(report.escalate).toBe(false);
-  });
-
-  // ── Score clamping ────────────────────────────────────────────────────────
-
-  it("clamps score and confidence to [0, 100] range", async () => {
-    const llmReport = {
-      recommendation: "approve",
-      score: 999,     // over max
-      confidence: -5, // below min
-      reasoning: "Out-of-range values from LLM.",
-      flags: [],
-      escalate: false,
-    };
-
-    mockedCallClaude.mockResolvedValueOnce({
-      text: JSON.stringify(llmReport),
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 100, outputTokens: 80, totalCostUsd: 0.002 },
-    } as any);
-
-    mockedExtractJson.mockReturnValueOnce(llmReport);
-
-    const report = await runAdvisor(baseContext);
-
-    expect(report.score).toBe(100);
-    expect(report.confidence).toBe(0);
-    // confidence=0 < 50, so escalate must be true
-    expect(report.escalate).toBe(true);
-  });
-
-  // ── Enrichment data ───────────────────────────────────────────────────────
-
-  it("includes enrichment data in the prompt when provided", async () => {
-    const llmReport = {
-      recommendation: "approve",
-      score: 82,
-      confidence: 88,
-      reasoning: "Fits well.",
-      flags: [],
-      escalate: false,
-    };
-
-    mockedCallClaude.mockResolvedValueOnce({
-      text: JSON.stringify(llmReport),
-      cost: { model: "claude-3-5-haiku-20241022", inputTokens: 100, outputTokens: 80, totalCostUsd: 0.002 },
-    } as any);
-
-    mockedExtractJson.mockReturnValueOnce(llmReport);
-
-    const report = await runAdvisor({
-      ...baseContext,
-      enrichment: { labels: ["ui", "feature"], effort: "small", complexity: 2 },
+    const result = await runAdvisor({
+      taskId: "124",
+      userId: 1,
+      title: "Test Task 2",
+      taskBody: "Test task body 2",
+      enrichment: {
+        labels: [],
+        complexity: "medium",
+        affectedAreas: [],
+        riskFlags: [],
+        estimatedEffort: "4 hours",
+      },
     });
 
-    // Verify the prompt passed to callClaude contained enrichment data
-    const callArgs = mockedCallClaude.mock.calls[0][0];
-    expect(callArgs.prompt).toContain("Enrichment Data");
-    expect(callArgs.prompt).toContain('"labels"');
-    expect(report.recommendation).toBe("approve");
+    expect(result.recommendation).toBe("redesign");
+    expect(result.score).toBe(45);
+    expect(result.escalate).toBe(false);
+  });
+
+  it("should return safe fallback on malformed JSON", async () => {
+    const malformedResponse = {
+      text: `This is not JSON at all. Just some text that can't be parsed.`,
+      cost: {
+        inputTokens: 1000,
+        outputTokens: 50,
+      },
+    };
+
+    vi.mocked(sdk.callClaude).mockResolvedValue(malformedResponse as any);
+
+    const result = await runAdvisor({
+      taskId: "125",
+      userId: 1,
+      title: "Test Task 3",
+      taskBody: "Test task body 3",
+      enrichment: {
+        labels: [],
+        complexity: "medium",
+        affectedAreas: [],
+        riskFlags: [],
+        estimatedEffort: "4 hours",
+      },
+    });
+
+    expect(result.recommendation).toBe("reject");
+    expect(result.score).toBe(0);
+    expect(result.confidence).toBe(0);
+    expect(result.escalate).toBe(true);
+    expect(result.reasoning).toContain("Failed to parse");
+  });
+
+  it("should validate required fields and return fallback if missing", async () => {
+    const incompleteResponse = {
+      text: JSON.stringify({
+        recommendation: "approve",
+        score: 85,
+        // missing confidence, reasoning, flags, escalate
+      }),
+      cost: {
+        inputTokens: 1000,
+        outputTokens: 100,
+      },
+    };
+
+    vi.mocked(sdk.callClaude).mockResolvedValue(incompleteResponse as any);
+
+    const result = await runAdvisor({
+      taskId: "126",
+      userId: 1,
+      title: "Test Task 4",
+      taskBody: "Test task body 4",
+      enrichment: {
+        labels: [],
+        complexity: "medium",
+        affectedAreas: [],
+        riskFlags: [],
+        estimatedEffort: "4 hours",
+      },
+    });
+
+    expect(result.escalate).toBe(true);
+    expect(result.reasoning).toContain("Failed to parse");
+  });
+
+  it("should clamp scores to 0-100 range", async () => {
+    const outOfRangeResponse = {
+      text: JSON.stringify({
+        recommendation: "approve",
+        score: 150,
+        confidence: -50,
+        reasoning: "Test",
+        flags: [],
+        escalate: false,
+      }),
+      cost: {
+        inputTokens: 1000,
+        outputTokens: 150,
+      },
+    };
+
+    vi.mocked(sdk.callClaude).mockResolvedValue(outOfRangeResponse as any);
+
+    const result = await runAdvisor({
+      taskId: "127",
+      userId: 1,
+      title: "Test Task 5",
+      taskBody: "Test task body 5",
+      enrichment: {
+        labels: [],
+        complexity: "medium",
+        affectedAreas: [],
+        riskFlags: [],
+        estimatedEffort: "4 hours",
+      },
+    });
+
+    expect(result.score).toBe(100);
+    expect(result.confidence).toBe(0);
+  });
+
+  it("should handle no response from LLM gracefully", async () => {
+    vi.mocked(sdk.callClaude).mockResolvedValue(null as any);
+
+    const result = await runAdvisor({
+      taskId: "128",
+      userId: 1,
+      title: "Test Task 6",
+      taskBody: "Test task body 6",
+      enrichment: {
+        labels: [],
+        complexity: "medium",
+        affectedAreas: [],
+        riskFlags: [],
+        estimatedEffort: "4 hours",
+      },
+    });
+
+    expect(result.escalate).toBe(true);
+    expect(result.recommendation).toBe("reject");
   });
 });

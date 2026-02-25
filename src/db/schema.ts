@@ -112,6 +112,8 @@ export const tasks = pgTable(
     completedMilestones: integer("completed_milestones").default(0),
     visibility: text("visibility").notNull().default("public"),
     advisorReport: jsonb("advisor_report"),
+    escalatedToHuman: boolean("escalated_to_human").default(false),
+    forceHumanGate: boolean("force_human_gate").default(false),
     createdAt: timestamp("created_at", tz).defaultNow(),
     updatedAt: timestamp("updated_at", tz).defaultNow(),
   },

@@ -4,86 +4,60 @@ import { fileURLToPath } from "url";
 import logger from "../logger.js";
 import { callClaude } from "./sdk.js";
 import { extractJson } from "./sdk.js";
-import { getModelFor } from "../domain/autonomous-config.js";
+import { getModelFor, getAutonomousConfig } from "../domain/autonomous-config.js";
+import { register, unregister } from "../db/queries/active-agents.js";
+import { insertAdvisorReport } from "../db/queries/tasks.js";
+import { addAdvisorEvent } from "../db/queries/task-events.js";
+import { estimateCostUsd } from "./cost-utils.js";
 import type { AdvisorReport } from "../domain/types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface AdvisorContext {
+  /** Task ID for persistence. */
+  taskId?: string;
+  /** User ID for cost tracking. */
+  userId?: number;
+  /** Repository identifier. */
+  repo?: string;
   /** Short title of the task. */
   title: string;
   /** Full task body / description. */
-  body: string;
-  /** Structured enrichment data from the enricher agents (serialised to JSON). */
+  taskBody: string;
+  /** Structured enrichment data from the enricher agents. */
   enrichment?: Record<string, unknown>;
-  /** Repository identifier used for Prism index lookups. */
-  repoId?: string;
+  /** Prism semantic search results (if available). */
+  prismResults?: string;
+  /** Whether to use Prism for this run. */
+  usePrism?: boolean;
   /** Skip the LLM call and return a deterministic stub (useful in tests). */
   dryRun?: boolean;
 }
 
 // ── Fallback ─────────────────────────────────────────────────────────────────
 
-const FALLBACK_REPORT: AdvisorReport = {
-  recommendation: "reject",
-  score: 0,
-  confidence: 0,
-  reasoning: "Failed to parse advisor output",
-  flags: [],
-  escalate: true,
-};
-
-// ── Prism integration (optional) ─────────────────────────────────────────────
-
-/**
- * Attempts to load @prism/core and run a semantic search for the task.
- * Returns a formatted string of results, or null if Prism is unavailable.
- * Never throws — all errors are caught and logged.
- */
-async function tryPrismSearch(
-  query: string,
-  repoId?: string,
-): Promise<string | null> {
-  if (!repoId) return null;
-
-  try {
-    // Dynamic import so the rest of the module loads fine when Prism is absent.
-    // @ts-expect-error – @prism/core is an optional peer, not always installed
-    const prism = await import("@prism/core");
-    const results: Array<{ content: string; filePath: string; score: number }> =
-      await prism.search({ query, repoId, limit: 5 });
-
-    if (!results || results.length === 0) return null;
-
-    const formatted = results
-      .map(
-        (r, i) =>
-          `### Result ${i + 1} (score: ${r.score.toFixed(3)}) — ${r.filePath}\n${r.content}`,
-      )
-      .join("\n\n");
-
-    logger.debug(
-      { repoId, resultCount: results.length },
-      "Prism search returned results for advisor",
-    );
-    return formatted;
-  } catch (err) {
-    // Prism not installed or index not available — silently continue.
-    logger.debug(
-      { err: err instanceof Error ? err.message : String(err) },
-      "Prism unavailable for advisor (continuing without it)",
-    );
-    return null;
-  }
+function fallbackReport(reason: string): AdvisorReport {
+  return {
+    recommendation: "reject",
+    score: 0,
+    confidence: 0,
+    reasoning: reason,
+    flags: [],
+    escalate: true,
+  };
 }
 
-// ── Prompt loader ─────────────────────────────────────────────────────────────
+// ── Format helpers ───────────────────────────────────────────────────────────
 
-function loadPrompt(): string {
-  // Works from both src/ and dist/ after build.
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  const promptPath = resolve(__dirname, "../../prompts/advisor.md");
-  return readFileSync(promptPath, "utf-8");
+function formatEnrichment(enrichment?: Record<string, unknown>): string {
+  if (!enrichment) return "No enrichment data available";
+  return `\`\`\`json\n${JSON.stringify(enrichment, null, 2)}\n\`\`\``;
+}
+
+function formatPrismResults(results: string): string {
+  if (!results) return "";
+  // Results are already formatted from tryPrismSearch
+  return results;
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -94,110 +68,197 @@ function loadPrompt(): string {
  * The agent evaluates fit, design quality, and feasibility, then returns an
  * {@link AdvisorReport} with a recommendation, score, confidence, and flags.
  *
- * Low confidence (< 50) always forces `escalate: true`.
- * On any failure the function returns {@link FALLBACK_REPORT} (escalate=true).
+ * Low confidence (< confidenceThreshold) always forces `escalate: true`.
+ * On any failure the function returns a fallback report (escalate=true).
  */
 export async function runAdvisor(context: AdvisorContext): Promise<AdvisorReport> {
-  logger.info({ title: context.title }, "Advisor agent starting");
+  const config = getAutonomousConfig();
+  const taskId = context.taskId || "unknown";
 
-  // Build the user-facing prompt from the system prompt template + task data.
-  let systemPrompt: string;
-  try {
-    systemPrompt = loadPrompt();
-  } catch (err) {
-    logger.error({ err }, "Advisor failed to load prompt file");
-    return { ...FALLBACK_REPORT, reasoning: "Failed to load advisor prompt file" };
-  }
-
-  // Assemble the task context block.
-  const enrichmentSection = context.enrichment
-    ? `\n\n## Enrichment Data\n\`\`\`json\n${JSON.stringify(context.enrichment, null, 2)}\n\`\`\``
-    : "";
-
-  // Optionally fetch Prism semantic search results.
-  const prismQuery = `${context.title}\n\n${context.body}`.slice(0, 500);
-  const prismResults = await tryPrismSearch(prismQuery, context.repoId);
-  const prismSection = prismResults
-    ? `\n\n## Prism Semantic Search Results\nThese are the most relevant code/docs snippets found in the repository:\n\n${prismResults}`
-    : "";
-
-  const userPrompt = `## Task Title\n${context.title}\n\n## Task Body\n${context.body}${enrichmentSection}${prismSection}`;
-
-  // dryRun shortcut — bypass the LLM and return a deterministic stub.
-  if (context.dryRun) {
-    logger.debug({ title: context.title }, "Advisor dry-run mode — skipping LLM call");
+  // Early exit if advisor is disabled
+  if (!config.advisor.enabled) {
+    logger.info("Advisor: disabled in config, skipping");
     return {
       recommendation: "approve",
-      score: 75,
-      confidence: 80,
-      reasoning: "[dry-run] Advisor skipped LLM call",
+      score: 50,
+      confidence: 0,
+      reasoning: "Advisor agent is disabled",
       flags: [],
       escalate: false,
     };
   }
 
-  let rawText: string;
-  try {
-    const model = getModelFor("advisor");
-    const response = await callClaude({
-      systemPrompt,
-      prompt: userPrompt,
-      model,
-      maxTokens: 1024,
-    });
-    rawText = response.text;
-    logger.debug({ title: context.title, rawLength: rawText.length }, "Advisor LLM call complete");
-  } catch (err) {
-    logger.error({ err, title: context.title }, "Advisor LLM call failed");
-    return { ...FALLBACK_REPORT, reasoning: "Advisor LLM call failed" };
-  }
+  const model = getModelFor("advisor");
 
-  // Parse the JSON response, with a safe fallback on any error.
-  let parsed: AdvisorReport;
   try {
-    const raw = extractJson(rawText) as AdvisorReport;
+    // Register this agent as active
+    await register(taskId, "advisor", model, "advising").catch((err) =>
+      logger.warn("Advisor: failed to register active agent", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
 
-    // Validate required fields; throw so we land in the catch fallback.
-    if (
-      !["approve", "redesign", "reject"].includes(raw.recommendation) ||
-      typeof raw.score !== "number" ||
-      typeof raw.confidence !== "number" ||
-      typeof raw.reasoning !== "string"
-    ) {
-      throw new Error("Missing or invalid fields in advisor JSON response");
+    const promptPath = resolve(dirname(fileURLToPath(import.meta.url)), "../..", "prompts/advisor.md");
+    const prompt = readFileSync(promptPath, "utf-8");
+
+    // Prepare context for the LLM
+    const enrichmentSummary = formatEnrichment(context.enrichment);
+    let prismContext = "";
+
+    if (context.usePrism && context.prismResults) {
+      // Sanitize Prism results with untrusted markers
+      prismContext = `[UNTRUSTED_CONTEXT_START]\n${context.prismResults}\n[UNTRUSTED_CONTEXT_END]`;
     }
 
-    parsed = {
-      recommendation: raw.recommendation,
-      score: Math.max(0, Math.min(100, raw.score)),
-      confidence: Math.max(0, Math.min(100, raw.confidence)),
-      reasoning: raw.reasoning,
-      flags: Array.isArray(raw.flags) ? raw.flags.map(String) : [],
-      // Enforce escalation rules regardless of what the LLM said.
-      escalate:
-        raw.confidence < 50 ||
-        raw.recommendation === "reject" ||
-        raw.score < 30 ||
-        Boolean(raw.escalate),
-    };
-  } catch (err) {
-    logger.error(
-      { err: err instanceof Error ? err.message : String(err), title: context.title },
-      "Advisor failed to parse LLM JSON response — returning fallback",
+    // Build the user message
+    const originalLength = context.taskBody.length;
+    const taskBodyPreview = context.taskBody.slice(0, 500);
+    if (originalLength > 500) {
+      logger.warn("Advisor: task body truncated", { originalLength, truncatedLength: 500 });
+    }
+
+    const userMessage = `
+## Task Metadata
+- **Title:** ${context.title}
+- **Type:** ${context.enrichment?.type || "unknown"}
+- **Size:** ${context.enrichment?.size || "unknown"}
+- **Complexity Score:** ${context.enrichment?.complexityScore || "N/A"}
+
+## Enrichment Data
+${enrichmentSummary}
+
+${prismContext ? `## Semantic Code Context (Prism)\n${prismContext}` : ""}
+
+## Task Body (Preview)
+${taskBodyPreview}
+`;
+
+    // dryRun shortcut
+    if (context.dryRun) {
+      logger.debug({ title: context.title }, "Advisor dry-run mode — skipping LLM call");
+      return {
+        recommendation: "approve",
+        score: 75,
+        confidence: 80,
+        reasoning: "[dry-run] Advisor skipped LLM call",
+        flags: [],
+        escalate: false,
+      };
+    }
+
+    const startTime = Date.now();
+
+    // Call Claude with proper parameters
+    const response = await callClaude({
+      model,
+      systemPrompt: prompt,
+      prompt: userMessage,
+      maxTokens: 2048,
+    });
+
+    if (!response || !response.text) {
+      logger.error("Advisor: no response from LLM");
+      return fallbackReport("No response from advisor LLM");
+    }
+
+    let report: AdvisorReport;
+    try {
+      // Sanitize response: strip markdown code fences
+      let cleanedResponse = response.text.trim();
+      if (cleanedResponse.startsWith("```json")) {
+        cleanedResponse = cleanedResponse.slice(7);
+      }
+      if (cleanedResponse.startsWith("```")) {
+        cleanedResponse = cleanedResponse.slice(3);
+      }
+      if (cleanedResponse.endsWith("```")) {
+        cleanedResponse = cleanedResponse.slice(0, -3);
+      }
+      cleanedResponse = cleanedResponse.trim();
+
+      // Extract and parse JSON
+      const parsed = extractJson<AdvisorReport>(cleanedResponse);
+
+      // Validate required fields
+      if (
+        !["approve", "redesign", "reject"].includes(parsed.recommendation) ||
+        typeof parsed.score !== "number" ||
+        typeof parsed.confidence !== "number" ||
+        typeof parsed.reasoning !== "string"
+      ) {
+        throw new Error("Missing or invalid fields in advisor JSON response");
+      }
+
+      report = {
+        recommendation: parsed.recommendation,
+        score: Math.max(0, Math.min(100, parsed.score)),
+        confidence: Math.max(0, Math.min(100, parsed.confidence)),
+        reasoning: String(parsed.reasoning),
+        flags: Array.isArray(parsed.flags) ? parsed.flags.map(String) : [],
+        escalate: Boolean(parsed.escalate),
+      };
+    } catch (parseError) {
+      logger.error("Advisor: failed to parse JSON response", {
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+        rawResponse: response.text.slice(0, 200),
+      });
+      return fallbackReport("Failed to parse advisor response");
+    }
+
+    // Apply confidence threshold
+    if (report.confidence < config.advisor.confidenceThreshold) {
+      logger.info("Advisor: confidence below threshold, escalating", {
+        confidence: report.confidence,
+        threshold: config.advisor.confidenceThreshold,
+      });
+      report.escalate = true;
+    }
+
+    // Record cost if we have the necessary info
+    const durationMs = Date.now() - startTime;
+    const costUsd = estimateCostUsd(
+      model,
+      response.cost.inputTokens,
+      response.cost.outputTokens,
+      durationMs
     );
-    return { ...FALLBACK_REPORT };
+
+    // Persist the report
+    if (taskId && context.userId) {
+      try {
+        await insertAdvisorReport(taskId, report);
+        await addAdvisorEvent(taskId, report);
+      } catch (persistError) {
+        logger.warn("Advisor: failed to persist report", {
+          error: persistError instanceof Error ? persistError.message : String(persistError),
+        });
+      }
+    }
+
+    logger.info(
+      {
+        title: context.title,
+        recommendation: report.recommendation,
+        score: report.score,
+        confidence: report.confidence,
+        escalate: report.escalate,
+        costUsd: costUsd.toFixed(4),
+      },
+      "Advisor agent complete",
+    );
+
+    return report;
+  } catch (error) {
+    logger.error("Advisor: unexpected error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return fallbackReport("Advisor encountered an error");
+  } finally {
+    // Unregister this agent
+    await unregister(taskId).catch((err) =>
+      logger.warn("Advisor: failed to unregister active agent", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
-
-  logger.info(
-    {
-      title: context.title,
-      recommendation: parsed.recommendation,
-      score: parsed.score,
-      confidence: parsed.confidence,
-      escalate: parsed.escalate,
-    },
-    "Advisor agent complete",
-  );
-
-  return parsed;
 }

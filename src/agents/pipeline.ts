@@ -16,6 +16,8 @@ import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js
 import { resolveGitCredentials } from "../execution/worktree.js";
 import { getGitProvider } from "../execution/git-provider.js";
 import { addEvent } from "../db/queries/task-events.js";
+import { runAdvisor } from "./advisor.js";
+import { getAdvisorReport } from "../db/queries/tasks.js";
 import type { EnricherConfig } from "../enrichers/base.js";
 import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
@@ -140,7 +142,63 @@ export async function runPipeline(taskId: string): Promise<void> {
     return;
   }
 
-  // ── Step 4b: Clarification check ────────────────────────────────────────
+  // ── Step 4b: Run advisor agent ─────────────────────────────────────────
+  try {
+    const postEnrichTask = await getById(taskId);
+    if (!postEnrichTask) {
+      throw new Error(`Pipeline: task ${taskId} disappeared after enrichment`);
+    }
+
+    const config = getAutonomousConfig();
+    if (config.advisor.enabled) {
+      await updateStatus(taskId, "advising");
+      logger.info({ taskId }, "Pipeline: transitioned to advising");
+
+      const advisorReport = await runAdvisor({
+        taskId,
+        userId: postEnrichTask.createdBy,
+        repo: postEnrichTask.repoId.toString(),
+        title: postEnrichTask.title,
+        taskBody: postEnrichTask.body,
+        enrichment: (postEnrichTask.enrichment ?? {}) as Record<string, unknown>,
+        usePrism: config.advisor.usePrism,
+      });
+
+      // Store advisor report on task
+      await db
+        .update(tasks)
+        .set({
+          advisorReport: advisorReport,
+          escalatedToHuman: advisorReport.escalate,
+          updatedAt: new Date(),
+        })
+        .where(eq(tasks.id, taskId));
+
+      logger.info(
+        {
+          taskId,
+          recommendation: advisorReport.recommendation,
+          escalate: advisorReport.escalate,
+        },
+        "Pipeline: advisor complete",
+      );
+
+      // If advisor says escalate, force gate to human
+      if (advisorReport.escalate) {
+        await db
+          .update(tasks)
+          .set({ forceHumanGate: true, updatedAt: new Date() })
+          .where(eq(tasks.id, taskId));
+        logger.info({ taskId }, "Pipeline: advisor escalation detected, gate will be forced to human");
+      }
+    }
+  } catch (err) {
+    logger.error({ taskId, err }, "Pipeline: advisor failed");
+    await failTask(taskId, err);
+    return;
+  }
+
+  // ── Step 4c: Clarification check ────────────────────────────────────────
   try {
     const postEnrichTask = await getById(taskId);
     if (!postEnrichTask) {

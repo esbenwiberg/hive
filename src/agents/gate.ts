@@ -80,6 +80,8 @@ function parseVerdict(text: string): GateVerdict {
  * - **human**: transitions task to 'ready' for human approval. No LLM call.
  * - **ai**: calls Claude to evaluate the task, records decision, transitions.
  * - **auto**: auto-approves trivial/small tasks; falls through to AI for others.
+ *
+ * If advisor escalated the task (escalatedToHuman=true), gate mode is forced to human.
  */
 export async function evaluateGate(taskId: string): Promise<void> {
   const task = await getById(taskId);
@@ -93,7 +95,13 @@ export async function evaluateGate(taskId: string): Promise<void> {
   }
 
   const config = getAutonomousConfig();
-  const mode = config.gate.mode;
+  let mode = config.gate.mode;
+
+  // Check if advisor escalated this task to human review
+  if (task.escalatedToHuman === true || task.forceHumanGate === true) {
+    logger.info({ taskId }, "Gate: advisor escalation detected, forcing human gate mode");
+    mode = "human";
+  }
 
   // ── Human mode: transition to ready and return ──────────────────────────
   if (mode === "human") {
