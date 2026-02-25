@@ -416,7 +416,7 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
         `---`,
         `_Automated by Hive - Task ${id}_`,
       ].join("\n");
-      const prUrl = await gitProvider.createPR(
+      const { url: prUrl } = await gitProvider.createPR(
         repo.fullName,
         branchName,
         repo.defaultBranch ?? "main",

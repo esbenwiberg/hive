@@ -51,7 +51,7 @@ export async function quickVerify(worktreePath: string): Promise<QuickVerifyResu
 
   // Install dependencies first — worktrees don't inherit node_modules from the parent.
   try {
-    await execFileAsync("npm", ["install", "--prefer-offline"], {
+    await execFileAsync("npm", ["install", "--prefer-offline", "--include=dev"], {
       cwd: worktreePath,
       timeout: SHELL_TIMEOUT_MS,
       maxBuffer: 2 * 1024 * 1024,

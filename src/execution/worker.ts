@@ -870,7 +870,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
     // ── Create PR ─────────────────────────────────────────────────────────
     const prBody = formatPRBody(taskId, task.body, architectData);
-    const prUrl = await gitProvider.createPR(
+    const prResult = await gitProvider.createPR(
       repo.fullName,
       branchName,
       repo.defaultBranch ?? "main",
@@ -878,6 +878,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       prBody,
       creds,
     );
+    const prUrl = prResult.url;
 
     // Post review summary as a PR comment
     try {
@@ -918,10 +919,10 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       .set({ prUrl, ...(previewUrl ? { previewUrl } : {}), updatedAt: new Date() })
       .where(eq(tasks.id, taskId));
 
-    await addEvent(taskId, "pr_created", "worker", "PR created", { prUrl });
+    await addEvent(taskId, "pr_created", "worker", prResult.reused ? "PR updated (reusing existing)" : "PR created", { prUrl });
     await updateStatus(taskId, "done");
 
-    logger.info({ taskId, prUrl, previewUrl }, "Task execution complete — PR created");
+    logger.info({ taskId, prUrl, previewUrl, reused: prResult.reused }, "Task execution complete — PR created");
 
     return { success: true, prUrl, previewUrl, branch: branchName, reviewResult };
 

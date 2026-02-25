@@ -87,7 +87,7 @@ export interface GitProvider {
     title: string,
     body: string,
     creds: GitCredentials,
-  ): Promise<string>;
+  ): Promise<{ url: string; reused: boolean }>;
   commentOnPR(
     repoFullName: string,
     prUrl: string,
@@ -183,7 +183,7 @@ export class GitHubProvider implements GitProvider {
     title: string,
     body: string,
     creds: GitCredentials,
-  ): Promise<string> {
+  ): Promise<{ url: string; reused: boolean }> {
     logger.info({ repoFullName, head, base, title }, "Creating GitHub PR");
 
     const [owner, repo] = repoFullName.split("/");
@@ -223,7 +223,7 @@ export class GitHubProvider implements GitProvider {
           const prs = (await listResponse.json()) as Array<{ html_url: string }>;
           if (prs.length > 0) {
             logger.info({ prUrl: prs[0].html_url }, "Reusing existing GitHub PR");
-            return prs[0].html_url;
+            return { url: prs[0].html_url, reused: true };
           }
         }
       }
@@ -232,7 +232,7 @@ export class GitHubProvider implements GitProvider {
 
     const data = (await response.json()) as { html_url: string };
     logger.info({ prUrl: data.html_url }, "GitHub PR created");
-    return data.html_url;
+    return { url: data.html_url, reused: false };
   }
 
   async commentOnPR(
@@ -448,10 +448,10 @@ export class AzureDevOpsProvider implements GitProvider {
     title: string,
     body: string,
     creds: GitCredentials,
-  ): Promise<string> {
+  ): Promise<{ url: string; reused: boolean }> {
     const { org, project, repo } = parseAdoRepoName(repoFullName);
     const result = await createPullRequest(org, project, repo, head, base, title, body, creds.token);
-    return result.url;
+    return { url: result.url, reused: false };
   }
 
   async commentOnPR(
