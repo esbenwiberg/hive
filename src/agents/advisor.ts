@@ -5,40 +5,62 @@ import { callClaude } from "./sdk.js";
 import { getModelFor } from "../domain/autonomous-config.js";
 import { estimateCostUsd } from "./cost-utils.js";
 import { loadPrompt } from "../prompt-cache.js";
+import type { AdvisorVerdictResponse, AdvisorVerdict } from "./types.js";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+/**
+ * Advisor Agent (Pipeline Stage 4c: ADVISING)
+ *
+ * Analyzes enriched task data against product context, architecture patterns,
+ * and design guidelines. Returns structured verdict with multi-dimensional
+ * scoring, confidence score, escalation flag, and recommendations.
+ *
+ * ============================================================================
+ * MANDATORY ESCALATION RULE: confidenceScore < 0.5 ALWAYS escalates to human.
+ * This rule is enforced in validation AFTER LLM parsing. No exceptions.
+ * ============================================================================
+ *
+ * Input:
+ *   enrichment: TaskEnrichment (enriched task metadata from enrichers)
+ *   context: ProductContext (loaded from docs/internal/product-context.md)
+ *
+ * Output: AdvisorVerdictResponse {
+ *   verdict: 'approve' | 'caution' | 'rework',
+ *   confidenceScore: [0.0–1.0],
+ *   escalate: boolean (true if score < 0.5 OR human judgment needed),
+ *   dimensions: Record<string, number> (e.g., productFit, architecturalAlignment),
+ *   reasoning: string (explain verdict; max 5000 chars),
+ *   recommendations: string[] (actionable suggestions; each < 1000 chars)
+ * }
+ *
+ * Verdict Meanings:
+ *   'approve': Task aligns with product goals, fits existing patterns, low risk.
+ *   'caution': Task aligns but has risks or prerequisites; recommend review.
+ *   'rework': Task conflicts with patterns; recommend redesign.
+ *
+ * Escalation Examples:
+ *   - confidenceScore = 0.3 → escalate = true (mandatory override)
+ *   - verdict = 'rework' and task removes core safety feature → escalate = true
+ *   - conflicting architectural signals → escalate = true, recommend design review
+ *
+ * Fallback Verdict (on LLM error or validation failure):
+ *   escalate: true (safe default)
+ *   confidenceScore: 0.0
+ *   verdict: 'rework'
+ *   reasoning: "Advisor unavailable or validation failed; escalating to human review."
+ *
+ * Integration with Gate:
+ *   Gate reads enrichment.advisor.escalate. If true, gate MUST escalate to
+ *   human review regardless of verdict value or other signals.
+ *
+ * Security Notes:
+ *   - Advisor prompt and product context are loaded from disk; file permissions
+ *     must be read-only for this service (document in infrastructure docs).
+ *   - LLM response is strictly validated (all required fields, bounded values).
+ *   - Validation defaults are fail-closed (invalid → escalate: true).
+ *   - Never log raw prompt, product context, or LLM responses (information leak risk).
+ */
 
-export interface AdvisorDimension {
-  /** Numeric score 0–1 for this dimension */
-  score: number;
-  /** One-sentence rationale */
-  rationale: string;
-}
-
-export interface AdvisorVerdict {
-  /** High-level verdict: "approve" | "caution" | "reject" */
-  verdict: "approve" | "caution" | "reject";
-  /** Aggregate weighted score 0–1 */
-  overallScore: number;
-  /** How confident the advisor is in its assessment 0–1; < 0.5 forces escalation */
-  confidenceScore: number;
-  /** Per-dimension breakdown */
-  dimensions: {
-    productFit: AdvisorDimension;
-    architecturalAlignment: AdvisorDimension;
-    userImpact: AdvisorDimension;
-    implementationRisk: AdvisorDimension;
-    scopeClarity: AdvisorDimension;
-  };
-  /** Detailed reasoning paragraph(s) */
-  reasoning: string;
-  /** Ordered list of actionable recommendations */
-  recommendations: string[];
-  /** True if the task should be escalated to a human regardless of gate mode */
-  escalate: boolean;
-}
-
-// ── Enrichment context shape (mirrors what the pipeline produces) ─────────────
+// ── Input shape (mirrors what the pipeline produces) ───────────────────────
 
 export interface AdvisorInput {
   taskId: string;
@@ -56,7 +78,7 @@ export interface AdvisorInput {
   extraEnrichment?: Record<string, unknown>;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
  * Reads a file from disk, returning its content or a fallback string when missing.
@@ -123,102 +145,79 @@ function toJson(value: unknown): string {
   }
 }
 
-// ── Default fallback verdict ──────────────────────────────────────────────────
+/**
+ * Default fallback verdict used when advisor fails validation or LLM call.
+ */
+const FALLBACK_VERDICT: AdvisorVerdictResponse = {
+  escalate: true,
+  confidenceScore: 0.0,
+  verdict: 'rework',
+  dimensions: {},
+  reasoning: 'Advisor unavailable or validation failed; escalating to human review.',
+  recommendations: []
+};
 
-function buildDefaultVerdict(reason: string): AdvisorVerdict {
-  return {
-    verdict: "caution",
-    overallScore: 0,
-    confidenceScore: 0,
-    dimensions: {
-      productFit: { score: 0, rationale: "Parse failure — unable to assess." },
-      architecturalAlignment: { score: 0, rationale: "Parse failure — unable to assess." },
-      userImpact: { score: 0, rationale: "Parse failure — unable to assess." },
-      implementationRisk: { score: 0, rationale: "Parse failure — unable to assess." },
-      scopeClarity: { score: 0, rationale: "Parse failure — unable to assess." },
-    },
-    reasoning: `Advisor could not produce a structured verdict. Reason: ${reason}. Escalating to human for manual review.`,
-    recommendations: ["Human review required — advisor response was unparseable."],
-    escalate: true,
-  };
-}
-
-// ── Response parser ───────────────────────────────────────────────────────────
-
-function parseAdvisorResponse(text: string): AdvisorVerdict {
-  // Strip markdown fences if present
-  const cleaned = text
-    .replace(/^```(?:json)?\s*/m, "")
-    .replace(/\s*```\s*$/m, "")
-    .trim();
-
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(cleaned) as Record<string, unknown>;
-  } catch (err) {
-    throw new Error(`JSON.parse failed: ${String(err)}`);
+/**
+ * Validates and normalizes LLM response to AdvisorVerdictResponse.
+ * All validation is fail-closed: invalid → FALLBACK_VERDICT with escalate=true.
+ */
+function validateAdvisorResponse(parsed: unknown): AdvisorVerdictResponse {
+  if (!parsed || typeof parsed !== 'object') {
+    return FALLBACK_VERDICT;
   }
 
-  // Validate required fields
-  const requiredFields = [
-    "verdict",
-    "overallScore",
-    "confidenceScore",
-    "dimensions",
-    "reasoning",
-    "recommendations",
-    "escalate",
-  ] as const;
+  const obj = parsed as Record<string, unknown>;
 
-  for (const field of requiredFields) {
-    if (!(field in parsed)) {
-      throw new Error(`Missing required field: ${field}`);
+  // Validate verdict
+  const verdict = obj.verdict as string | undefined;
+  if (!verdict || !['approve', 'caution', 'rework'].includes(verdict)) {
+    return FALLBACK_VERDICT;
+  }
+
+  // Validate confidenceScore: must be number in [0, 1]
+  const confidenceScore = Number(obj.confidenceScore);
+  if (!Number.isFinite(confidenceScore) || confidenceScore < 0 || confidenceScore > 1) {
+    return FALLBACK_VERDICT;
+  }
+
+  // Validate dimensions: all values must be numbers in [0, 1]
+  const dimensions: Record<string, number> = {};
+  const dimObj = obj.dimensions as Record<string, unknown> | undefined;
+  if (dimObj && typeof dimObj === 'object') {
+    for (const [key, val] of Object.entries(dimObj)) {
+      const num = Number(val);
+      if (Number.isFinite(num) && num >= 0 && num <= 1) {
+        dimensions[key] = num;
+      } else {
+        return FALLBACK_VERDICT;
+      }
     }
   }
 
-  const verdict = parsed.verdict as string;
-  if (!["approve", "caution", "reject"].includes(verdict)) {
-    throw new Error(`Invalid verdict value: ${verdict}`);
+  // Validate reasoning: string, max 5000 chars
+  let reasoning = '';
+  if (typeof obj.reasoning === 'string') {
+    reasoning = obj.reasoning.slice(0, 5000);
   }
 
-  const dims = parsed.dimensions as Record<string, unknown>;
-  const dimNames = ["productFit", "architecturalAlignment", "userImpact", "implementationRisk", "scopeClarity"];
-  for (const dim of dimNames) {
-    if (!dims || typeof dims[dim] !== "object" || dims[dim] === null) {
-      throw new Error(`Missing or invalid dimension: ${dim}`);
-    }
+  // Validate recommendations: array of strings, each max 1000 chars
+  let recommendations: string[] = [];
+  if (Array.isArray(obj.recommendations)) {
+    recommendations = obj.recommendations
+      .filter((r): r is string => typeof r === 'string')
+      .map(r => r.slice(0, 1000));
   }
 
-  const overallScore = Number(parsed.overallScore);
-  const confidenceScore = Number(parsed.confidenceScore);
-
-  const buildDim = (raw: unknown): AdvisorDimension => {
-    const d = raw as Record<string, unknown>;
-    return {
-      score: Number(d.score ?? 0),
-      rationale: String(d.rationale ?? ""),
-    };
+  const result: AdvisorVerdictResponse = {
+    verdict: verdict as AdvisorVerdict,
+    confidenceScore,
+    escalate: Boolean(obj.escalate),
+    dimensions,
+    reasoning,
+    recommendations
   };
 
-  const result: AdvisorVerdict = {
-    verdict: verdict as "approve" | "caution" | "reject",
-    overallScore: Number.isFinite(overallScore) ? overallScore : 0,
-    confidenceScore: Number.isFinite(confidenceScore) ? confidenceScore : 0,
-    dimensions: {
-      productFit: buildDim(dims.productFit),
-      architecturalAlignment: buildDim(dims.architecturalAlignment),
-      userImpact: buildDim(dims.userImpact),
-      implementationRisk: buildDim(dims.implementationRisk),
-      scopeClarity: buildDim(dims.scopeClarity),
-    },
-    reasoning: String(parsed.reasoning ?? ""),
-    recommendations: Array.isArray(parsed.recommendations)
-      ? (parsed.recommendations as unknown[]).map(String)
-      : [],
-    escalate: Boolean(parsed.escalate),
-  };
-
-  // Low confidence forces escalation regardless of what the LLM said
+  // MANDATORY: if confidenceScore < 0.5, force escalate = true
   if (result.confidenceScore < 0.5) {
     result.escalate = true;
   }
@@ -226,30 +225,27 @@ function parseAdvisorResponse(text: string): AdvisorVerdict {
   return result;
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
-
 /**
- * Runs the Advisor agent against an enriched task.
- *
- * Loads:
- *  - prompts/enrichers/advisor.md         (system prompt)
- *  - docs/internal/product-context.md     (product knowledge)
- *  - docs/internal/architecture.md        (architecture overview)
- *  - docs/internal/modules/*.md           (module documentation)
- *
- * Injects enrichment data (router, codebase, architect, scorer) as structured
- * context in the user prompt, calls the LLM, and returns a typed AdvisorVerdict.
- *
- * On any parse failure, returns a low-confidence escalation verdict rather than
- * throwing, so the pipeline can continue safely.
+ * Parses JSON response from LLM, handling markdown code fences.
  */
-export async function runAdvisor(input: AdvisorInput): Promise<AdvisorVerdict> {
+function parseAdvisorResponse(text: string): unknown {
+  const cleaned = text
+    .replace(/^```(?:json)?\s*/m, "")
+    .replace(/\s*```\s*$/m, "")
+    .trim();
+
+  return JSON.parse(cleaned);
+}
+
+// ── Main export ──────────────────────────────────────────────────────────────
+
+export async function runAdvisor(input: AdvisorInput): Promise<AdvisorVerdictResponse> {
   const { taskId } = input;
   const model = getModelFor("advisor");
 
   logger.info({ taskId, model }, "Advisor: starting evaluation");
 
-  // ── Load static knowledge ─────────────────────────────────────────────────
+  // ── Load static knowledge ────────────────────────────────────────────────
 
   const systemPrompt = loadPrompt("enrichers/advisor");
 
@@ -261,7 +257,7 @@ export async function runAdvisor(input: AdvisorInput): Promise<AdvisorVerdict> {
 
   const repoKnowledge = buildRepoKnowledge();
 
-  // ── Build user prompt ─────────────────────────────────────────────────────
+  // ── Build user prompt ────────────────────────────────────────────────────
 
   const userPrompt = [
     "# Task Under Review",
@@ -342,11 +338,14 @@ export async function runAdvisor(input: AdvisorInput): Promise<AdvisorVerdict> {
     cacheCreationTokens = response.cost.cacheCreationInputTokens ?? 0;
     cacheReadTokens = response.cost.cacheReadInputTokens ?? 0;
   } catch (err) {
-    logger.error({ taskId, err }, "Advisor: LLM call failed — returning default escalation verdict");
-    return buildDefaultVerdict(`LLM call failed: ${String(err)}`);
+    logger.error(
+      { taskId, err: String(err).slice(0, 500) },
+      "Advisor: LLM call failed — returning fallback escalation verdict"
+    );
+    return FALLBACK_VERDICT;
   }
 
-  // ── Cost tracking ─────────────────────────────────────────────────────────
+  // ── Cost tracking ────────────────────────────────────────────────────────
 
   const costUsd = estimateCostUsd(
     inputTokens,
@@ -370,21 +369,25 @@ export async function runAdvisor(input: AdvisorInput): Promise<AdvisorVerdict> {
     "Advisor: LLM call complete",
   );
 
-  // ── Parse response ────────────────────────────────────────────────────────
+  // ── Parse and validate response ──────────────────────────────────────────
 
-  let verdict: AdvisorVerdict;
+  let parsed: unknown;
   try {
-    verdict = parseAdvisorResponse(rawText);
+    parsed = parseAdvisorResponse(rawText);
   } catch (err) {
-    logger.error({ taskId, err, rawText }, "Advisor: failed to parse LLM response — returning default escalation verdict");
-    return buildDefaultVerdict(`Response parse error: ${String(err)}`);
+    logger.error(
+      { taskId, err: String(err).slice(0, 200) },
+      "Advisor: failed to parse LLM response — returning fallback verdict"
+    );
+    return FALLBACK_VERDICT;
   }
+
+  const verdict = validateAdvisorResponse(parsed);
 
   logger.info(
     {
       taskId,
       verdict: verdict.verdict,
-      overallScore: verdict.overallScore,
       confidenceScore: verdict.confidenceScore,
       escalate: verdict.escalate,
     },

@@ -12,6 +12,7 @@ import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js
 import { estimateCostUsd } from "./cost-utils.js";
 import { analyzeGatePatterns } from "./gate-analyst.js";
 import { loadPrompt } from "../prompt-cache.js";
+import type { AdvisorVerdictResponse } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,13 +74,35 @@ function parseVerdict(text: string): GateVerdict {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Evaluates a task at the gate stage.
+ * Gate Agent (Pipeline Stage 5: READY → APPROVED or HUMAN_REVIEW)
  *
- * Flow depends on gate mode (from autonomous config):
+ * Final decision point. Consumes advisor verdict and applies approval logic.
  *
- * - **human**: transitions task to 'ready' for human approval. No LLM call.
- * - **ai**: calls Claude to evaluate the task, records decision, transitions.
- * - **auto**: auto-approves trivial/small tasks; falls through to AI for others.
+ * ============================================================================
+ * CRITICAL OVERRIDE RULE:
+ * If advisorVerdict.escalate === true, gate MUST escalate to human review.
+ * This rule applies regardless of verdict value, confidence score, or any
+ * other signal. This check happens FIRST and is non-negotiable.
+ * ============================================================================
+ *
+ * Flow:
+ *   1. Extract advisorVerdict from enrichment
+ *   2. FIRST CHECK: If escalate === true → return human review (STOP)
+ *   3. Else: apply verdict-based approval logic
+ *      - 'approve': likely approve (apply confidence thresholds)
+ *      - 'caution': escalate to human or require preconditions
+ *      - 'rework': recommend human review or rejection
+ *   4. Return final approval or human review decision
+ *
+ * Gate Mode Integration:
+ *   - **human**: transitions task to 'ready' for human approval. No LLM call.
+ *   - **ai**: calls Claude to evaluate the task, records decision, transitions.
+ *   - **auto**: auto-approves trivial/small tasks; falls through to AI for others.
+ *
+ * Advisor Integration:
+ *   Advisor confidence < 0.5 forces escalate=true (mandatory), which gate
+ *   respects immediately. Additional confidence-based thresholds may be
+ *   applied to advisor verdict='approve' or 'caution' verdicts.
  */
 export async function evaluateGate(taskId: string): Promise<void> {
   const task = await getById(taskId);
@@ -95,14 +118,17 @@ export async function evaluateGate(taskId: string): Promise<void> {
   const config = getAutonomousConfig();
   let mode = config.gate.mode;
 
-  // ── Advisor escalation: force human approval if advisor says escalate ───
+  // ── CRITICAL CHECK: Advisor escalation (FIRST, before any approval logic) ─
   const enrichment = (task.enrichment ?? {}) as Record<string, unknown>;
-  const advisorVerdict = enrichment.advisor as Record<string, unknown> | undefined;
-  const advisorEscalate = advisorVerdict?.escalate === true;
+  const advisorVerdict = enrichment.advisor as AdvisorVerdictResponse | undefined;
 
-  if (advisorEscalate) {
+  if (advisorVerdict?.escalate === true) {
     logger.warn(
-      { taskId, advisorScore: advisorVerdict?.overallScore, advisorConfidence: advisorVerdict?.confidenceScore },
+      {
+        taskId,
+        advisorScore: advisorVerdict.confidenceScore,
+        advisorVerdict: advisorVerdict.verdict,
+      },
       "Gate: advisor flagged escalation — forcing human approval mode",
     );
     mode = "human";
@@ -111,7 +137,14 @@ export async function evaluateGate(taskId: string): Promise<void> {
   // ── Human mode: transition to ready and return ──────────────────────────
   if (mode === "human") {
     await updateStatus(taskId, "ready");
-    logger.info({ taskId, mode, advisorEscalate }, "Gate: task moved to ready for human approval");
+    logger.info(
+      {
+        taskId,
+        mode,
+        advisorEscalate: advisorVerdict?.escalate ?? false,
+      },
+      "Gate: task moved to ready for human approval"
+    );
     return;
   }
 
@@ -162,6 +195,23 @@ export async function evaluateGate(taskId: string): Promise<void> {
       enrichment: task.enrichment,
     };
 
+    // Build user prompt with advisor assessment section
+    const advisorSection = advisorVerdict
+      ? [
+          "",
+          "## Advisor Assessment",
+          `Verdict: ${advisorVerdict.verdict}`,
+          `Overall Score: ${advisorVerdict.confidenceScore.toFixed(2)}`,
+          `Reasoning: ${advisorVerdict.reasoning}`,
+          `Escalate: ${advisorVerdict.escalate}`,
+          advisorVerdict.recommendations.length > 0
+            ? `Recommendations: ${advisorVerdict.recommendations.join("; ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "";
+
     const userPrompt = [
       `Task ID: ${task.id}`,
       `Type: ${task.type ?? "unclassified"}`,
@@ -180,7 +230,10 @@ export async function evaluateGate(taskId: string): Promise<void> {
       "<enrichment_data>",
       JSON.stringify(task.enrichment ?? {}, null, 2),
       "</enrichment_data>",
-    ].join("\n");
+      advisorSection,
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     const response = await callClaude({
       prompt: userPrompt,

@@ -1,193 +1,305 @@
 # The Hive — Product Context
 
-> This document is the authoritative knowledge base for LLM agents (primarily the Advisor) that need deep, curated understanding of what The Hive is, who it serves, how it works, and what principles guide its design. It is intentionally concise and structured for LLM consumption.
+> **Internal document for Advisor agent**
+> This document encodes deep product knowledge to guide the Advisor's evaluation of tasks.
 
----
+## What is The Hive?
 
-## 1. What Is The Hive?
+**The Hive** is an autonomous task orchestration platform for engineering teams. It accepts task descriptions from users or automated producers, routes and enriches them with codebase context, gates them through an AI-driven approval process, executes the implementation via Claude (with real git tooling), and opens pull requests on GitHub or Azure DevOps — end to end without human intervention.
 
-The Hive is an **autonomous task orchestration platform for engineering teams**. It accepts a plain-language task description (a title and a body), enriches it with codebase context, evaluates it, and — if approved — executes the implementation end-to-end: writing code, committing to a git branch, and opening a pull request. No human needs to write a single line of code or run a single shell command.
+## Target Users
 
-The system is designed to handle **real software engineering work** — not toy demos. It creates git worktrees, runs lint/build/test pipelines, and produces reviewable pull requests on GitHub or Azure DevOps. It operates on whatever codebase a user registers.
+- **Engineering teams** (5–50 engineers) running services on GitHub or Azure DevOps
+- **Platform/DevOps teams** using The Hive to automate code generation, refactoring, and documentation
+- **Researchers** and **architects** who need consistent, auditable task execution at scale
+- **Autonomous producers** (external systems) that inject code-generation tasks into The Hive pipeline
 
-The Hive is itself one of its own target codebases: the team uses The Hive to improve The Hive.
+## Why The Hive Exists
 
----
+Traditional code review + approval workflows are:
+- **Slow**: manual review cycles add days to merging simple changes
+- **Inconsistent**: human reviewers apply subjective standards
+- **Expensive**: senior engineers spend time on tasks that could be automated
 
-## 2. Target Users
+The Hive solves this by:
+1. **Enriching** tasks with deep repo context (architecture, dependencies, recent changes)
+2. **Routing** tasks to appropriate workflows based on type and scope
+3. **Gating** tasks through an AI approval process that respects architectural principles
+4. **Executing** task implementation with Claude's agentic coding loop
+5. **Previewing** changes in a Docker-based sandbox before merging
+6. **Reviewing** code quality, test coverage, and architectural alignment
+7. **Merging** to main with a clean, auditable PR
 
-The Hive serves **small-to-medium engineering teams** that want to accelerate delivery of well-defined, repeatable engineering tasks without pulling developers off higher-value work.
+## Key Workflows
 
-**Primary persona — the engineering lead / senior developer:**
-- Has a backlog of tasks that are clearly defined but tedious to execute (config changes, adding endpoints, writing tests, small refactors, documentation updates).
-- Wants to delegate these with confidence that the output will be reviewable and mergeable.
-- Trusts the system more when it is transparent: they can see what enrichment data was gathered, what the architect planned, what the scorer rated, and why the gate approved or rejected.
+### Workflow: "flow" (Default)
+User or producer submits a task. The Hive enriches, gates, executes, reviews, and merges.
 
-**Secondary persona — the autonomous producer:**
-- Automated agents (bug-hunter, security-scanner, feature-scout, etc.) that scan repos and create tasks without human initiation.
-- These tasks must pass stricter scrutiny because there is no human intent behind them.
+### Workflow: "milestone"
+Multi-step task scoped to a GitHub milestone. Each step is gated and executed independently.
 
-**What users do NOT want:**
-- Tasks that touch infrastructure or auth in ways that could lock them out.
-- Tasks that accrue large costs without proportional value.
-- Tasks that produce un-reviewable "big bang" changesets.
-- Surprises: the system should be predictable and explainable.
+## Core Architectural Principles
 
----
+### 1. Graceful Degradation
+**If any component fails, the system does not halt.** Enrichers that fail fall back to empty context. Advisor that fails returns a safe escalation verdict. Gate that fails transitions task to human review. Execution errors trigger review gates and rollback. The system is fail-safe by design.
 
-## 3. End-to-End Pipeline Flow
+### 2. Agent Patterns (LLM Components)
+The Hive uses LLM-powered agents across the pipeline:
+- **Router**: classifies task type (feature, refactor, documentation, test, etc.)
+- **Enrichers**: gather repo context (codebase, dependencies, architecture, docs)
+- **Advisor**: evaluates task alignment with product goals and architecture
+- **Gate**: final approval decision (human or AI-driven)
+- **Decomposer**: breaks large tasks into subtasks
+- **Executor** (Worker): implements the task via Claude's coding loop
+- **Code-Quality-Analyst**: validates generated code
+- **Browser-Validator**: smoke-tests changes in a preview environment
+- **Refiner**: improves code based on review feedback
 
-Tasks move through seven stages. Understanding this flow is essential for evaluating whether a proposed task fits.
+All agents:
+- Read system prompts from `prompts/enrichers/` or `prompts/` as Markdown files
+- Receive structured input (enrichment data, repo context, task metadata)
+- Return structured JSON output
+- Include confidence scores and reasoning
+- Gracefully degrade on LLM errors (parse failures, timeouts)
+- Track token usage and cost per agent invocation
+
+### 3. Enricher Pattern
+Enrichers are stateless LLM agents that gather context about the task and repository. Each enricher:
+- Runs in parallel or sequence as configured
+- Outputs structured JSON stored in task enrichment metadata
+- Fails gracefully (returns empty context rather than crashing pipeline)
+- Includes cost tracking
+- Is composable and reusable
+
+Current enrichers:
+- **Router**: task type, size, effort estimate
+- **Codebase**: file tree, language breakdown, recent changes
+- **Architect**: design patterns, key abstractions, naming conventions
+- **Dependencies**: package.json analysis, security vulnerabilities
+- **Git-History**: recent commits, common authors, branch patterns
+- **Docs**: documentation completeness, quality gaps
+- **Milestone**: milestone metadata (for milestone workflows)
+- **Scorer**: risk assessment, complexity scoring, resource estimation
+
+### 4. Task State Machine
+All tasks flow through a linear pipeline of 14 states:
 
 ```
-PENDING → QUEUED → ENRICHING → READY → APPROVED → EXECUTING → REVIEWING → DONE → MERGED
+created → routing → enriching → ready → approved → executing →
+previewing → reviewing → executing (if rework) → merging → merged
 ```
 
-| Stage | What happens |
-|---|---|
-| **PENDING** | Task is created (dashboard, producer, or API). Title + body stored. |
-| **QUEUED** | Router (Claude) classifies: type, size (`small/medium/large`), workflow (`flow/epic`). |
-| **ENRICHING** | Six enrichers run sequentially: codebase → docs → git-history → dependencies → architect → scorer. Each reads prior enrichment and adds its output to a JSONB blob. |
-| **READY** | Enrichment complete. Architect may have asked clarification questions; user or AI answers them. |
-| **APPROVED** | Gate decides (human/AI/auto mode) based on enrichment. Gate decision recorded. |
-| **EXECUTING** | Keeper agent creates a git worktree, calls Claude with file/shell tools to implement the task, runs build/lint/tests, loops on failures. |
-| **REVIEWING** | Review gate diffs the changeset and evaluates quality, security, test coverage, acceptance criteria. Pass → PR. Fail → rework or FAILED. |
-| **DONE/MERGED** | PR exists on the remote. Retrospective agent synthesises learnings. |
+Key transitions:
+- **routing**: Router classifies task
+- **enriching**: All enrichers run (parallel), Advisor evaluates
+- **ready**: Human review (or held for manual override)
+- **approved**: Gate/human approved, ready for execution
+- **executing**: Worker implements the task
+- **previewing**: Docker preview environment validates
+- **reviewing**: Code quality, browser, and architecture review gates run
+- **merged**: PR is merged, task complete
+- **rejected**: Task failed gate or human review
+- **rework**: Reviewer requested changes; return to executing
 
-**Key constraint**: the pipeline is **sequential per task**. Enrichers run one after another; milestones in epics execute one after another. Parallelism is across tasks (up to 5 system-wide), not within a task.
+### 5. Gate Behavior (Critical)
+The **Gate** is the final approval checkpoint before execution. It:
+- Consumes all enrichment data + Advisor verdict
+- **CRITICAL RULE**: If Advisor.escalate=true, gate MUST escalate to human review (non-negotiable)
+- Applies approval thresholds based on task size and gate mode (auto/ai/human)
+- Records the decision for audit trail
+- Transitions task to "approved" or "ready" (human review)
 
----
+**Gate modes:**
+- **human**: All tasks go to human review (most conservative)
+- **ai**: Claude evaluates all tasks using gate LLM
+- **auto**: Small/trivial tasks auto-approve; medium+ require AI evaluation
 
-## 4. Architectural Principles
+### 6. Execution Isolation
+Tasks execute in isolated Git worktrees (not main branch clones). This prevents:
+- Concurrent execution from interfering with each other
+- Failed executions from polluting the main branch
+- Repository state corruption
 
-### 4.1 Agent Pattern
+Each execution:
+- Creates a worktree from the main branch
+- Runs Claude's coding loop in the worktree
+- Validates changes via review gates
+- Opens a PR pointing to the worktree branch
+- Cleans up the worktree when complete
 
-Every intelligence unit is a **stateless async function** wrapping a single Claude API call (or a short agentic loop). Agents:
-- Take a well-defined input (task row + enrichment JSONB + any stage-specific data).
-- Return a structured JSON object.
-- Record their cost in the `costs` table.
-- Register themselves in `active_agents` for the duration of their run and deregister on completion.
+### 7. Cost Visibility
+Every LLM call (router, enrichers, advisor, gate, executor, reviewers) is tracked:
+- Token counts (input, output, cache creation, cache read)
+- Cost in USD
+- Model used (Claude 3.5 Sonnet, Opus, etc.)
+- Wall-clock duration
+- Agent name
 
-New agents must follow this pattern. Do not introduce agents that maintain internal state between calls, open persistent connections, or bypass cost recording.
+The dashboard surfaces:
+- Cumulative cost per agent
+- Cost trends over time
+- Breakdown by model and task type
+- Cost anomalies
 
-### 4.2 Enricher Pattern
+### 8. Task Visibility & Control
+The dashboard shows:
+- Task queue (created, routing, enriching, ready, approved, executing, previewing)
+- Task detail (title, description, enrichment, gate decision, PR link)
+- Task history (events, state transitions, costs, decisions)
+- Approval queue (tasks in "ready" status)
+- System health (active agents, concurrency, costs)
 
-Enrichers implement the `Enricher` interface from `src/enrichers/base.ts`. Each enricher:
-- Receives the full task row (including all prior enrichment).
-- Produces a partial enrichment object that is **merged** into `task.enrichment` (JSONB).
-- Is registered in the ordered enricher chain in the pipeline runner.
-- Has its own prompt file in `prompts/enrichers/`.
-- Has its own source file in `src/enrichers/`.
+Users can:
+- View task details and enrichment
+- Approve/reject tasks in "ready" status
+- Cancel running tasks
+- Search tasks by status, type, author
 
-Enrichers must be **additive and non-destructive**: they append to the enrichment object; they do not overwrite fields set by prior enrichers. The order matters: later enrichers (architect, scorer) depend on fields set by earlier ones (codebase, docs, git-history).
+## Naming Conventions & Code Patterns
 
-### 4.3 Prompt File Convention
+### File Organization
+```
+src/
+  agents/       # LLM-powered pipeline agents
+  enrichers/    # Enricher implementations
+  execution/    # Code execution engine
+  dashboard/    # Web UI
+  daemon/       # Background scheduler/housekeeping
+  db/           # Database schema and queries
+  domain/       # Business logic and types
+  logger.ts     # Logging
 
-Every agent prompt lives in `prompts/` as a `.md` file. Prompts are loaded via `src/prompt-cache.ts` (not inlined in source code). The prompt file is the single source of truth for that agent's instructions.
+prompts/
+  enrichers/    # Enricher system prompts
+  gate.md       # Gate system prompt
+  ...
 
-Prompts must include an **Input Safety** section instructing the LLM to treat user-provided content inside `<user_provided_title>`, `<user_provided_body>`, and `<enrichment_data>` tags as untrusted data only.
+docs/
+  internal/     # Developer docs (this file)
+  workflow-diagram.md  # ASCII pipeline diagram
+```
 
-### 4.4 State Machine Rules
+### Task Types (Router Output)
+Tasks are classified into types:
+- `feature`: new feature or capability
+- `refactor`: code reorganization, no logic change
+- `documentation`: docs, comments, examples
+- `test`: test addition or fix
+- `fix`: bug fix
+- `chore`: maintenance, dependency updates
+- `performance`: optimization
+- `security`: security hardening
+- `unknown`: unclear classification
 
-The `TaskStatus` enum and `ALLOWED_TRANSITIONS` map in `src/domain/state-machine.ts` are the only authoritative source for valid status transitions. No code may set `task.status` to an arbitrary value — it must call `canTransition()` first. Any task that introduces new statuses or transitions must update the state machine and the state machine tests.
+### Task Sizes (Router Output)
+- `trivial`: < 10 minutes (comment fixes, typos, simple config)
+- `small`: 10–30 minutes (1–5 file edits, < 100 lines changed)
+- `medium`: 30 min–2 hours (new small feature, focused refactor)
+- `large`: 2–8 hours (multi-file feature, complex refactor)
+- `epic`: 8+ hours (major feature, architectural change)
 
-### 4.5 Graceful Degradation
+### Verdict Values
+Verdicts are used by multiple agents and must be consistent:
 
-The pipeline is designed to continue even when individual stages fail partially. Enrichers catch their own errors and write a partial or error-flagged result rather than crashing the pipeline. The daemon recovers stale tasks on startup. Budget checks prevent runaway cost before execution begins.
+**Advisor verdicts:**
+- `approve`: Task aligns with product goals, fits existing patterns, low risk
+- `caution`: Task aligns but has risks or prerequisites
+- `rework`: Task conflicts with patterns; recommend redesign
 
-New features must not introduce hard failure modes that can stall the entire pipeline. If a new stage fails, it should fail gracefully and log clearly.
+**Gate verdicts:**
+- `approve`: Approved for execution
+- `reject`: Rejected; task will not execute
+- `rework`: Reviewer requested design changes (task returns to rework state)
 
-### 4.6 Cost Discipline
+### Confidence Scores
+Confidence scores are [0.0, 1.0] where:
+- 0.0 = complete uncertainty
+- 0.5 = moderate uncertainty
+- 1.0 = high confidence
 
-Every Claude call goes through `callClaude()` / `callClaudeWithTools()` in `src/agents/sdk.ts`, which records token usage and cost to the `costs` table. There are no exceptions. Hard budget limits are enforced per user per day and per task. Features that call Claude must not bypass these mechanisms.
+**Critical escalation rule**: Advisor confidence < 0.5 MUST escalate to human review (no exceptions).
 
-### 4.7 Module Boundaries
+## Anti-Patterns & Red Flags
 
-| Module | Responsibility | Must not |
-|---|---|---|
-| `src/agents/` | Claude call wrappers + agent logic | Contain route handlers or DB schema |
-| `src/enrichers/` | Enricher implementations | Call Claude directly (use the agent wrapper) |
-| `src/execution/` | Git worktree, coding loop, PR creation | Contain business logic unrelated to execution |
-| `src/dashboard/` | Express routes + HTMX views | Contain pipeline logic |
-| `src/domain/` | Types, state machine, config parsing | Have side effects or I/O |
-| `src/db/` | Schema + query functions | Contain business logic |
+### Advisor Should Caution/Rework When:
+1. **Task modifies core safety mechanisms** (authentication, authorization, secret management)
+2. **Task removes or weakens audit/logging** without strong justification
+3. **Task introduces external dependencies** without security review (new npm packages, APIs)
+4. **Task changes database schema** without migration plan
+5. **Task affects task execution isolation** (worktree handling, git operations, credential handling)
+6. **Task modifies gate logic** without comprehensive test coverage
+7. **Task removes tests** or reduces test coverage
+8. **Task is vague or poorly scoped** (description < 2 sentences, no clear acceptance criteria)
+9. **Task conflicts with recent PRs** or architectural decisions
+10. **Task uses hardcoded values** instead of config (API keys, URLs, secrets)
 
----
+### Executor Should Reject When:
+1. **Generated code contains hardcoded secrets** (tokens, keys, passwords)
+2. **Generated code has SQL injection vulnerabilities** (unsanitized SQL queries)
+3. **Generated code has XSS vulnerabilities** (user input in HTML without escaping)
+4. **Generated code modifies restricted files** (auth.ts, vault.ts, credentials handling)
+5. **Generated code introduces new dependencies** without approval
+6. **Generated code removes critical error handling**
+7. **Generated code has syntax errors or type errors**
+8. **Generated code doesn't follow project patterns** (inconsistent naming, no JSDoc, etc.)
 
-## 5. Naming and Code Conventions
+## Known Constraints & Workarounds
 
-- **File naming**: `kebab-case` for all source files and prompt files (`advisor.md`, `git-history.ts`).
-- **TypeScript**: ESM modules (`import`/`export`), no CommonJS `require`. Strict mode enabled.
-- **Exports**: Each module file exports named functions; no default exports.
-- **Query functions**: Database access goes through `src/db/queries/`. Direct `db.select(...)` calls outside the queries layer are discouraged.
-- **Enrichment keys**: Enricher output keys use `camelCase` and match the enricher's name as a namespace prefix where helpful (e.g., `codesbase.relevantFiles`, `scorer.recommendation`).
-- **Prompt input tags**: User-controlled content is wrapped in `<user_provided_title>`, `<user_provided_body>`, `<enrichment_data>` tags in every prompt.
-- **Agent function naming**: Agents are named after their role: `runRouter()`, `runEnricher()`, `runGateAnalyst()`. The file name matches the agent name.
-- **Tests**: Test files sit alongside source files or in a `__tests__/` subdirectory; they use the same ESM imports. Test coverage is expected for new agents and enrichers.
+### Constraint: No Codebase Embeddings
+The Hive does not use vector embeddings for codebase search (as of now). Instead:
+- Advisor reads `docs/internal/architecture.md` and module documentation
+- Executor uses keyword search + file listing for initial exploration
+- Enrichers provide static analysis (dependencies, recent changes, patterns)
 
----
+This limits semantic understanding but keeps implementation simple and deterministic.
 
-## 6. Known Anti-Patterns to Avoid
+### Constraint: Rate Limiting (Anthropic)
+Anthropic's API has rate limits. The daemon:
+- Batches requests across tasks
+- Uses exponential backoff on 429 (rate limit) errors
+- Tracks active agents to prevent queue overload
+- Surfaces concurrency limits in the dashboard
 
-The following are actively harmful in this codebase and will cause a task to score poorly on architectural fit:
+### Constraint: Git Credential Safety
+Git operations MUST use credential helpers (not embedded tokens):
+- Use `GIT_ASKPASS` environment variables
+- Use `.git-credentials` temporary files (cleaned up after use)
+- Use git credential helpers
+- **Never** embed tokens in clone URLs passed as CLI arguments
 
-### 6.1 Inline Prompts
-**Anti-pattern**: Embedding LLM prompt strings directly in TypeScript source files.
-**Why bad**: Prompts are large, change frequently, and need to be readable without running the code. The prompt cache exists precisely to avoid this.
-**Correct pattern**: Create a `.md` file in `prompts/` and load it via `src/prompt-cache.ts`.
+All git errors are scrubbed of token strings before logging.
 
-### 6.2 Bypassing the Cost Recording Layer
-**Anti-pattern**: Calling the Anthropic SDK directly (`new Anthropic().messages.create(...)`) instead of using `callClaude()` from `src/agents/sdk.ts`.
-**Why bad**: Bypasses budget enforcement, cost tracking, retry logic, and active-agent registration. Will cause silent budget overruns.
-**Correct pattern**: Always use `callClaude()` or `callClaudeWithTools()`.
+## Key Success Criteria
 
-### 6.3 Direct Status Assignment
-**Anti-pattern**: Setting `task.status = 'APPROVED'` directly without calling `canTransition()`.
-**Why bad**: Violates the state machine, can put tasks into impossible states, breaks dashboard filters and daemon recovery logic.
-**Correct pattern**: Always validate transitions through `src/domain/state-machine.ts`.
+The Hive is successful when:
+1. **Velocity**: Task execution time decreases 50%+ vs. manual PR + review
+2. **Quality**: Generated code passes all tests and reviews without rework (>90% first-pass rate)
+3. **Trust**: Teams confidently approve and merge Hive-generated PRs
+4. **Cost**: Autonomous execution is cheaper than engineer labor (cost per task < labor cost)
+5. **Reliability**: System uptime > 99%; task execution succeeds > 95% of the time
+6. **Adoption**: > 50% of eligible tasks are routed through The Hive
 
-### 6.4 Monolithic Milestones
-**Anti-pattern**: A single milestone that touches 20+ files or spans multiple unrelated concerns.
-**Why bad**: Exceeds the worker's context window, produces un-reviewable changesets, and makes rework expensive.
-**Correct pattern**: Milestones should each touch a bounded, cohesive set of files. Large tasks should be broken into 3–6 focused milestones.
+## Future Roadmap (Context for Advisor)
 
-### 6.5 Unisolated Side Effects in Domain Layer
-**Anti-pattern**: Adding database calls, file system access, or HTTP requests to `src/domain/`.
-**Why bad**: The domain layer is the shared foundation — adding I/O here creates hidden coupling and makes unit testing impossible.
-**Correct pattern**: Side effects belong in `src/agents/`, `src/enrichers/`, `src/execution/`, or `src/dashboard/`.
+### Near-term
+- **Codebase embeddings**: Vector search over codebase for semantic code understanding
+- **Feedback loops**: ML model learning from gate/review decisions
+- **Knowledge base**: Persistent learnings that improve advisor & gate logic
 
-### 6.6 Skipping the Enricher Interface
-**Anti-pattern**: Adding a new enrichment step that does not implement the `Enricher` interface or is not registered in the enricher chain.
-**Why bad**: Bypasses cost recording, error handling, and the ordered enrichment contract that downstream agents depend on.
-**Correct pattern**: Implement `Enricher` from `src/enrichers/base.ts`, register in the pipeline runner, add a corresponding prompt file.
+### Medium-term
+- **Multi-repo orchestration**: Coordinate tasks across multiple repositories
+- **Custom workflows**: User-defined task pipelines
+- **Producer ecosystem**: Third-party producers (linters, security scanners, etc.)
 
-### 6.7 Tasks That Touch Auth or Session Logic Without Strong Justification
-**Anti-pattern**: Modifying `src/auth/`, session middleware, or Entra ID integration as part of an unrelated feature.
-**Why bad**: Auth failures lock out all users. These changes require careful human review and should be isolated.
-**Correct pattern**: Auth changes should be their own task with explicit scope, security review requirements, and human gate approval.
+### Long-term
+- **Autonomous DevOps**: Hive-driven infrastructure changes (deployment, scaling)
+- **Cross-team collaboration**: Hive tasks that span multiple team repositories
+- **Real-time learning**: Feedback-loop-driven model fine-tuning
 
-### 6.8 Tasks That Introduce New External Dependencies Without Evaluation
-**Anti-pattern**: Adding new `npm` packages (especially those with native bindings or broad permissions) without noting it in the task scope.
-**Why bad**: Increases attack surface, Docker image size, and supply-chain risk. The team is conservative about new dependencies.
-**Correct pattern**: Note any new dependency in the task body; prefer using what is already installed (`pino`, `drizzle`, `express`, `zod`).
+## Further Reading
 
----
-
-## 7. What "Good" Looks Like for the Advisor
-
-A task scores well when it:
-- Solves a real pain point for Hive users or the Hive pipeline itself.
-- Maps cleanly to an existing module without requiring new cross-cutting abstractions.
-- Has clear, testable acceptance criteria that a review gate can verify.
-- Touches a bounded set of files (ideally ≤ 10 for a single milestone).
-- Follows all naming, prompt, and module boundary conventions.
-- Introduces no new external dependencies, or justifies them clearly.
-- Does not touch auth, the state machine, or data migrations without explicit human review.
-
-A task scores poorly when it:
-- Is vague about what "done" looks like.
-- Mixes unrelated concerns in a single changeset.
-- Introduces patterns that conflict with existing conventions.
-- Modifies high-risk paths (auth, billing, state machine) without justification.
-- Is so broad that no single agent could complete it reliably.
-- Duplicates functionality that already exists in the pipeline.
+- `docs/internal/architecture.md` — System overview and module description
+- `docs/internal/modules/agents.md` — Agent module guide (SDK, pipeline orchestration)
+- `docs/internal/modules/execution.md` — Execution engine (worktrees, worker, review gates)
+- `docs/workflow-diagram.md` — ASCII pipeline diagram
+- `CLAUDE.md` — Notes for Claude (executor context)

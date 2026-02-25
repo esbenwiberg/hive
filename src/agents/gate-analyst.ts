@@ -8,6 +8,40 @@ import { db } from "../db/connection.js";
 import { gateDecisions } from "../db/schema.js";
 import { desc, sql } from "drizzle-orm";
 
+/**
+ * Gate-Analyst Agent
+ *
+ * ============================================================================
+ * ROLE & INTEGRATION WITH ADVISOR
+ * ============================================================================
+ *
+ * Gate-analyst is a FIRE-AND-FORGET post-gate agent that runs AFTER gate
+ * decisions are recorded. It analyzes patterns in rejected tasks to propose
+ * system-level learnings (anti-patterns to avoid in future tasks).
+ *
+ * Gate-analyst does NOT interact with the advisor agent:
+ *   - Advisor runs BEFORE the gate (pipeline stage 4c), evaluates individual tasks
+ *   - Gate-analyst runs AFTER the gate (fire-and-forget), analyzes rejection trends
+ *   - They operate independently; advisor doesn't feed into gate-analyst,
+ *     gate-analyst doesn't influence gate decisions
+ *
+ * Gate-analyst CAN consume advisor verdicts from rejected tasks to understand
+ * whether the advisor flagged patterns that gate ultimately rejected. This is
+ * for historical analysis only — it doesn't block or override the gate.
+ *
+ * ============================================================================
+ * FLOW
+ * ============================================================================
+ *
+ * 1. Gate evaluates task → records verdict (approve/reject)
+ * 2. Gate calls analyzeGatePatterns() in fire-and-forget mode (no await)
+ * 3. Gate-analyst loads recent gate decisions
+ * 4. If 3+ similar rejections found → proposes learning for that pattern
+ * 5. Learning is created and becomes available for future producer/gate reference
+ *
+ * ============================================================================
+ */
+
 const GATE_ANALYST_SYSTEM_PROMPT = `You are a gate decision pattern analyst. You look at recent gate decisions (approve/reject verdicts and their reasoning) to identify recurring patterns.
 
 Your goal: find anti-patterns — common reasons tasks are being rejected — and propose learnings that can help future tasks avoid these pitfalls.

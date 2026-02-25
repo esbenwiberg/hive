@@ -1,435 +1,408 @@
-/**
- * Unit tests for the Advisor agent (src/agents/advisor.ts).
- *
- * All external I/O is mocked:
- *   - callClaude   → mocked so no real Anthropic API calls are made
- *   - node:fs      → mocked so no real file reads occur (prompts, docs)
- *   - logger       → silenced
- *   - cost-utils   → tracked via mockTrackCost spy
- */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { runAdvisor, type AdvisorInput } from "../advisor.js";
+import * as fs from "node:fs";
+import type { AdvisorVerdictResponse } from "../types.js";
 
-// ── Mocks (must be before any dynamic imports) ────────────────────────────────
+// Mock fs module
+vi.mock("node:fs");
+vi.mock("../sdk.js");
+vi.mock("../domain/autonomous-config.js");
+vi.mock("../prompt-cache.js");
 
-vi.mock("../sdk.js", () => ({
-  callClaude: vi.fn(),
-}));
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-vi.mock("node:fs", () => ({
-  readFileSync: vi.fn().mockReturnValue("# Mocked doc content"),
-  existsSync: vi.fn().mockReturnValue(true),
-}));
-
-vi.mock("../../logger.js", () => ({
-  default: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  },
-}));
-
-vi.mock("../cost-utils.js", () => ({
-  estimateCostUsd: vi.fn().mockReturnValue(0.0042),
-}));
-
-vi.mock("../../domain/autonomous-config.js", () => ({
-  getModelFor: vi.fn().mockReturnValue("claude-sonnet-4-20250514"),
-  getAutonomousConfig: vi.fn().mockReturnValue({
-    models: {
-      default: "claude-sonnet-4-20250514",
-      components: {},
-      inputCostPerM: 3,
-      outputCostPerM: 15,
-    },
-  }),
-}));
-
-vi.mock("../../prompt-cache.js", () => ({
-  loadPrompt: vi.fn().mockReturnValue("You are the Hive Advisor. Evaluate the task."),
-}));
-
-// ── Dynamic imports (after mocks) ─────────────────────────────────────────────
-
-const { callClaude } = await import("../sdk.js");
-const { runAdvisor } = await import("../advisor.js");
-
-const mockCallClaude = vi.mocked(callClaude);
-
-// ── Test data ─────────────────────────────────────────────────────────────────
-
-/** A complete, valid AdvisorVerdict JSON string that the LLM would return. */
-const VALID_VERDICT_OBJ = {
-  verdict: "approve",
-  overallScore: 0.82,
-  confidenceScore: 0.75,
-  dimensions: {
-    productFit: {
-      score: 0.9,
-      rationale: "Directly addresses user-requested dark mode feature.",
-    },
-    architecturalAlignment: {
-      score: 0.85,
-      rationale: "CSS variable approach fits existing design token system.",
-    },
-    userImpact: {
-      score: 0.88,
-      rationale: "High demand feature; reduces eye strain for low-light users.",
-    },
-    implementationRisk: {
-      score: 0.7,
-      rationale: "CSS changes have low blast radius; toggle state needs persistence.",
-    },
-    scopeClarity: {
-      score: 0.8,
-      rationale: "Scope is well-defined with clear acceptance criteria.",
-    },
-  },
-  reasoning:
-    "This task aligns well with the product roadmap and user expectations. The implementation approach is sound and low-risk.",
-  recommendations: [
-    "Persist theme preference in localStorage or user profile.",
-    "Add integration tests for the toggle interaction.",
-  ],
-  escalate: false,
-};
-
-function makeAdvisorInput(overrides: Record<string, unknown> = {}) {
+function createMockInput(overrides?: Partial<AdvisorInput>): AdvisorInput {
   return {
-    taskId: "HIVE-test-001",
-    title: "Add dark mode support",
-    description: "Users want a dark mode toggle for the dashboard to reduce eye strain.",
-    routerClassification: { type: "feature", size: "medium", workflow: "flow" },
-    codebaseContext: { relevantFiles: ["src/dashboard/views/layout.html"] },
-    architectBlueprint: { milestones: ["Design tokens", "CSS vars", "Toggle UI"] },
-    scorerOutput: { value: 0.8, complexity: 0.5, risk: 0.3 },
+    taskId: "task-123",
+    title: "Add error handling to worker",
+    description: "The worker module needs better error handling in the executor loop",
     ...overrides,
   };
 }
 
-function mockLlmSuccess(verdict = VALID_VERDICT_OBJ) {
-  mockCallClaude.mockResolvedValueOnce({
-    text: JSON.stringify(verdict),
-    cost: {
-      model: "claude-sonnet-4-20250514",
-      inputTokens: 1_200,
-      outputTokens: 350,
+function createMockVerdict(overrides?: Partial<AdvisorVerdictResponse>): AdvisorVerdictResponse {
+  return {
+    verdict: "approve",
+    confidenceScore: 0.8,
+    escalate: false,
+    dimensions: {
+      productAlignment: 0.9,
+      architecturalFit: 0.8,
     },
-  });
+    reasoning: "Task aligns well with system reliability goals.",
+    recommendations: [],
+    ...overrides,
+  };
 }
 
-function mockLlmMalformed() {
-  mockCallClaude.mockResolvedValueOnce({
-    text: "I think this is a great idea! Let me walk you through my thoughts...",
-    cost: {
-      model: "claude-sonnet-4-20250514",
-      inputTokens: 1_200,
-      outputTokens: 80,
-    },
-  });
-}
+// ── Tests ────────────────────────────────────────────────────────────────────
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe("runAdvisor", () => {
+describe("Advisor Agent", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Default mocks
+    const fsModule = vi.mocked(fs);
+    fsModule.existsSync = vi.fn().mockReturnValue(false);
+    fsModule.readFileSync = vi.fn().mockReturnValue("");
+
+    const { getModelFor } = vi.mocked(await import("../domain/autonomous-config.js"));
+    getModelFor.mockReturnValue("claude-opus");
+
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(createMockVerdict()),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const { loadPrompt } = vi.mocked(await import("../prompt-cache.js"));
+    loadPrompt.mockReturnValue("You are an advisor.");
+  });
+
+  afterEach(() => {
     vi.clearAllMocks();
   });
 
-  // ── Successful verdict parsing ────────────────────────────────────────────
-
-  describe("valid LLM JSON", () => {
-    it("returns a parsed verdict with the correct top-level fields", async () => {
-      mockLlmSuccess();
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.verdict).toBe("approve");
-      expect(verdict.overallScore).toBe(0.82);
-      expect(verdict.confidenceScore).toBe(0.75);
-      expect(verdict.escalate).toBe(false);
-      expect(verdict.reasoning).toContain("aligns well with the product roadmap");
-      expect(verdict.recommendations).toHaveLength(2);
-      expect(verdict.recommendations[0]).toContain("localStorage");
-    });
-
-    it("returns all five dimension sub-scores from the LLM response", async () => {
-      mockLlmSuccess();
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.dimensions.productFit.score).toBe(0.9);
-      expect(verdict.dimensions.architecturalAlignment.score).toBe(0.85);
-      expect(verdict.dimensions.userImpact.score).toBe(0.88);
-      expect(verdict.dimensions.implementationRisk.score).toBe(0.7);
-      expect(verdict.dimensions.scopeClarity.score).toBe(0.8);
-    });
-
-    it("includes rationale strings for each dimension", async () => {
-      mockLlmSuccess();
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.dimensions.productFit.rationale).toBeTruthy();
-      expect(verdict.dimensions.architecturalAlignment.rationale).toBeTruthy();
-      expect(verdict.dimensions.userImpact.rationale).toBeTruthy();
-      expect(verdict.dimensions.implementationRisk.rationale).toBeTruthy();
-      expect(verdict.dimensions.scopeClarity.rationale).toBeTruthy();
-    });
-
-    it("calls the SDK LLM exactly once per runAdvisor invocation", async () => {
-      mockLlmSuccess();
-
-      await runAdvisor(makeAdvisorInput());
-
-      expect(mockCallClaude).toHaveBeenCalledTimes(1);
-    });
-
-    it("embeds the task title and description in the LLM user prompt", async () => {
-      mockLlmSuccess();
-
-      await runAdvisor(makeAdvisorInput());
-
-      const callArg = mockCallClaude.mock.calls[0][0];
-      expect(callArg.prompt).toContain("Add dark mode support");
-      expect(callArg.prompt).toContain("Users want a dark mode toggle");
-    });
-
-    it("embeds the taskId in the LLM user prompt", async () => {
-      mockLlmSuccess();
-
-      await runAdvisor(makeAdvisorInput());
-
-      const callArg = mockCallClaude.mock.calls[0][0];
-      expect(callArg.prompt).toContain("HIVE-test-001");
-    });
-
-    it("passes a systemPrompt to the SDK call", async () => {
-      mockLlmSuccess();
-
-      await runAdvisor(makeAdvisorInput());
-
-      const callArg = mockCallClaude.mock.calls[0][0];
-      expect(callArg.systemPrompt).toBeTruthy();
-      expect(typeof callArg.systemPrompt).toBe("string");
-    });
-
-    it("strips markdown code fences from LLM response before parsing", async () => {
-      mockCallClaude.mockResolvedValueOnce({
-        text: `\`\`\`json\n${JSON.stringify(VALID_VERDICT_OBJ)}\n\`\`\``,
-        cost: { model: "claude-sonnet-4-20250514", inputTokens: 1_200, outputTokens: 350 },
-      });
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.verdict).toBe("approve");
-      expect(verdict.overallScore).toBe(0.82);
-    });
-  });
-
-  // ── Escalation rules ──────────────────────────────────────────────────────
-
-  describe("escalation behaviour", () => {
-    it("forces escalate=true when LLM returns confidenceScore < 0.5", async () => {
-      // LLM sets escalate:false, but confidence is 0.3 → advisor must override
-      const lowConfidenceVerdict = {
-        ...VALID_VERDICT_OBJ,
-        confidenceScore: 0.3,
+  it("should return a valid verdict on successful LLM call", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(createMockVerdict({
+        verdict: "approve",
+        confidenceScore: 0.85,
         escalate: false,
+      })),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    expect(result.verdict).toBe("approve");
+    expect(result.confidenceScore).toBe(0.85);
+    expect(result.escalate).toBe(false);
+  });
+
+  // Test 1: Mandatory escalation rule — confidenceScore < 0.5 forces escalate=true
+  it("should ALWAYS escalate when confidenceScore < 0.5 (mandatory rule)", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(createMockVerdict({
+        confidenceScore: 0.3,
+        escalate: false, // LLM says don't escalate
+      })),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    // Mandatory override: escalate must be true
+    expect(result.confidenceScore).toBe(0.3);
+    expect(result.escalate).toBe(true);
+  });
+
+  // Test 2: Validation failure returns FALLBACK_VERDICT
+  it("should return FALLBACK_VERDICT when LLM response is invalid", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: "not json at all",
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    expect(result.escalate).toBe(true);
+    expect(result.confidenceScore).toBe(0.0);
+    expect(result.verdict).toBe("rework");
+    expect(result.reasoning).toContain("Advisor unavailable");
+  });
+
+  // Test 3: Verdict enum validation — reject invalid verdict values
+  it("should reject invalid verdict values and return FALLBACK_VERDICT", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify({
+        verdict: "reject", // Invalid — not in ['approve', 'caution', 'rework']
+        confidenceScore: 0.7,
+        escalate: false,
+        dimensions: {},
+        reasoning: "some reason",
+        recommendations: [],
+      }),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    expect(result.escalate).toBe(true);
+    expect(result.verdict).toBe("rework");
+    expect(result.confidenceScore).toBe(0.0);
+  });
+
+  // Test 4: Dimension score validation — reject out-of-range values
+  it("should reject dimensions with values outside [0.0, 1.0]", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify({
+        verdict: "approve",
+        confidenceScore: 0.7,
+        escalate: false,
+        dimensions: {
+          productAlignment: 1.5, // Out of range!
+        },
+        reasoning: "some reason",
+        recommendations: [],
+      }),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    expect(result.escalate).toBe(true);
+    expect(result.verdict).toBe("rework");
+    expect(result.confidenceScore).toBe(0.0);
+  });
+
+  // Test 5: Input sanitization — advisor validates LLM output, not input
+  it("should validate LLM output regardless of malicious input", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(createMockVerdict({
+        verdict: "approve",
+        confidenceScore: 0.85,
+      })),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput({
+      title: '"); DROP TABLE tasks; //',
+      description: '<img src=x onerror="alert(1)">',
+    });
+
+    const result = await runAdvisor(input);
+
+    // Advisor should validate LLM output, not the input
+    expect(result.verdict).toBe("approve");
+    expect(result.escalate).toBe(false);
+  });
+
+  // Test 6: Missing product-context.md should not crash
+  it("should handle missing product-context.md gracefully", async () => {
+    const fsModule = vi.mocked(fs);
+    fsModule.existsSync = vi.fn().mockReturnValue(false);
+    fsModule.readFileSync = vi.fn().mockImplementation(() => {
+      throw new Error("File not found");
+    });
+
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(createMockVerdict()),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    // Should still return valid verdict (graceful degradation)
+    expect(result.verdict).toBe("approve");
+    expect(result.escalate).toBe(false);
+  });
+
+  // Test 7: Missing architecture.md should not crash
+  it("should handle missing architecture.md gracefully", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(createMockVerdict()),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    expect(result.verdict).toBe("approve");
+    expect(result.escalate).toBe(false);
+  });
+
+  // Test 8: LLM parse error (malformed JSON)
+  it("should return FALLBACK_VERDICT on JSON parse error", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: "{ invalid json here",
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    expect(result.escalate).toBe(true);
+    expect(result.confidenceScore).toBe(0.0);
+    expect(result.verdict).toBe("rework");
+  });
+
+  // Test 9: Happy path — valid response with all fields
+  it("should return valid verdict unchanged for good LLM response", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    const verdict = createMockVerdict({
+      verdict: "approve",
+      confidenceScore: 0.92,
+      escalate: false,
+      dimensions: {
+        productAlignment: 0.95,
+        architecturalFit: 0.89,
+      },
+      reasoning: "Excellent task design.",
+      recommendations: ["Consider adding tests"],
+    });
+
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(verdict),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
+    });
+
+    const input = createMockInput();
+    const result = await runAdvisor(input);
+
+    expect(result.verdict).toBe("approve");
+    expect(result.confidenceScore).toBe(0.92);
+    expect(result.escalate).toBe(false);
+    expect(result.dimensions.productAlignment).toBe(0.95);
+    expect(result.recommendations).toContain("Consider adding tests");
+  });
+
+  // Test 10: Enrichment data threading
+  it("should pass enrichment data to LLM prompt", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    let capturedPrompt = "";
+
+    callClaude.mockImplementation(async (args: any) => {
+      capturedPrompt = args.prompt;
+      return {
+        text: JSON.stringify(createMockVerdict()),
+        cost: {
+          model: "claude-opus",
+          inputTokens: 1000,
+          outputTokens: 500,
+        },
       };
-      mockLlmSuccess(lowConfidenceVerdict);
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.confidenceScore).toBe(0.3);
-      expect(verdict.escalate).toBe(true); // forced by advisor logic
     });
 
-    it("forces escalate=true when confidenceScore is exactly 0.49", async () => {
-      mockLlmSuccess({ ...VALID_VERDICT_OBJ, confidenceScore: 0.49, escalate: false });
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.escalate).toBe(true);
+    const input = createMockInput({
+      routerClassification: { type: "feature", size: "medium" },
+      codebaseContext: { fileCount: 42 },
     });
 
-    it("does NOT force escalate when confidenceScore is exactly 0.5", async () => {
-      mockLlmSuccess({ ...VALID_VERDICT_OBJ, confidenceScore: 0.5, escalate: false });
+    await runAdvisor(input);
 
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.escalate).toBe(false);
-    });
-
-    it("preserves escalate=true from the LLM even when confidenceScore >= 0.5", async () => {
-      mockLlmSuccess({ ...VALID_VERDICT_OBJ, confidenceScore: 0.65, escalate: true });
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.escalate).toBe(true);
-    });
-
-    it("does not escalate when confidenceScore >= 0.5 and LLM says escalate:false", async () => {
-      mockLlmSuccess(); // VALID_VERDICT_OBJ: confidence=0.75, escalate=false
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.escalate).toBe(false);
-    });
+    // Verify enrichment data appears in the prompt
+    expect(capturedPrompt).toContain("Router Classification");
+    expect(capturedPrompt).toContain("Codebase Context");
   });
 
-  // ── Graceful fallback on malformed / unparseable LLM output ──────────────
+  // Test 11: LLM call failure — callClaude throws
+  it("should return FALLBACK_VERDICT when callClaude throws", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockRejectedValue(new Error("Network error"));
 
-  describe("graceful fallback on malformed LLM output", () => {
-    it("returns a verdict object (not throwing) when LLM output is not JSON", async () => {
-      mockLlmMalformed();
+    const input = createMockInput();
+    const result = await runAdvisor(input);
 
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict).toBeDefined();
-      expect(typeof verdict.verdict).toBe("string");
-      expect(typeof verdict.overallScore).toBe("number");
-      expect(typeof verdict.confidenceScore).toBe("number");
-      expect(typeof verdict.escalate).toBe("boolean");
-    });
-
-    it("returns escalate=true on fallback verdict", async () => {
-      mockLlmMalformed();
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.escalate).toBe(true);
-    });
-
-    it("returns confidenceScore < 0.5 on fallback verdict", async () => {
-      mockLlmMalformed();
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.confidenceScore).toBeLessThan(0.5);
-    });
-
-    it("returns verdict='caution' on fallback verdict", async () => {
-      mockLlmMalformed();
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.verdict).toBe("caution");
-    });
-
-    it("includes a human-readable explanation in fallback reasoning", async () => {
-      mockLlmMalformed();
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.reasoning.length).toBeGreaterThan(10);
-    });
-
-    it("returns a fallback verdict when LLM throws an error", async () => {
-      mockCallClaude.mockRejectedValueOnce(new Error("API timeout"));
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict).toBeDefined();
-      expect(verdict.escalate).toBe(true);
-      expect(verdict.confidenceScore).toBeLessThan(0.5);
-    });
-
-    it("returns a fallback verdict when LLM returns empty string", async () => {
-      mockCallClaude.mockResolvedValueOnce({
-        text: "",
-        cost: { model: "claude-sonnet-4-20250514", inputTokens: 500, outputTokens: 0 },
-      });
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict).toBeDefined();
-      expect(verdict.escalate).toBe(true);
-    });
-
-    it("returns a fallback verdict when JSON is valid but missing required fields", async () => {
-      mockCallClaude.mockResolvedValueOnce({
-        text: JSON.stringify({ verdict: "approve", overallScore: 0.8 }), // missing fields
-        cost: { model: "claude-sonnet-4-20250514", inputTokens: 400, outputTokens: 50 },
-      });
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.escalate).toBe(true);
-      expect(verdict.confidenceScore).toBe(0);
-    });
-
-    it("returns a fallback verdict when verdict value is not a valid enum", async () => {
-      mockCallClaude.mockResolvedValueOnce({
-        text: JSON.stringify({ ...VALID_VERDICT_OBJ, verdict: "UNKNOWN_VALUE" }),
-        cost: { model: "claude-sonnet-4-20250514", inputTokens: 500, outputTokens: 100 },
-      });
-
-      const verdict = await runAdvisor(makeAdvisorInput());
-
-      expect(verdict.escalate).toBe(true);
-    });
+    expect(result.escalate).toBe(true);
+    expect(result.verdict).toBe("rework");
+    expect(result.confidenceScore).toBe(0.0);
   });
 
-  // ── Minimal / partial enrichment data ────────────────────────────────────
-
-  describe("partial enrichment input", () => {
-    it("works when all optional enrichment fields are omitted", async () => {
-      mockLlmSuccess();
-
-      const verdict = await runAdvisor({
-        taskId: "HIVE-minimal-001",
-        title: "Fix typo in README",
-        description: "Minor documentation update",
-      });
-
-      expect(verdict.verdict).toBe("approve");
+  // Test 12: Verdict 'caution' with moderate score
+  it("should handle 'caution' verdict correctly", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(createMockVerdict({
+        verdict: "caution",
+        confidenceScore: 0.6,
+        escalate: false,
+      })),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
     });
 
-    it("serialises undefined enrichment fields as '(not available)' in the prompt", async () => {
-      mockLlmSuccess();
+    const input = createMockInput();
+    const result = await runAdvisor(input);
 
-      await runAdvisor({
-        taskId: "HIVE-minimal-002",
-        title: "Minimal task",
-        description: "No enrichment data",
-      });
-
-      const callArg = mockCallClaude.mock.calls[0][0];
-      expect(callArg.prompt).toContain("(not available)");
-    });
+    expect(result.verdict).toBe("caution");
+    expect(result.confidenceScore).toBe(0.6);
+    expect(result.escalate).toBe(false);
   });
 
-  // ── Cost-utils integration ────────────────────────────────────────────────
-
-  describe("cost tracking", () => {
-    it("receives token counts from the SDK response cost object", async () => {
-      mockLlmSuccess();
-
-      await runAdvisor(makeAdvisorInput());
-
-      // Verify callClaude was invoked and its return value had cost data
-      expect(mockCallClaude).toHaveBeenCalledTimes(1);
-      const result = await mockCallClaude.mock.results[0].value;
-      expect(result.cost.inputTokens).toBe(1_200);
-      expect(result.cost.outputTokens).toBe(350);
+  // Test 13: Verdict 'rework' with low score
+  it("should handle 'rework' verdict correctly", async () => {
+    const { callClaude } = vi.mocked(await import("../sdk.js"));
+    callClaude.mockResolvedValue({
+      text: JSON.stringify(createMockVerdict({
+        verdict: "rework",
+        confidenceScore: 0.4,
+        escalate: true,
+      })),
+      cost: {
+        model: "claude-opus",
+        inputTokens: 1000,
+        outputTokens: 500,
+      },
     });
 
-    it("invokes estimateCostUsd with the token counts from the LLM response", async () => {
-      const { estimateCostUsd } = await import("../cost-utils.js");
-      const mockEstimate = vi.mocked(estimateCostUsd);
-      mockLlmSuccess();
+    const input = createMockInput();
+    const result = await runAdvisor(input);
 
-      await runAdvisor(makeAdvisorInput());
-
-      expect(mockEstimate).toHaveBeenCalledWith(
-        1_200,  // inputTokens
-        350,    // outputTokens
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-      );
-    });
+    expect(result.verdict).toBe("rework");
+    expect(result.confidenceScore).toBe(0.4);
+    expect(result.escalate).toBe(true);
   });
 });

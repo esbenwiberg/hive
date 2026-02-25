@@ -39,7 +39,7 @@ When an advisor verdict is present, use it as a strong signal:
 
 - **overallScore** (0–1): The advisor's holistic quality rating. Scores below 0.4 are a strong rejection signal; scores above 0.75 support approval.
 - **confidenceScore** (0–1): How certain the advisor is. If confidence is below 0.5 the advisor has already flagged escalation — treat this task as requiring human review unless you have very strong independent evidence to the contrary.
-- **verdict**: The advisor's recommended action (`approve`, `rework`, or `reject`). Weight this heavily alongside your own analysis.
+- **verdict**: The advisor's recommended action (`approve`, `caution`, or `rework`). Weight this heavily alongside your own analysis.
 - **escalate** (boolean): If `true`, the system has already forced human-mode routing. Note this context in your reasoning.
 - **reasoning**: The advisor's written rationale — read it and factor it into your decision.
 - **recommendations**: Specific actions the advisor suggests. If approving or reworking, reference relevant recommendations in your reasoning.
