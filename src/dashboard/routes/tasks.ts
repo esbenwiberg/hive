@@ -16,6 +16,7 @@ import {
   previewMetaRow,
   activityEventList,
   taskDebugPanel,
+  taskCreateForm,
 } from "../views/tasks.js";
 import { getEvents } from "../../db/queries/task-events.js";
 import { getLatestByTask as getLatestReview } from "../../db/queries/code-reviews.js";
@@ -216,8 +217,16 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
     if (rawBlueprint.length > 0) {
       const parseResult = parseMarkdownBlueprint(rawBlueprint);
       if (!parseResult.ok) {
-        const errors = parseResult.errors.map((e) => `• ${e}`).join("\n");
-        res.status(400).send(`Blueprint validation failed:\n${errors}`);
+        // Re-render the create form with inline errors and pre-filled content.
+        // Use HX-Retarget / HX-Reswap so HTMX replaces the panel instead of
+        // the task list that the form normally targets.
+        const allRepos = await repoQueries.listAll();
+        const selfRepoFullName = HIVE_SELF_REPO || undefined;
+        const formHtml = taskCreateForm(allRepos, user, selfRepoFullName, parseResult.errors, rawBlueprint);
+        res.status(200)
+          .setHeader("HX-Retarget", "#create-panel")
+          .setHeader("HX-Reswap", "outerHTML")
+          .send(formHtml);
         return;
       }
       parsedBlueprint = parseResult.blueprint;

@@ -1474,8 +1474,20 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
 
 /**
  * Task create form in a slide-over panel.
+ *
+ * @param repos            Available repositories.
+ * @param user             Authenticated session user.
+ * @param selfRepoFullName Full name of the self-managed Hive repo, if any.
+ * @param blueprintErrors  Validation errors to show inline (triggers blueprint section open).
+ * @param prefillBlueprint Pre-fill the blueprint textarea with this value on re-render.
  */
-export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFullName?: string): string {
+export function taskCreateForm(
+  repos: RepoRow[],
+  user?: SessionUser,
+  selfRepoFullName?: string,
+  blueprintErrors?: string[],
+  prefillBlueprint?: string,
+): string {
   const isAdmin = user?.role === "admin";
   const repoOptions = [
     { value: "", label: "Select a repository" },
@@ -1555,14 +1567,15 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
       <label class="flex items-center gap-3 cursor-pointer">
         <input type="checkbox" id="blueprint-toggle"
           class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400 focus:ring-offset-slate-900"
-          onchange="toggleBlueprintSection(this.checked)" />
+          onchange="toggleBlueprintSection(this.checked)"
+          ${blueprintErrors && blueprintErrors.length > 0 ? 'checked' : ''} />
         <span class="text-sm text-slate-300">I have a blueprint</span>
         <span class="text-xs text-slate-500">(paste a Markdown blueprint to skip architect generation)</span>
       </label>
     </div>
 
-    <!-- Blueprint section (hidden by default) -->
-    <div id="blueprint-section" class="hidden space-y-3">
+    <!-- Blueprint section (hidden by default, shown when errors present) -->
+    <div id="blueprint-section" class="${blueprintErrors && blueprintErrors.length > 0 ? '' : 'hidden'} space-y-3">
       <div class="flex items-center justify-between">
         <label class="block text-sm font-medium text-slate-300" for="externalBlueprint">Blueprint (Markdown)</label>
         <button type="button"
@@ -1572,8 +1585,16 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         </button>
       </div>
 
-      <!-- Inline validation error -->
-      <div id="blueprint-error" class="hidden rounded-md border border-red-600 bg-red-950/40 px-3 py-2 text-sm text-red-400"></div>
+      <!-- Inline validation errors (server-side) -->
+      ${blueprintErrors && blueprintErrors.length > 0 ? `
+      <div id="blueprint-error" class="rounded-md border border-red-600 bg-red-950/40 px-3 py-2 text-sm text-red-400">
+        <p class="font-semibold mb-1">Blueprint validation failed:</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          ${blueprintErrors.map(e => `<li>${escapeHtml(e)}</li>`).join('\n          ')}
+        </ul>
+      </div>` : `
+      <!-- Inline validation error (client-side) -->
+      <div id="blueprint-error" class="hidden rounded-md border border-red-600 bg-red-950/40 px-3 py-2 text-sm text-red-400"></div>`}
 
       <!-- Template block (hidden by default) -->
       <div id="blueprint-template" class="hidden">
@@ -1600,7 +1621,7 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         placeholder="Paste your Markdown blueprint here…"
         class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-50 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
         oninput="clearBlueprintError()"
-        disabled></textarea>
+        ${blueprintErrors && blueprintErrors.length > 0 ? '' : 'disabled'}>${prefillBlueprint ? escapeHtml(prefillBlueprint) : ''}</textarea>
     </div>
 
     <script>
