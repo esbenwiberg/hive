@@ -128,6 +128,7 @@ export async function reviewChanges(
   taskId: string,
   worktreeInfo: WorktreeInfo,
   learningIds?: number[],
+  reviewFixIssues?: string[],
 ): Promise<ReviewGateResult> {
   const startTime = Date.now();
   const model = getModelFor("review-gate");
@@ -243,10 +244,14 @@ export async function reviewChanges(
     await recordCost(taskId, task.createdBy, "review-gate", model, costUsd, 1, durationMs);
 
     // Fire-and-forget feedback loop — never blocks or throws
-    const findingsText = result.findings
+    const gateFindings = result.findings
       .map((f) => `[${f.severity}] ${f.file}${f.line ? `:${f.line}` : ""}: ${f.message}`)
       .join("\n");
-    void fireAndForgetFeedback(taskId, result.verdict, learningIds ?? [], findingsText || undefined);
+    const reviewFixSection = reviewFixIssues && reviewFixIssues.length > 0
+      ? `\n\n## Review-Fix Issues (recurring per-milestone problems)\n${reviewFixIssues.join("\n")}`
+      : "";
+    const findingsText = (gateFindings + reviewFixSection) || undefined;
+    void fireAndForgetFeedback(taskId, result.verdict, learningIds ?? [], findingsText);
 
     // Fire-and-forget review pattern analysis — never blocks or throws
     if (result.findings.length > 0) {

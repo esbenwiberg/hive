@@ -219,10 +219,11 @@ async function executeMilestones(
   startFrom: number = 0,
   pushFn?: () => Promise<void>,
   prismConfig?: PrismConfig,
-): Promise<{ totalCostUsd: number }> {
+): Promise<{ totalCostUsd: number; reviewFixIssues: string[] }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
   const priorSummaries: string[] = [];
+  const reviewFixIssues: string[] = [];
 
   // Pre-populate summaries for already-completed milestones so Claude has context
   for (let j = 0; j < startFrom; j++) {
@@ -340,6 +341,9 @@ async function executeMilestones(
     const review = await reviewFix(worktreePath, ms.title, model);
     totalCostUsd += review.costUsd;
     await addEvent(task.id, "review_fix_complete", "worker", `Review-fix ${review.passed ? "passed" : "failed"} (${review.iterations} iterations, $${review.costUsd.toFixed(2)})`);
+    if (review.issues.length > 0) {
+      reviewFixIssues.push(...review.issues.map((issue) => `[milestone: ${ms.title}] ${issue}`));
+    }
 
     // ── 4. Commit the milestone ───────────────────────────────────────────
     await commitMilestone(worktreePath, ms.title, task.id);
@@ -377,7 +381,7 @@ async function executeMilestones(
     );
   }
 
-  return { totalCostUsd };
+  return { totalCostUsd, reviewFixIssues };
 }
 
 /**
@@ -421,6 +425,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
   const model = getModelFor("worker");
   const branchName = `hive/${taskId}`;
   let worktree: WorktreeInfo | undefined;
+  const allReviewFixIssues: string[] = [];
 
   // Register first so if it fails, task status hasn't changed yet
   await register(taskId, "worker", model, "executing");
@@ -595,8 +600,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         await milestoneGitProvider.push(worktree!.path, branchName, milestoneCreds);
       };
 
-      const { totalCostUsd } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig);
+      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig);
       implCostUsd = totalCostUsd;
+      allReviewFixIssues.push(...reviewFixIssues);
     } else {
       // Rework cycles (or non-milestone tasks): single targeted fix call.
       // On rework, the worktree already has the full implementation — only patch
@@ -703,7 +709,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     // Run review gate (pass learning IDs for feedback loop)
     await addEvent(taskId, "review_started", "worker", "Starting code review");
     await heartbeat(taskId);
-    const reviewResult = await reviewChanges(taskId, worktree, learningIds);
+    const reviewResult = await reviewChanges(taskId, worktree, learningIds, allReviewFixIssues.length > 0 ? allReviewFixIssues : undefined);
     await addEvent(taskId, "review_complete", "worker", `Review: ${reviewResult.verdict}`);
     await heartbeat(taskId);
 

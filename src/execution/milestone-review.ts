@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import logger from "../logger.js";
 import { callClaude, callClaudeWithTools } from "../agents/sdk.js";
 import { estimateCostUsd } from "../agents/cost-utils.js";
-import { getModelFor } from "../domain/autonomous-config.js";
+import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
 import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import { loadPrompt } from "../prompt-cache.js";
 import { detectBuildSystem } from "./build-system.js";
@@ -237,6 +237,7 @@ async function claudeFix(
   errors: string[],
   changedFiles: string[],
   model: string,
+  maxTurns: number,
 ): Promise<{ costUsd: number }> {
   const prompt = [
     "## Milestone",
@@ -260,6 +261,7 @@ async function claudeFix(
     systemPrompt: getFixPrompt(),
     tools: WORKER_TOOLS,
     executeTool: createWorktreeToolExecutor(worktreePath),
+    maxTurns,
   });
 
   const { cost } = response;
@@ -290,12 +292,12 @@ export async function reviewFix(
   worktreePath: string,
   milestoneSummary: string,
   model: string,
-  maxIterations: number = 2,
 ): Promise<ReviewFixResult> {
+  const autonomousConfig = getAutonomousConfig();
+  const maxIterations = autonomousConfig.reviewFix.maxIterations;
+  const fixMaxTurns = autonomousConfig.reviewFix.fixMaxTurns;
   const reviewModel = getModelFor("milestone-review");
-  const fixModel = getModelFor("milestone-fix") !== getModelFor("default")
-    ? getModelFor("milestone-fix")
-    : model; // fall back to worker model if milestone-fix not explicitly configured
+  const fixModel = autonomousConfig.models.components["milestone-fix"] ?? model;
 
   let totalCostUsd = 0;
   const allIssues: string[] = [];
@@ -343,7 +345,7 @@ export async function reviewFix(
     // Step 3: Ask Claude to fix
     const changedFiles = await getChangedFiles(worktreePath);
     logger.info({ iteration, issueCount: iterationIssues.length, changedFileCount: changedFiles.length, worktreePath }, "review-fix calling claudeFix");
-    const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, fixModel);
+    const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, fixModel, fixMaxTurns);
     totalCostUsd += fix.costUsd;
     logger.info({ iteration, costUsd: fix.costUsd, worktreePath }, "review-fix claudeFix done");
 

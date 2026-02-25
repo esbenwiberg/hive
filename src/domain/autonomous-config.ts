@@ -73,6 +73,13 @@ export interface ConcurrencyConfig {
   maxPerUser: number;
 }
 
+export interface ReviewFixConfig {
+  /** Max review-fix loop iterations per milestone. Default 2. */
+  maxIterations: number;
+  /** Max tool-use turns for the fix agent per iteration. Default 20. */
+  fixMaxTurns: number;
+}
+
 export interface AutonomousConfig {
   classification: ClassificationConfig;
   gate: GateConfig;
@@ -83,6 +90,7 @@ export interface AutonomousConfig {
   preview: PreviewSettings;
   concurrency: ConcurrencyConfig;
   prism: PrismConfig;
+  reviewFix: ReviewFixConfig;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -118,6 +126,7 @@ const DEFAULTS: AutonomousConfig = {
   },
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
   prism: { apiUrl: "", apiKey: "" },
+  reviewFix: { maxIterations: 2, fixMaxTurns: 20 },
 };
 
 // ── Model helpers ────────────────────────────────────────────────────────────
@@ -222,6 +231,10 @@ export function loadConfig(
       ...DEFAULTS.prism,
       ...(raw.prism as Partial<PrismConfig> | undefined),
     },
+    reviewFix: {
+      ...DEFAULTS.reviewFix,
+      ...(raw.reviewFix as Partial<ReviewFixConfig> | undefined),
+    },
   };
 
   return config;
@@ -239,6 +252,7 @@ export interface ConfigOverrides {
   preview?: { compose_up_timeout_seconds?: number };
   concurrency?: Partial<ConcurrencyConfig>;
   prism?: Partial<PrismConfig>;
+  reviewFix?: Partial<ReviewFixConfig>;
 }
 
 const CONFIG_DB_KEY = "autonomous";
@@ -294,6 +308,7 @@ function mergeOverrides(
       : base.preview,
     concurrency: { ...base.concurrency, ...overrides.concurrency },
     prism: { ...base.prism, ...overrides.prism },
+    reviewFix: { ...base.reviewFix, ...overrides.reviewFix },
   };
 }
 
