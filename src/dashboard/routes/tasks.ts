@@ -428,6 +428,35 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       logger.info({ taskId: id, prUrl }, "Browser validation accepted — PR created");
     }
 
+    if (action === "force_pr" && task.status === "failed") {
+      // Code is already pushed — create the PR manually despite outstanding findings.
+      const repo = await repoQueries.getById(task.repoId);
+      if (!repo) throw new Error(`Repo ${task.repoId} not found`);
+      const branchName = `hive/${id}`;
+      const creds = await resolveGitCredentials(task.createdBy, repo.provider);
+      const gitProvider = getGitProvider(repo.provider);
+      const prBody = [
+        `## Task Description`,
+        ``,
+        task.body,
+        ``,
+        `> ⚠️ PR was manually forced through by ${user.displayName ?? `user #${user.id}`} after max rework cycles. Outstanding review findings may remain.`,
+        ``,
+        `---`,
+        `_Automated by Hive - Task ${id}_`,
+      ].join("\n");
+      const { url: prUrl } = await gitProvider.createPR(
+        repo.fullName,
+        branchName,
+        repo.defaultBranch ?? "main",
+        task.title,
+        prBody,
+        creds,
+      );
+      await db.update(tasksTable).set({ prUrl, failureReason: null, updatedAt: new Date() }).where(eq(tasksTable.id, id));
+      logger.info({ taskId: id, prUrl }, "PR force-created by user after max rework cycles");
+    }
+
     if (action === "redesign" && task.status === "failed") {
       // Clean up existing worktree for a fresh start
       if (task.worktreePath) {

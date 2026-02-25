@@ -1692,6 +1692,7 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
     if (a.action === "continue") return (task.completedMilestones ?? 0) > 0;
     if (a.action === "more_cycles") return isMaxCyclesFailed;
     if (a.action === "accept_browser_validation") return isBrowserValidationFailed;
+    if (a.action === "force_pr") return isMaxCyclesFailed && !isBrowserValidationFailed;
     return true;
   });
 

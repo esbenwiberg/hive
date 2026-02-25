@@ -748,14 +748,19 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       return { success: false, branch: branchName, reviewResult, error: "Sent for rework" };
     }
 
-    // ── Forced pass at max cycles (instead of failing) ─────────────────────
+    // ── Max rework cycles exhausted — stop for human decision ──────────────
     if (reviewResult.verdict === "rework") {
-      // At max cycles — force pass so the PR is created for human review
-      reviewResult.verdict = "pass";
-      await addEvent(taskId, "review_forced_pass", "worker",
-        `Forced pass at max rework cycles (${maxCyclesReview}): creating PR with outstanding findings for human review`);
+      const reason = `Max rework cycles (${maxCyclesReview}) exhausted — manual intervention required`;
+      await addEvent(taskId, "review_max_cycles", "worker",
+        `Max rework cycles (${maxCyclesReview}) reached with outstanding findings — stopping for human review`);
       logger.warn({ taskId, reworkCount, maxCycles: maxCyclesReview },
-        "Forced pass at max rework cycles — PR will include outstanding findings");
+        "Max rework cycles exhausted — failing task for human intervention");
+      await db
+        .update(tasks)
+        .set({ failureReason: reason, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+      await updateStatus(taskId, "failed");
+      return { success: false, branch: branchName, reviewResult, error: reason };
     }
 
     // ── Final build/test sanity check ─────────────────────────────────────
@@ -790,10 +795,17 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         return { success: false, branch: branchName, reviewResult: verifyReviewResult, error: "Final build/test failed — rework" };
       }
 
-      // At max cycles — force through with advisory
-      await addEvent(taskId, "final_verify_forced", "worker",
-        `Final verification failed at max rework cycles (${maxCyclesReview}) — creating PR with build/test failures for human review`);
-      logger.warn({ taskId, reworkCount }, "Final verify failed at max cycles — forcing PR creation");
+      // At max cycles — stop for human intervention
+      const verifyFailReason = `Max rework cycles (${maxCyclesReview}) exhausted with build/test failures — manual intervention required`;
+      await addEvent(taskId, "final_verify_max_cycles", "worker",
+        `Final verification failed at max rework cycles (${maxCyclesReview}) — stopping for human review`);
+      logger.warn({ taskId, reworkCount }, "Final verify failed at max cycles — failing task for human intervention");
+      await db
+        .update(tasks)
+        .set({ failureReason: verifyFailReason, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+      await updateStatus(taskId, "failed");
+      return { success: false, branch: branchName, reviewResult, error: verifyFailReason };
     }
 
     // ── Verdict is now guaranteed "pass" — commit, push, PR ────────────────
@@ -872,10 +884,29 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
               return { success: false, branch: branchName, reviewResult: browserReviewResult, error: "Browser validation failed — rework" };
             }
 
-            // Max rework cycles exhausted — force pass for browser validation too
-            await addEvent(taskId, "review_forced_pass", "worker",
-              `Browser validation failed at max rework cycles (${maxCycles}) — creating PR with findings for human review`);
-            logger.warn({ taskId }, "Browser validation failed at max cycles — forcing PR creation");
+            // Max rework cycles exhausted — stop for human intervention
+            const browserFailReason = `Browser validation failed after max rework cycles (${maxCycles}) — manual intervention required`;
+            const browserMaxResult: ReviewGateResult = {
+              verdict: "rework",
+              findings: validation.findings.map((f) => ({
+                severity: "major" as const,
+                file: "",
+                message: f,
+                category: "browser-validation",
+              })),
+              securityFindings: [],
+              verification: { testsRun: false, testsPassed: false, lintClean: false, buildSucceeded: false, notes: [] },
+              costUsd: validation.costUsd,
+            };
+            await addEvent(taskId, "browser_validation_max_cycles", "worker",
+              `Browser validation failed at max rework cycles (${maxCycles}) — stopping for human review`);
+            logger.warn({ taskId }, "Browser validation failed at max cycles — failing task for human intervention");
+            await db
+              .update(tasks)
+              .set({ failureReason: browserFailReason, updatedAt: new Date() })
+              .where(eq(tasks.id, taskId));
+            await updateStatus(taskId, "failed");
+            return { success: false, branch: branchName, reviewResult: browserMaxResult, error: browserFailReason };
           }
         } catch (validationErr) {
           logger.warn({ taskId, err: validationErr }, "Browser validation error — continuing to PR");

@@ -136,6 +136,7 @@ export function getAvailableActions(status: string): Action[] {
     ],
     [TaskStatus.FAILED]: [
       { action: "accept_browser_validation", targetStatus: TaskStatus.DONE, label: "Accept & Create PR" },
+      { action: "force_pr", targetStatus: TaskStatus.DONE, label: "Force PR" },
       { action: "more_cycles", targetStatus: TaskStatus.REWORK, label: "More Cycles" },
       { action: "redesign", targetStatus: TaskStatus.APPROVED, label: "Redesign" },
       { action: "continue", targetStatus: TaskStatus.APPROVED, label: "Continue" },
