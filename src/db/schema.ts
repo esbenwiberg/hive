@@ -111,6 +111,7 @@ export const tasks = pgTable(
     worktreeBaseSha: text("worktree_base_sha"),
     completedMilestones: integer("completed_milestones").default(0),
     visibility: text("visibility").notNull().default("public"),
+    advisorReport: jsonb("advisor_report"),
     createdAt: timestamp("created_at", tz).defaultNow(),
     updatedAt: timestamp("updated_at", tz).defaultNow(),
   },

@@ -68,6 +68,16 @@ export interface PrismConfig {
   apiKey: string;
 }
 
+export interface AdvisorConfig {
+  /** Whether the advisor agent is enabled. Defaults to false. */
+  enabled: boolean;
+  /**
+   * Confidence threshold (0–100).  Reports with confidence below this value
+   * automatically set escalate=true, routing the task to human review.
+   */
+  confidenceThreshold: number;
+}
+
 export interface ConcurrencyConfig {
   maxConcurrent: number;
   maxPerUser: number;
@@ -83,6 +93,7 @@ export interface AutonomousConfig {
   preview: PreviewSettings;
   concurrency: ConcurrencyConfig;
   prism: PrismConfig;
+  advisor: AdvisorConfig;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -118,6 +129,7 @@ const DEFAULTS: AutonomousConfig = {
   },
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
   prism: { apiUrl: "", apiKey: "" },
+  advisor: { enabled: false, confidenceThreshold: 70 },
 };
 
 // ── Model helpers ────────────────────────────────────────────────────────────
@@ -221,6 +233,10 @@ export function loadConfig(
     prism: {
       ...DEFAULTS.prism,
       ...(raw.prism as Partial<PrismConfig> | undefined),
+    },
+    advisor: {
+      ...DEFAULTS.advisor,
+      ...(raw.advisor as Partial<AdvisorConfig> | undefined),
     },
   };
 

@@ -4,7 +4,7 @@ import { tasks } from "../schema.js";
 import { generateTaskId } from "../../domain/types.js";
 import { canTransition } from "../../domain/state-machine.js";
 import { getTotalCostForTask } from "./costs.js";
-import type { TaskFilters } from "../../domain/types.js";
+import type { TaskFilters, AdvisorReport } from "../../domain/types.js";
 
 function escapeLike(str: string): string {
   return str.replace(/[\\%_]/g, (ch) => `\\${ch}`);
@@ -519,4 +519,37 @@ export async function getDoneTasksWithPR() {
     .select()
     .from(tasks)
     .where(and(eq(tasks.status, "done"), isNotNull(tasks.prUrl)));
+}
+
+/**
+ * Persists an AdvisorReport against a task by writing it to the
+ * `advisor_report` JSONB column.  The caller is responsible for
+ * transitioning the task status to 'advising' before calling this.
+ */
+export async function insertAdvisorReport(
+  taskId: string,
+  report: AdvisorReport,
+): Promise<void> {
+  await db
+    .update(tasks)
+    .set({
+      advisorReport: report as unknown as Record<string, unknown>,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, taskId));
+}
+
+/**
+ * Reads the AdvisorReport stored on a task, or returns null if none exists.
+ */
+export async function getAdvisorReport(
+  taskId: string,
+): Promise<AdvisorReport | null> {
+  const [task] = await db
+    .select({ advisorReport: tasks.advisorReport })
+    .from(tasks)
+    .where(eq(tasks.id, taskId));
+
+  if (!task?.advisorReport) return null;
+  return task.advisorReport as unknown as AdvisorReport;
 }

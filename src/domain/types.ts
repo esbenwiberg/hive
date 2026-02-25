@@ -10,12 +10,13 @@ export interface SessionUser {
   role: string;
 }
 
-// ── Task Status (14 states) ─────────────────────────────────────────────────
+// ── Task Status (15 states) ─────────────────────────────────────────────────
 
 export const TaskStatus = {
   PENDING: "pending",
   QUEUED: "queued",
   ENRICHING: "enriching",
+  ADVISING: "advising",
   READY: "ready",
   EXECUTING: "executing",
   REVIEWING: "reviewing",
@@ -185,4 +186,22 @@ export interface MilestoneSpec {
   body: string;
   index: number;
   total: number;
+}
+
+// ── AdvisorReport ────────────────────────────────────────────────────────────
+
+export interface AdvisorReport {
+  /** Overall recommendation produced by the advisor agent. */
+  recommendation: "approve" | "redesign" | "reject";
+  /** Composite quality/fit score from 0 (worst) to 100 (best). */
+  score: number;
+  /** How confident the advisor is in its recommendation (0–100).
+   *  Values below the configured threshold automatically set escalate=true. */
+  confidence: number;
+  /** Human-readable explanation of the recommendation. */
+  reasoning: string;
+  /** Specific concerns or observations raised by the advisor. */
+  flags: string[];
+  /** When true the task must be routed to a human before proceeding. */
+  escalate: boolean;
 }
