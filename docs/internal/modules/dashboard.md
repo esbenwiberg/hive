@@ -200,7 +200,7 @@ They return a complete HTML string (for full pages) or an HTML fragment string (
 
 `layout(title, content, user)` returns a complete `<!DOCTYPE html>` document:
 
-- **`<head>`** — sets the page `<title>`, includes Tailwind CDN and HTMX script tags, and links `/public/htmx-ext.js` and `/public/commands.js`.
+- **`<head>`** — sets the page `<title>`, includes Tailwind CDN and HTMX script tags, and links `src/dashboard/public/htmx-ext.js` and `src/dashboard/public/commands.js`.
 - **Navigation sidebar / top bar** — renders nav links appropriate to the user's role. Admin-only links (Settings, Permissions, Prompts, etc.) are omitted for non-admin users.
 - **`<main>`** — wraps the `content` string passed by the caller.
 - **Flash messages** — renders any `req.session.flash` messages as toast notifications on page load.
@@ -364,7 +364,7 @@ The server validates the `dimension` query parameter against an allowlist (`user
 
 #### `GET /logs` — Log Viewer UI
 
-Renders a static HTML page containing the filter controls and the empty log container. The page includes a `<script src="/public/logs.js">` tag that activates the live streaming client.
+Renders a static HTML page containing the filter controls and the empty log container. The page includes a `<script src="logs.js">` tag that activates the live streaming client.
 
 **Access:** Admin only (`requireRole("admin")`) for both the page and the stream endpoint, since logs can contain sensitive task content and internal system state.
 
@@ -691,7 +691,7 @@ Pressing `?` renders a modal displaying all registered keyboard shortcuts in a t
 
 ### `logs.js` — Live Log Streaming Viewer
 
-**Loaded on:** `/logs` page only (injected by `views/logs.ts` via inline `<script>` tag)
+**Loaded on:** `/logs` page only (injected by `src/dashboard/views/logs.ts` via inline `<script>` tag into the HTML response)
 
 Implements a real-time log viewer using the browser's `EventSource` API to consume the `/logs/stream` SSE endpoint.
 
@@ -918,10 +918,10 @@ The current page is highlighted in the nav using path comparison between `req.pa
 - [`docs/internal/architecture.md`](../architecture.md) — end-to-end system overview and component relationships
 - [`docs/internal/modules/agents.md`](./agents.md) — the pipeline that the dashboard monitors and controls
 - [`docs/internal/modules/producers.md`](./producers.md) — producers whose run history is visible in `/producers`
-- [`docs/external/api.md`](../../external/api.md) — REST/SSE endpoints accessible to non-browser clients
 - `src/auth/middleware.ts` — `requireAuth` and `requireRole` implementations
 - `src/auth/session.ts` — session store configuration
 - `src/db/queries/costs.ts` — cost aggregation queries behind the `/costs` page
 - `src/domain/types.ts` — `SessionUser` type definition
 - `src/log-buffer.ts` — in-process log ring-buffer consumed by `/logs/stream`
 - `autonomous.config.yaml` — configuration edited via `/settings`
+- Client-side JavaScript — see `src/dashboard/public/commands.js`, `src/dashboard/public/htmx-ext.js`, and `src/dashboard/public/logs.js`
