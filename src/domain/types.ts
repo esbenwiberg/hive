@@ -186,3 +186,50 @@ export interface MilestoneSpec {
   index: number;
   total: number;
 }
+
+// ── Blueprint (user-supplied) ───────────────────────────────────────────────
+//
+// These mirror the types in src/blueprints/schema.ts but are re-exported from
+// the central domain types module so the rest of the codebase can import them
+// from a single location.
+
+export interface BlueprintMilestone {
+  /** Short, imperative title for this milestone. */
+  title: string;
+  /** One or more sentences describing what this milestone achieves. */
+  description: string;
+  /** Relative file paths that this milestone is expected to touch. */
+  filesToModify: string[];
+  /** Observable, testable criteria that confirm this milestone is complete. */
+  acceptanceCriteria: string[];
+}
+
+export interface Blueprint {
+  /** High-level implementation strategy shared across all milestones. */
+  approach: string;
+  /** Ordered list of milestones that together deliver the full feature. */
+  milestones: BlueprintMilestone[];
+}
+
+export interface BlueprintValidationError {
+  /** Dot-separated path to the offending field, e.g. "milestones[0].title". */
+  field: string;
+  /** Human-readable explanation of what is wrong and how to fix it. */
+  message: string;
+}
+
+export type BlueprintParseResult =
+  | { ok: true; blueprint: Blueprint }
+  | { ok: false; errors: BlueprintValidationError[] };
+
+/**
+ * When a task is created from a user-supplied blueprint, this payload is stored
+ * alongside the task so the architect enricher can operate in validation mode
+ * rather than generation mode.
+ */
+export interface BlueprintTaskContext {
+  /** The raw markdown the user pasted. */
+  rawMarkdown: string;
+  /** The validated, parsed blueprint (only present when parsing succeeded). */
+  blueprint?: Blueprint;
+}

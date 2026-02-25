@@ -7,6 +7,7 @@ import { retrieveRelevantLearnings, buildRetrievalTags } from "../db/queries/lea
 import { getById as getRepoById } from "../db/queries/repos.js";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
+import type { BlueprintTaskContext } from "../domain/types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,10 @@ export function parseBlueprint(raw: string, hasAnswers = false): ArchitectBluepr
 
 /**
  * Builds the user prompt sent to Claude alongside the architect system prompt.
+ *
+ * When `blueprintContext` is provided the prompt signals to the architect that
+ * it is operating in **blueprint validation mode**: it should validate and
+ * clarify the pre-written blueprint rather than generating one from scratch.
  */
 function buildUserPrompt(
   task: TaskRow,
@@ -125,6 +130,7 @@ function buildUserPrompt(
   clarificationAnswers?: string[],
   clarificationQuestions?: string[],
   learningsStr?: string,
+  blueprintContext?: BlueprintTaskContext,
 ): string {
   const sections: string[] = [
     `Task ID: ${task.id}`,
@@ -138,6 +144,29 @@ function buildUserPrompt(
     task.body,
     "</user_provided_body>",
   ];
+
+  // ── Blueprint validation mode ───────────────────────────────────────────
+  // When the task was created from a user-supplied blueprint, surface it so
+  // the architect can validate and refine rather than generate from scratch.
+  if (blueprintContext) {
+    sections.push(
+      "",
+      "<blueprint_mode>",
+      "This task was created from a user-supplied blueprint. You are operating in",
+      "BLUEPRINT VALIDATION MODE. Your job is NOT to generate a new blueprint from",
+      "scratch. Instead:",
+      "  1. Review the blueprint below for correctness, completeness, and coherence.",
+      "  2. If the blueprint is sound, adopt it directly as your output.",
+      "  3. If you spot gaps, ambiguities, or risks, surface them as clarification",
+      "     questions rather than silently discarding the user's intent.",
+      "  4. Do NOT ask questions that the blueprint has already answered.",
+      "</blueprint_mode>",
+      "",
+      "<user_supplied_blueprint>",
+      blueprintContext.rawMarkdown,
+      "</user_supplied_blueprint>",
+    );
+  }
 
   // Include enrichment context from prior enrichers
   const enrichmentKeys = Object.keys(priorResults).filter((k) => k !== "_enrichmentMeta");
