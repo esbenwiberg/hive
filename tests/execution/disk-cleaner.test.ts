@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from "vitest";
-import { readdir, stat, rm } from "node:fs/promises";
+import { readdir, stat, rm, realpath } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -10,6 +10,7 @@ vi.mock("node:fs/promises", () => ({
   readdir: vi.fn(),
   stat: vi.fn(),
   rm: vi.fn(),
+  realpath: vi.fn((p) => Promise.resolve(p)), // By default, return the path itself (no symlinks)
 }));
 
 vi.mock("node:child_process", () => ({
@@ -124,52 +125,52 @@ describe("dirSizeBytes", () => {
 // ── validatePaths ─────────────────────────────────────────────────────────────
 
 describe("validatePaths", () => {
-  it("accepts a valid absolute path inside WORKTREE_BASE", () => {
-    expect(() =>
+  it("accepts a valid absolute path inside WORKTREE_BASE", async () => {
+    await expect(
       validatePaths([`${WORKTREE_BASE}/hive-HIVE-20260101-12345678`]),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
-  it("rejects a relative path", () => {
-    expect(() => validatePaths(["relative/path"])).toThrow(
+  it("rejects a relative path", async () => {
+    await expect(validatePaths(["relative/path"])).rejects.toThrow(
       /non-absolute path/,
     );
   });
 
-  it("rejects path-traversal with ../ that escapes WORKTREE_BASE", () => {
-    expect(() =>
+  it("rejects path-traversal with ../ that escapes WORKTREE_BASE", async () => {
+    await expect(
       validatePaths([`${WORKTREE_BASE}/../../../etc/passwd`]),
-    ).toThrow(/path-traversal/);
+    ).rejects.toThrow(/path-traversal/);
   });
 
-  it("rejects targeting WORKTREE_BASE itself", () => {
-    expect(() => validatePaths([WORKTREE_BASE])).toThrow(
+  it("rejects targeting WORKTREE_BASE itself", async () => {
+    await expect(validatePaths([WORKTREE_BASE])).rejects.toThrow(
       /worktree base directory/,
     );
   });
 
-  it("rejects a path outside WORKTREE_BASE entirely", () => {
-    expect(() => validatePaths(["/etc/shadow"])).toThrow(
+  it("rejects a path outside WORKTREE_BASE entirely", async () => {
+    await expect(validatePaths(["/etc/shadow"])).rejects.toThrow(
       /path-traversal/,
     );
   });
 
-  it("accepts multiple valid paths", () => {
-    expect(() =>
+  it("accepts multiple valid paths", async () => {
+    await expect(
       validatePaths([
         `${WORKTREE_BASE}/task-a`,
         `${WORKTREE_BASE}/task-b`,
       ]),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
-  it("rejects as soon as one path is invalid", () => {
-    expect(() =>
+  it("rejects as soon as one path is invalid", async () => {
+    await expect(
       validatePaths([
         `${WORKTREE_BASE}/task-a`,
         "/tmp/evil",
       ]),
-    ).toThrow(/path-traversal/);
+    ).rejects.toThrow(/path-traversal/);
   });
 });
 

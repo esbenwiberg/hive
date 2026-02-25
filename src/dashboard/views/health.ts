@@ -229,7 +229,7 @@ function diskCleanerSection(): string {
 }
 
 /** Renders the scan results table (or empty-state message) as an HTMX partial. */
-export function diskScanPartial(items: DiskItem[]): string {
+function diskScanPartial(items: DiskItem[]): string {
   if (items.length === 0) {
     return `<p class="text-sm text-emerald-400 py-2">No orphan items found — disk is clean ✓</p>`;
   }
@@ -284,7 +284,7 @@ export function diskScanPartial(items: DiskItem[]): string {
 }
 
 /** Renders the clean result summary as an HTMX partial. */
-export function diskCleanPartial(result: CleanResult): string {
+function diskCleanPartial(result: CleanResult): string {
   const parts: string[] = [];
 
   parts.push(
@@ -317,3 +317,5 @@ export function statsPartial(stats: SystemStats): string {
     statCard("Uptime", formatUptime(stats.uptimeSeconds), { color: "slate" }),
   ].join("");
 }
+
+export { diskScanPartial, diskCleanPartial, escapeHtml };

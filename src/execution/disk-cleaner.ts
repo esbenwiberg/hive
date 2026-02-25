@@ -4,7 +4,7 @@
  * filesystem against active task records in the DB.
  */
 
-import { readdir, stat, rm } from "node:fs/promises";
+import { readdir, stat, rm, realpath } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, normalize } from "node:path";
@@ -273,11 +273,12 @@ export async function scan(): Promise<DiskItem[]> {
  * Validates that every path to be deleted:
  *  1. Is an absolute path
  *  2. Does not contain path-traversal sequences after normalisation
- *  3. Is strictly inside WORKTREE_BASE
+ *  3. Is strictly inside WORKTREE_BASE (after symlink resolution)
  *
- * Throws on the first invalid path.
+ * Resolves symlinks (using realpath()) before checking against WORKTREE_BASE,
+ * preventing symlink-based escape attempts. Throws on the first invalid path.
  */
-export function validatePaths(paths: string[]): void {
+export async function validatePaths(paths: string[]): Promise<void> {
   const base = resolve(WORKTREE_BASE);
 
   for (const p of paths) {
@@ -292,9 +293,28 @@ export function validatePaths(paths: string[]): void {
       throw new Error(`Rejected attempt to delete the worktree base directory: ${p}`);
     }
 
+    // Check the normalised path first
     if (!normalised.startsWith(base + "/")) {
       throw new Error(
         `Rejected path-traversal attempt: ${p} resolves to ${normalised} which is outside ${base}`,
+      );
+    }
+
+    // Resolve symlinks to prevent symlink-based escape attempts (e.g., a symlink
+    // pointing outside the base directory). If the path doesn't exist, we can't
+    // resolve symlinks but we've already validated the normalised path above.
+    let realPath: string;
+    try {
+      realPath = await realpath(normalised);
+    } catch {
+      // Path doesn't exist yet (or is unreadable) – validated normalised path is sufficient
+      continue;
+    }
+
+    // Check the real (symlink-resolved) path
+    if (!realPath.startsWith(base + "/")) {
+      throw new Error(
+        `Rejected path-traversal attempt: ${p} resolves to real path ${realPath} which is outside ${base}`,
       );
     }
   }
@@ -311,7 +331,7 @@ export function validatePaths(paths: string[]): void {
  */
 export async function clean(paths: string[]): Promise<CleanResult> {
   // Fail fast if any path is invalid – do not perform partial deletes
-  validatePaths(paths);
+  await validatePaths(paths);
 
   let freedBytes = 0;
   let removedCount = 0;

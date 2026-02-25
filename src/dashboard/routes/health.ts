@@ -6,9 +6,9 @@ import { requireAuth, requireRole } from "../../auth/middleware.js";
 import { resolveGitCredentials } from "../../execution/worktree.js";
 import logger from "../../logger.js";
 import type { SystemStats } from "../views/health.js";
-import { healthPage, statsPartial, upgradeSuccess, upgradeError } from "../views/health.js";
+import { healthPage, statsPartial, upgradeSuccess, upgradeError, diskScanPartial, diskCleanPartial, escapeHtml } from "../views/health.js";
 import { scan, clean, validatePaths } from "../../execution/disk-cleaner.js";
-import type { DiskItem, CleanResult } from "../../execution/disk-cleaner.js";
+import type { CleanResult } from "../../execution/disk-cleaner.js";
 
 const router = Router();
 
@@ -80,92 +80,6 @@ router.get("/health/stats", requireAuth, requireRole("admin"), async (req: Reque
   }
 });
 
-// ── Disk cleaner helpers ─────────────────────────────────────────────────────
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-function diskScanPartial(items: DiskItem[]): string {
-  if (items.length === 0) {
-    return `<div id="disk-scan-results" class="mt-4 p-4 rounded bg-green-50 border border-green-200 text-green-800">
-  <p class="font-semibold">✓ Disk is clean</p>
-  <p class="text-sm mt-1">No orphan worktrees or stale artefacts were found.</p>
-</div>`;
-  }
-
-  const rows = items
-    .map(
-      (item) => `
-    <tr class="border-t border-gray-200">
-      <td class="py-2 px-3 font-mono text-xs break-all">${escapeHtml(item.path)}</td>
-      <td class="py-2 px-3 text-sm">${escapeHtml(item.type)}</td>
-      <td class="py-2 px-3 text-sm whitespace-nowrap">${formatBytes(item.sizeBytes)}</td>
-      <td class="py-2 px-3 text-sm text-gray-600">${escapeHtml(item.reason)}</td>
-      <td class="py-2 px-3 text-center">
-        <input type="checkbox" name="paths" value="${escapeHtml(item.path)}" checked class="disk-clean-checkbox" />
-      </td>
-    </tr>`,
-    )
-    .join("");
-
-  return `<div id="disk-scan-results" class="mt-4">
-  <p class="text-sm text-gray-600 mb-2">Found <strong>${items.length}</strong> item(s) using approximately <strong>${formatBytes(items.reduce((s, i) => s + i.sizeBytes, 0))}</strong> of disk space.</p>
-  <form hx-post="/health/disk-clean" hx-target="#disk-clean-results" hx-swap="outerHTML" hx-encoding="application/x-www-form-urlencoded">
-    <div class="overflow-x-auto">
-      <table class="w-full text-left border border-gray-200 rounded text-sm">
-        <thead class="bg-gray-100">
-          <tr>
-            <th class="py-2 px-3">Path</th>
-            <th class="py-2 px-3">Type</th>
-            <th class="py-2 px-3">Size</th>
-            <th class="py-2 px-3">Reason</th>
-            <th class="py-2 px-3 text-center">Delete?</th>
-          </tr>
-        </thead>
-        <tbody>${rows}
-        </tbody>
-      </table>
-    </div>
-    <div class="mt-3">
-      <button type="submit" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm font-medium">
-        Delete Selected
-      </button>
-    </div>
-  </form>
-  <div id="disk-clean-results"></div>
-</div>`;
-}
-
-function diskCleanPartial(result: CleanResult): string {
-  const errorHtml =
-    result.errors.length > 0
-      ? `<ul class="mt-2 text-sm text-red-700 list-disc list-inside">${result.errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>`
-      : "";
-
-  return `<div id="disk-clean-results" class="mt-4 p-4 rounded border ${result.errors.length > 0 ? "bg-yellow-50 border-yellow-200" : "bg-green-50 border-green-200"}">
-  <p class="font-semibold">Cleanup complete</p>
-  <ul class="mt-1 text-sm list-disc list-inside">
-    <li>Removed: <strong>${result.removedCount}</strong> item(s)</li>
-    <li>Freed: <strong>${formatBytes(result.freedBytes)}</strong></li>
-    <li>Errors: <strong>${result.errors.length}</strong></li>
-  </ul>
-  ${errorHtml}
-</div>`;
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 // ── POST /health/disk-scan ─ Scan for orphan artefacts ───────────────────────
 
 router.post("/health/disk-scan", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
@@ -193,7 +107,7 @@ router.post("/health/disk-clean", requireAuth, requireRole("admin"), async (req:
 
     // Validate all paths first – return 400 without deleting anything if any path is invalid
     try {
-      validatePaths(paths);
+      await validatePaths(paths);
     } catch (validationErr) {
       const msg = validationErr instanceof Error ? validationErr.message : String(validationErr);
       logger.warn({ paths, msg }, "health: disk-clean rejected due to path validation failure");
