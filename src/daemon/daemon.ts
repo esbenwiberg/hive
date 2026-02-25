@@ -45,7 +45,6 @@ const DEFAULT_PRODUCER_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
 const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1_000; // 24 hours
 const RETROSPECTIVE_MIN_GAP_MS = 7 * 24 * 60 * 60 * 1_000; // 7 days
 const DECAY_MIN_GAP_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
-const PRISM_SEMANTIC_INTERVAL_MS = 24 * 60 * 60 * 1_000; // 24 hours
 const PREVIEW_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const PR_CLOSE_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const PR_FEEDBACK_POLL_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
@@ -73,7 +72,6 @@ export class Daemon {
   private readonly producerSchedulers: Scheduler[] = [];
   private readonly retrospectiveScheduler: Scheduler;
   private readonly decayScheduler: Scheduler;
-  private readonly prismSemanticScheduler: Scheduler;
   private readonly previewCleanupScheduler: Scheduler;
   private readonly prCloseCleanupScheduler: Scheduler;
   private readonly prFeedbackPollScheduler: Scheduler;
@@ -88,7 +86,6 @@ export class Daemon {
     this.scheduler = new Scheduler(this.pollIntervalMs, () => this._tick());
     this.retrospectiveScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._retrospectiveTick());
     this.decayScheduler = new Scheduler(MAINTENANCE_INTERVAL_MS, () => this._decayTick());
-    this.prismSemanticScheduler = new Scheduler(PRISM_SEMANTIC_INTERVAL_MS, () => this._prismSemanticTick(), { label: "prism-semantic" });
     this.previewCleanupScheduler = new Scheduler(PREVIEW_CLEANUP_INTERVAL_MS, () => cleanupExpiredPreviews());
     this.prCloseCleanupScheduler = new Scheduler(PR_CLOSE_CLEANUP_INTERVAL_MS, () => cleanupClosedPRPreviews(), { label: "pr-close-cleanup" });
     this.prFeedbackPollScheduler = new Scheduler(PR_FEEDBACK_POLL_INTERVAL_MS, () => pollPRFeedback(), { label: "pr-feedback-poll" });
@@ -173,9 +170,6 @@ export class Daemon {
     // Start decay scheduler (24h interval)
     this.decayScheduler.start();
 
-    // Start Prism semantic reindex scheduler (24h interval)
-    this.prismSemanticScheduler.start();
-
     // Start preview cleanup scheduler (60s interval)
     this.previewCleanupScheduler.start();
 
@@ -206,7 +200,6 @@ export class Daemon {
 
     await this.retrospectiveScheduler.stop();
     await this.decayScheduler.stop();
-    await this.prismSemanticScheduler.stop();
     await this.previewCleanupScheduler.stop();
     await this.prCloseCleanupScheduler.stop();
     await this.prFeedbackPollScheduler.stop();
@@ -585,60 +578,6 @@ export class Daemon {
     }
   }
 
-  /**
-   * Nightly Prism semantic reindex: regenerates LLM summaries and embeddings
-   * for all repos that have the prism enricher enabled. Only stale summaries
-   * (changed input hash) are regenerated, so cost is minimal for stable repos.
-   */
-  private async _prismSemanticTick(): Promise<void> {
-    const prismDbUrl = process.env.PRISM_DATABASE_URL;
-    if (!prismDbUrl) return;
-
-    let prism: typeof import("@prism/core");
-    try {
-      prism = await import("@prism/core");
-    } catch {
-      return; // @prism/core not installed
-    }
-
-    let allRepos: Awaited<ReturnType<typeof listAll>>;
-    try {
-      allRepos = await listAll();
-    } catch (err) {
-      logger.error({ err }, "Daemon: prism-semantic failed to list repos");
-      return;
-    }
-
-    prism.setActiveConnectionString(prismDbUrl);
-
-    for (const repo of allRepos) {
-      try {
-        const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
-        const enrichers = (repoSettings.enrichers ?? {}) as Record<string, { enabled?: boolean }>;
-        if (!enrichers.prism?.enabled) continue;
-
-        const project = await prism.getProjectBySlug(repo.fullName);
-        if (!project) {
-          logger.debug({ repo: repo.fullName }, "Daemon: prism-semantic no project found, skipping");
-          continue;
-        }
-
-        const start = Date.now();
-        await prism.runPipeline(project, { layers: ["semantic"], fullReindex: false });
-        const durationMs = Date.now() - start;
-
-        logger.info(
-          { repo: repo.fullName, projectId: project.id, durationMs },
-          "Daemon: prism-semantic reindex complete",
-        );
-      } catch (err) {
-        logger.warn(
-          { repo: repo.fullName, err },
-          "Daemon: prism-semantic reindex failed for repo (non-blocking)",
-        );
-      }
-    }
-  }
 
   private async _dispatch(
     task: { id: string; status: string; createdBy: number },

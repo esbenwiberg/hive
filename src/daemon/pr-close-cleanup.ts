@@ -6,32 +6,39 @@ import { cleanupWorktree } from "../execution/worktree.js";
 import { getById as getTask } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
 import { addPreviewLog } from "../db/queries/preview-logs.js";
+import { getAutonomousConfig } from "../domain/autonomous-config.js";
 
 /**
- * Fire-and-forget structural reindex of the main branch after a PR merges.
- * Uses the slug (owner/repo) to find the Prism project — same lookup as the
- * enricher. Non-blocking; failures are logged but never propagate.
+ * Fire-and-forget structural reindex request after a PR merges.
+ * Posts to the Prism API; Prism queues and deduplicates the request.
+ * Non-blocking; failures are logged but never propagate.
  */
 function triggerPostMergePrismReindex(repoFullName: string, taskId: string): void {
-  const prismDbUrl = process.env.PRISM_DATABASE_URL;
-  if (!prismDbUrl) return;
+  const prismConfig = getAutonomousConfig().prism;
+  const apiUrl = process.env.PRISM_API_URL || prismConfig.apiUrl;
+  if (!apiUrl) return;
+
+  const apiKey = process.env.PRISM_API_KEY || prismConfig.apiKey;
+  const slug = encodeURIComponent(repoFullName);
 
   (async () => {
     try {
-      const prism = await import("@prism/core");
-      prism.setActiveConnectionString(prismDbUrl);
+      const response = await fetch(`${apiUrl}/api/projects/${slug}/reindex`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({ layers: ["structural"] }),
+      });
 
-      const project = await prism.getProjectBySlug(repoFullName);
-      if (!project) {
-        logger.debug({ repoFullName }, "PR-close cleanup: no Prism project found for repo, skipping reindex");
-        return;
+      if (!response.ok && response.status !== 404) {
+        logger.warn({ repoFullName, taskId, status: response.status }, "PR-close cleanup: Prism reindex request failed");
+      } else {
+        logger.info({ repoFullName, taskId }, "PR-close cleanup: Prism structural reindex queued");
       }
-
-      // Incremental structural only — semantic layer is handled by the 24h daemon tick
-      await prism.runPipeline(project, { layers: ["structural"], fullReindex: false });
-      logger.info({ repoFullName, taskId, projectId: project.id }, "PR-close cleanup: Prism structural reindex complete");
     } catch (err) {
-      logger.warn({ repoFullName, taskId, err }, "PR-close cleanup: Prism structural reindex failed (non-blocking)");
+      logger.warn({ repoFullName, taskId, err }, "PR-close cleanup: Prism reindex request failed (non-blocking)");
     }
   })();
 }

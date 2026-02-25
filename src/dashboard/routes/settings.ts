@@ -226,15 +226,13 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
     }
 
     // Prism
-    const prismDatabaseUrl = body.prismDatabaseUrl?.trim();
-    const prismEmbeddingProvider = body.prismEmbeddingProvider?.trim();
-    const prismEmbeddingModel = body.prismEmbeddingModel?.trim();
+    const prismApiUrl = body.prismApiUrl?.trim();
+    const prismApiKey = body.prismApiKey?.trim();
 
-    if (prismDatabaseUrl || prismEmbeddingProvider || prismEmbeddingModel) {
+    if (prismApiUrl || prismApiKey) {
       overrides.prism = {};
-      if (prismDatabaseUrl) overrides.prism.databaseUrl = prismDatabaseUrl;
-      if (prismEmbeddingProvider) overrides.prism.embeddingProvider = prismEmbeddingProvider;
-      if (prismEmbeddingModel) overrides.prism.embeddingModel = prismEmbeddingModel;
+      if (prismApiUrl) overrides.prism.apiUrl = prismApiUrl;
+      if (prismApiKey) overrides.prism.apiKey = prismApiKey;
     }
 
     // Preview

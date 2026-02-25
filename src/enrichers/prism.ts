@@ -1,9 +1,10 @@
 /**
  * Prism enricher — semantic codebase search, module summaries, and
- * architectural findings powered by the Prism index.
+ * architectural findings powered by the Prism API.
  *
- * Lazy-imports `@prism/core` so the enricher gracefully skips if the
- * package is not installed or `PRISM_DATABASE_URL` is not set.
+ * Requires PRISM_API_URL (or prism.apiUrl in config) to be set.
+ * All embedding and indexing is handled by Prism; Hive only sends
+ * the query text and receives structured results.
  */
 
 import logger from "../logger.js";
@@ -45,7 +46,6 @@ interface PrismEnrichmentData {
     searchResults: number;
     summariesReturned: number;
     findingsReturned: number;
-    semanticSearchFailed?: boolean;
   };
 }
 
@@ -54,7 +54,6 @@ interface PrismEnrichmentData {
 const MAX_SEARCH_RESULTS = 20;
 const MAX_MODULE_SUMMARIES = 30;
 const MAX_FINDINGS = 20;
-const ALLOWED_FINDING_SEVERITIES = new Set(["critical", "high", "medium"]);
 
 // ── Enricher ────────────────────────────────────────────────────────────────
 
@@ -63,164 +62,78 @@ export const prismEnricher: Enricher = {
 
   async run(
     task: TaskRow,
-    repoDir: string,
+    _repoDir: string,
     _priorResults: Record<string, unknown>,
     _config: EnricherConfig,
   ): Promise<EnrichmentResult> {
     const startTime = Date.now();
 
-    // ── Guard: lazy-import @prism/core ──────────────────────────────────
-    let prism: typeof import("@prism/core");
-    try {
-      prism = await import("@prism/core");
-    } catch {
-      logger.info("Prism enricher: @prism/core not available, skipping");
-      return { data: {}, durationMs: Date.now() - startTime };
-    }
-
     const prismConfig = getAutonomousConfig().prism;
-    const prismDbUrl = process.env.PRISM_DATABASE_URL || prismConfig.databaseUrl;
-    if (!prismDbUrl) {
-      logger.info("Prism enricher: PRISM_DATABASE_URL not set, skipping");
+    const apiUrl = process.env.PRISM_API_URL || prismConfig.apiUrl;
+    const apiKey = process.env.PRISM_API_KEY || prismConfig.apiKey;
+
+    if (!apiUrl) {
+      logger.info("Prism enricher: PRISM_API_URL not set, skipping");
       return { data: {}, durationMs: Date.now() - startTime };
     }
 
-    // Point Prism queries at its own database
-    prism.setActiveConnectionString(prismDbUrl);
-
-    // ── Look up project ────────────────────────────────────────────────
-    // Prefer slug-based lookup (owner/repo from Hive's repos.fullName),
-    // falling back to filesystem path for backward compatibility.
-    let project: import("@prism/core").Project | null | undefined = null;
-
-    if (task.repoId) {
-      try {
-        const repo = await repoQueries.getById(task.repoId);
-        if (repo?.fullName) {
-          project = await prism.getProjectBySlug(repo.fullName);
-        }
-      } catch (err) {
-        logger.warn({ taskId: task.id, err }, "Prism enricher: slug lookup failed, trying path fallback");
-      }
-    }
-
-    if (!project) {
-      project = await prism.getProjectByPath(repoDir);
-    }
-
-    if (!project) {
-      logger.info({ repoDir }, "Prism enricher: no project found for repo path, skipping");
+    if (!task.repoId) {
+      logger.info({ taskId: task.id }, "Prism enricher: task has no repoId, skipping");
       return { data: {}, durationMs: Date.now() - startTime };
     }
 
-    if (project.indexStatus !== "completed" && project.indexStatus !== "partial") {
-      logger.info(
-        { repoDir, indexStatus: project.indexStatus },
-        "Prism enricher: project not indexed, skipping",
-      );
+    const repo = await repoQueries.getById(task.repoId);
+    if (!repo?.fullName) {
+      logger.info({ taskId: task.id }, "Prism enricher: repo not found, skipping");
       return { data: {}, durationMs: Date.now() - startTime };
     }
 
-    // ── Semantic search ────────────────────────────────────────────────
-    const relevantCode: PrismRelevantCode[] = [];
-    let semanticSearchFailed = false;
+    const slug = encodeURIComponent(repo.fullName);
+    const query = `${task.title} ${task.body ?? ""}`.trim();
+
+    let result: { relevantCode: PrismRelevantCode[]; moduleSummaries: PrismModuleSummary[]; findings: PrismFinding[] };
 
     try {
-      const queryText = `${task.title} ${task.body ?? ""}`.trim();
-
-      const embeddingProvider = process.env.PRISM_EMBEDDING_PROVIDER || prismConfig.embeddingProvider;
-      const embeddingModel = process.env.PRISM_EMBEDDING_MODEL || prismConfig.embeddingModel;
-
-      const embedder = prism.createEmbedder({
-        enabled: true,
-        model: embeddingModel,
-        embeddingProvider,
-        embeddingModel,
-        embeddingDimensions: 1024,
-        budgetUsd: 0.01,
+      const response = await fetch(`${apiUrl}/api/projects/${slug}/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          query,
+          maxResults: MAX_SEARCH_RESULTS,
+          maxSummaries: MAX_MODULE_SUMMARIES,
+          maxFindings: MAX_FINDINGS,
+        }),
       });
 
-      const [queryVector] = await embedder.embed([queryText]);
-      const results = await prism.simpleSimilaritySearch(
-        project.id,
-        queryVector,
-        MAX_SEARCH_RESULTS,
-      );
-
-      for (const r of results) {
-        relevantCode.push({
-          targetId: r.targetId,
-          filePath: r.filePath,
-          symbolName: r.symbolName,
-          symbolKind: r.symbolKind,
-          level: r.level,
-          summary: r.summaryContent,
-          score: r.score,
-        });
+      if (response.status === 404) {
+        logger.info({ taskId: task.id, slug: repo.fullName }, "Prism enricher: project not found, skipping");
+        return { data: {}, durationMs: Date.now() - startTime };
       }
+
+      if (!response.ok) {
+        throw new Error(`Prism API returned ${response.status}`);
+      }
+
+      result = await response.json() as typeof result;
     } catch (err) {
-      semanticSearchFailed = true;
-      logger.warn(
-        { taskId: task.id, err },
-        "Prism enricher: semantic search failed (continuing with summaries/findings)",
-      );
+      logger.warn({ taskId: task.id, err }, "Prism enricher: API call failed, skipping");
+      return { data: {}, durationMs: Date.now() - startTime };
     }
 
-    // ── Module summaries ───────────────────────────────────────────────
-    const moduleSummaries: PrismModuleSummary[] = [];
-
-    try {
-      const summaries = await prism.getSummariesByLevel(project.id, "module");
-      for (const s of summaries.slice(0, MAX_MODULE_SUMMARIES)) {
-        moduleSummaries.push({
-          targetId: s.targetId,
-          content: s.content,
-        });
-      }
-    } catch (err) {
-      logger.warn(
-        { taskId: task.id, err },
-        "Prism enricher: failed to fetch module summaries",
-      );
-    }
-
-    // ── Findings ───────────────────────────────────────────────────────
-    const findings: PrismFinding[] = [];
-
-    try {
-      const allFindings = await prism.getFindingsByProjectId(project.id);
-      for (const f of allFindings) {
-        if (!ALLOWED_FINDING_SEVERITIES.has(f.severity)) continue;
-        if (findings.length >= MAX_FINDINGS) break;
-
-        findings.push({
-          category: f.category,
-          severity: f.severity,
-          title: f.title,
-          description: f.description,
-          suggestion: f.suggestion,
-        });
-      }
-    } catch (err) {
-      logger.warn(
-        { taskId: task.id, err },
-        "Prism enricher: failed to fetch findings",
-      );
-    }
-
-    // ── Return ─────────────────────────────────────────────────────────
     const durationMs = Date.now() - startTime;
 
     const data: Record<string, unknown> = {
       prism: {
-        relevantCode,
-        moduleSummaries,
-        findings,
+        relevantCode: result.relevantCode,
+        moduleSummaries: result.moduleSummaries,
+        findings: result.findings,
         stats: {
-          searchResults: relevantCode.length,
-          summariesReturned: moduleSummaries.length,
-          findingsReturned: findings.length,
-          ...(semanticSearchFailed ? { semanticSearchFailed: true } : {}),
+          searchResults: result.relevantCode.length,
+          summariesReturned: result.moduleSummaries.length,
+          findingsReturned: result.findings.length,
         },
       } satisfies PrismEnrichmentData,
     };
@@ -228,9 +141,9 @@ export const prismEnricher: Enricher = {
     logger.info(
       {
         taskId: task.id,
-        searchResults: relevantCode.length,
-        summaries: moduleSummaries.length,
-        findings: findings.length,
+        searchResults: result.relevantCode.length,
+        summaries: result.moduleSummaries.length,
+        findings: result.findings.length,
         durationMs,
       },
       "Prism enricher completed",

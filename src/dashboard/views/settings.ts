@@ -497,17 +497,13 @@ export function globalSettingsPartial(
 
   // Prism card
   const prismFields = [
-    input("prismDatabaseUrl", "Database URL", {
-      value: config.prism.databaseUrl,
-      placeholder: "postgres://...",
+    input("prismApiUrl", "API URL", {
+      value: config.prism.apiUrl,
+      placeholder: "https://prism.example.com",
     }),
-    input("prismEmbeddingProvider", "Embedding Provider", {
-      value: config.prism.embeddingProvider,
-      placeholder: "azure-openai",
-    }),
-    input("prismEmbeddingModel", "Embedding Model", {
-      value: config.prism.embeddingModel,
-      placeholder: "text-embedding-3-large",
+    input("prismApiKey", "API Key", {
+      value: config.prism.apiKey,
+      placeholder: "sk-...",
     }),
   ].join("");
 

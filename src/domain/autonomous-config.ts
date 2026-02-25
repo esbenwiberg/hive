@@ -64,9 +64,8 @@ export interface PreviewSettings {
 }
 
 export interface PrismConfig {
-  databaseUrl: string;
-  embeddingProvider: string;
-  embeddingModel: string;
+  apiUrl: string;
+  apiKey: string;
 }
 
 export interface ConcurrencyConfig {
@@ -118,7 +117,7 @@ const DEFAULTS: AutonomousConfig = {
     validation_max_turns: 20,
   },
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
-  prism: { databaseUrl: "", embeddingProvider: "azure-openai", embeddingModel: "text-embedding-3-large" },
+  prism: { apiUrl: "", apiKey: "" },
 };
 
 // ── Model helpers ────────────────────────────────────────────────────────────
