@@ -265,7 +265,7 @@ describe("Pipeline integration: pending to done", () => {
     mockResolveGitCredentials.mockResolvedValue({ provider: "github", token: "test-token" });
     mockGitProvider.commitAll.mockResolvedValue(undefined);
     mockGitProvider.push.mockResolvedValue(undefined);
-    mockGitProvider.createPR.mockResolvedValue("https://github.com/acme/widget/pull/42");
+    mockGitProvider.createPR.mockResolvedValue({ url: "https://github.com/acme/widget/pull/42", reused: false });
   });
 
   it("runs full pipeline from pending to done for a small flow task (auto-approve)", async () => {

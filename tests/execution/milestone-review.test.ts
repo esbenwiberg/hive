@@ -170,7 +170,7 @@ describe("quickVerify", () => {
     expect(npmCalls).toHaveLength(4);
 
     // Verify correct args for each call
-    expect(npmCalls[0][1]).toEqual(["install", "--prefer-offline"]);
+    expect(npmCalls[0][1]).toEqual(["install", "--prefer-offline", "--include=dev"]);
     expect(npmCalls[1][1]).toEqual(["run", "lint", "--if-present"]);
     expect(npmCalls[2][1]).toEqual(["run", "build", "--if-present"]);
     expect(npmCalls[3][1]).toEqual(["run", "test", "--if-present"]);

@@ -284,7 +284,7 @@ describe("GitHubProvider", () => {
         githubCreds,
       );
 
-      expect(url).toBe("https://github.com/acme/widget/pull/42");
+      expect(url).toEqual({ url: "https://github.com/acme/widget/pull/42", reused: false });
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const [fetchUrl, fetchOpts] = mockFetch.mock.calls[0];
@@ -465,9 +465,7 @@ describe("AzureDevOpsProvider", () => {
         azureCreds,
       );
 
-      expect(url).toBe(
-        "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/77",
-      );
+      expect(url).toEqual({ url: "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/77", reused: false });
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const [fetchUrl, fetchOpts] = mockFetch.mock.calls[0];

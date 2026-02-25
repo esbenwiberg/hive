@@ -307,7 +307,7 @@ describe("executeTask", () => {
     mockResolveGitCredentials.mockResolvedValue({ provider: "github", token: "test-token" });
     mockGitProvider.commitAll.mockResolvedValue(undefined);
     mockGitProvider.push.mockResolvedValue(undefined);
-    mockGitProvider.createPR.mockResolvedValue("https://github.com/acme/widget/pull/1");
+    mockGitProvider.createPR.mockResolvedValue({ url: "https://github.com/acme/widget/pull/1", reused: false });
     mockRefineTask.mockResolvedValue("Refined instructions");
     mockParseHiveYaml.mockReturnValue(null);
     mockGetPreviewInfo.mockReturnValue(undefined);
