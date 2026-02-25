@@ -163,16 +163,17 @@ describe("quickVerify", () => {
     expect(result.passed).toBe(true);
     expect(result.failures).toHaveLength(0);
 
-    // Verify all three npm commands were invoked
+    // Verify all four npm commands were invoked (install + lint + build + test)
     const npmCalls = mockExecFile.mock.calls.filter(
       (call: unknown[]) => call[0] === "npm",
     );
-    expect(npmCalls).toHaveLength(3);
+    expect(npmCalls).toHaveLength(4);
 
     // Verify correct args for each call
-    expect(npmCalls[0][1]).toEqual(["run", "lint", "--if-present"]);
-    expect(npmCalls[1][1]).toEqual(["run", "build", "--if-present"]);
-    expect(npmCalls[2][1]).toEqual(["run", "test", "--if-present"]);
+    expect(npmCalls[0][1]).toEqual(["install", "--prefer-offline"]);
+    expect(npmCalls[1][1]).toEqual(["run", "lint", "--if-present"]);
+    expect(npmCalls[2][1]).toEqual(["run", "build", "--if-present"]);
+    expect(npmCalls[3][1]).toEqual(["run", "test", "--if-present"]);
 
     // Verify cwd was passed
     for (const call of npmCalls) {
