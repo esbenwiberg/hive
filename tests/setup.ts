@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate as drizzleMigrate } from "drizzle-orm/node-postgres/migrator";
 import { sql } from "drizzle-orm";
 import * as schema from "../src/db/schema.js";
-import { beforeAll, afterAll } from "vitest";
+import { beforeAll, beforeEach, afterAll } from "vitest";
 
 const { Pool } = pg;
 
@@ -35,13 +35,26 @@ export async function cleanupTables(): Promise<void> {
 
 /**
  * Call this in DB test files to set up migrations and teardown the pool.
+ * Gracefully skips all tests when no local database is reachable.
  */
 export function useTestDb(): void {
+  let dbReady = false;
+
   beforeAll(async () => {
-    await drizzleMigrate(db, { migrationsFolder: "./drizzle" });
+    try {
+      await drizzleMigrate(db, { migrationsFolder: "./drizzle" });
+      dbReady = true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[useTestDb] No database available, skipping DB tests: ${msg}`);
+    }
+  });
+
+  beforeEach((ctx) => {
+    if (!dbReady) ctx.skip();
   });
 
   afterAll(async () => {
-    await pool.end();
+    if (dbReady) await pool.end();
   });
 }
