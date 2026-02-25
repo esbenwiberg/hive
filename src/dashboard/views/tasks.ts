@@ -1052,6 +1052,120 @@ function scorerSection(task: TaskWithCost): string {
   </div>`;
 }
 
+// ── Advisor report display ──────────────────────────────────────────────────
+
+const ADVISOR_ESCALATION_THRESHOLD = 50;
+
+interface AdvisorReportData {
+  recommendation?: string;
+  score?: number;
+  confidence?: number;
+  reasoning?: string;
+  flags?: string[];
+  escalate?: boolean;
+}
+
+function advisorRecommendationBadge(rec: string): string {
+  const colors: Record<string, "emerald" | "red" | "amber"> = {
+    approve: "emerald",
+    redesign: "amber",
+    reject: "red",
+  };
+  return badge(rec, colors[rec] ?? "slate");
+}
+
+function scoreBar(value: number, color: "emerald" | "amber" | "red"): string {
+  const colorClasses: Record<string, string> = {
+    emerald: "bg-emerald-400",
+    amber: "bg-amber-400",
+    red: "bg-red-400",
+  };
+  const pct = Math.min(100, Math.max(0, value));
+  return `<div class="flex items-center gap-2">
+    <div class="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+      <div class="h-full ${colorClasses[color]} rounded-full" style="width:${pct}%"></div>
+    </div>
+    <span class="text-sm text-slate-200 tabular-nums w-8 text-right">${Math.round(pct)}</span>
+  </div>`;
+}
+
+function advisorScoreColor(score: number): "emerald" | "amber" | "red" {
+  if (score >= 70) return "emerald";
+  if (score >= 40) return "amber";
+  return "red";
+}
+
+function advisorConfidenceColor(confidence: number): "emerald" | "amber" | "red" {
+  if (confidence >= 70) return "emerald";
+  if (confidence >= ADVISOR_ESCALATION_THRESHOLD) return "amber";
+  return "red";
+}
+
+function advisorSection(task: TaskRow): string {
+  const report = task.advisorReport as AdvisorReportData | null;
+  if (!report || typeof report !== "object") return "";
+
+  const rec = typeof report.recommendation === "string" ? report.recommendation : null;
+  const score = typeof report.score === "number" ? report.score : null;
+  const confidence = typeof report.confidence === "number" ? report.confidence : null;
+  const reasoning = typeof report.reasoning === "string" ? report.reasoning : null;
+  const flags = Array.isArray(report.flags) ? report.flags as string[] : [];
+  const isEscalated = report.escalate === true
+    || (confidence !== null && confidence < ADVISOR_ESCALATION_THRESHOLD);
+
+  const recHtml = rec
+    ? `<div class="flex items-center gap-2 mb-3">
+        ${advisorRecommendationBadge(rec)}
+        ${isEscalated ? `<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-400/30">
+          <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+          Escalated — awaiting human review
+        </span>` : ""}
+      </div>`
+    : "";
+
+  const scoresHtml = (score !== null || confidence !== null)
+    ? `<div class="space-y-2 mb-3">
+        ${score !== null ? `<div class="flex items-center justify-between gap-4">
+          <span class="text-xs text-slate-400 w-20 shrink-0">Score</span>
+          ${scoreBar(score, advisorScoreColor(score))}
+        </div>` : ""}
+        ${confidence !== null ? `<div class="flex items-center justify-between gap-4">
+          <span class="text-xs text-slate-400 w-20 shrink-0">Confidence</span>
+          ${scoreBar(confidence, advisorConfidenceColor(confidence))}
+        </div>` : ""}
+      </div>`
+    : "";
+
+  const flagsHtml = flags.length > 0
+    ? `<div class="mb-3">
+        <p class="text-xs font-medium text-slate-400 mb-1.5">Flags</p>
+        <ul class="space-y-1">
+          ${flags.map((f) => `<li class="flex items-start gap-2 text-xs text-slate-300">
+            <span class="mt-0.5 shrink-0 text-amber-400">&#9655;</span>
+            <span>${escapeHtml(String(f))}</span>
+          </li>`).join("")}
+        </ul>
+      </div>`
+    : "";
+
+  const reasoningHtml = reasoning
+    ? `<div>
+        <p class="text-xs font-medium text-slate-400 mb-1">Reasoning</p>
+        <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(reasoning)}</p>
+      </div>`
+    : "";
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Advisor Report</h4>
+    <div class="rounded-lg border ${isEscalated ? "border-amber-500/40 bg-amber-950/10" : "border-slate-700 bg-slate-900"} px-4 py-3">
+      ${recHtml}
+      ${scoresHtml}
+      ${flagsHtml}
+      ${reasoningHtml}
+    </div>
+  </div>`;
+}
+
 // ── Gate decision display ───────────────────────────────────────────────────
 
 function gateDecisionSection(task: TaskRow): string {
@@ -1823,6 +1937,9 @@ export function taskDetailPanel(task: TaskWithCost, repoNames: Map<number, strin
 
     <!-- Enrichment -->
     ${enrichmentSection(task)}
+
+    <!-- Advisor Report -->
+    ${advisorSection(task)}
 
     <!-- Gate Decision -->
     ${gateDecisionSection(task)}
