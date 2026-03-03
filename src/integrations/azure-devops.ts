@@ -66,6 +66,42 @@ export async function createPullRequest(
 }
 
 /**
+ * Lists pull requests matching a source branch.
+ * Used to find an existing PR when creation returns 409.
+ */
+export async function listPullRequests(
+  org: string,
+  project: string,
+  repo: string,
+  sourceBranch: string,
+  pat: string,
+): Promise<Array<{ id: number; url: string; status: string }>> {
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests?searchCriteria.sourceRefName=refs/heads/${encodeURIComponent(sourceBranch)}&searchCriteria.status=active&api-version=${API_VERSION}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Azure DevOps list PRs failed (${response.status}): ${text}`);
+  }
+
+  const data = await response.json() as {
+    value: Array<{ pullRequestId: number; status: string }>;
+  };
+
+  return data.value.map((pr) => ({
+    id: pr.pullRequestId,
+    url: `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_git/${encodeURIComponent(repo)}/pullrequest/${pr.pullRequestId}`,
+    status: pr.status,
+  }));
+}
+
+/**
  * Creates a comment thread on a pull request in Azure DevOps.
  */
 export async function createPRComment(

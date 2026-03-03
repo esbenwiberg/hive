@@ -752,7 +752,8 @@ export function repoSettingsPartial(repos: RepoRow[]): string {
       ${select("provider", "Provider", [
         { value: "github", label: "GitHub" },
         { value: "azure_devops", label: "Azure DevOps" },
-      ], "github")}
+      ], "github", `onchange="document.getElementById('fullName').placeholder=this.value==='azure_devops'?'org/project/repo':'owner/repo'"`)
+      }
       ${input("fullName", "Full Name", {
         required: true,
         placeholder: "owner/repo",

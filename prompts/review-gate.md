@@ -19,7 +19,7 @@ Respond with a JSON object:
   "findings": [
     {
       "severity": "critical | major | minor | info",
-      "file": "path/to/file.ts",
+      "file": "src/Services/OrderService.cs",
       "line": 42,
       "message": "Description of the issue",
       "category": "correctness | style | performance | maintainability | documentation"
@@ -28,9 +28,9 @@ Respond with a JSON object:
   "securityFindings": [
     {
       "severity": "critical | high | medium | low",
-      "type": "xss | injection | auth | secrets | other",
+      "type": "xss | injection | auth | secrets | deserialization | other",
       "description": "Description of the security issue",
-      "file": "path/to/file.ts",
+      "file": "src/Controllers/AuthController.cs",
       "advisory": false
     }
   ],
@@ -64,7 +64,8 @@ Respond with a JSON object:
    outside that scope. Necessary auxiliary changes (imports, type updates,
    index re-exports) are acceptable. Substantive modifications to out-of-scope
    files that introduce regressions or unnecessary changes are "major" findings.
-9. For security findings that are architectural or design-level observations
+9. **C#/.NET-specific concerns**: When reviewing C# code, check for SQL injection via `FromSqlRaw`/`FromSqlInterpolated`, insecure deserialization (e.g. `BinaryFormatter`, `JsonSerializer` without type validation), missing `[Authorize]` attributes on controller actions that modify state, and hardcoded connection strings or secrets. Use `type: "deserialization"` for deserialization findings.
+10. For security findings that are architectural or design-level observations
    (e.g. "consider rate limiting", "this endpoint could benefit from CSRF protection",
    "input validation could be stricter") rather than concrete exploitable
    vulnerabilities, set `"advisory": true`. Advisory findings are informational

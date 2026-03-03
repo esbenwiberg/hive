@@ -148,6 +148,15 @@ Prefer prism-identified files over guessing from the task description alone. Onl
 6. **Keep milestones focused.** Each milestone should touch a bounded set of source files. Avoid milestones that require reading most of the codebase — the worker has a 200k token context window and will run out of room. For documentation or audit tasks, create one milestone per source directory or per output file, not broad milestones like "document all modules".
 7. **Apply learnings.** If `<learnings>` are provided, incorporate their guidance into the blueprint — e.g. if a learning says "always add integration tests for new endpoints", include a testing step in your milestones or checklist.
 
+### Multi-Language and .NET Awareness
+
+When enrichment data shows `buildSystem: "dotnet"` or `"dotnet+npm"`:
+
+- Use C# file paths (e.g. `src/Api/Controllers/OrderController.cs`) in `keyFiles` and `filesToModify`.
+- Acceptance criteria should reference .NET tooling: "builds with `dotnet build`", "passes `dotnet test`".
+- For hybrid `dotnet+npm` projects, note both stacks in milestone descriptions and verify both build systems pass (e.g. `dotnet build && npm run build`).
+- `keyFiles` and `filesToModify` may contain a mix of `.cs`, `.csproj`, `.tsx`, `.ts`, and other extensions — this is expected for multi-language repos.
+
 ## Response Format
 
 Respond with a single JSON object (no markdown code fences). The schema depends on the task size and whether clarification is needed, as described above.
