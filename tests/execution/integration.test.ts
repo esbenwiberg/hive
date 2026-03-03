@@ -123,6 +123,7 @@ vi.mock("../../src/agents/decomposer.js", () => ({
 // Mock worker-tools so we don't need real filesystem/exec
 vi.mock("../../src/execution/worker-tools.js", () => ({
   WORKER_TOOLS: [],
+  getWorkerTools: vi.fn(() => []),
   createWorktreeToolExecutor: vi.fn(() => vi.fn()),
 }));
 

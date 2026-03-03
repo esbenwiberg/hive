@@ -20,6 +20,10 @@ vi.mock("../../src/agents/cost-utils.js", () => ({
 
 // Mock autonomous-config so reviewFix resolves its own models
 vi.mock("../../src/domain/autonomous-config.js", () => ({
+  getAutonomousConfig: vi.fn(() => ({
+    reviewFix: { maxIterations: 2, fixMaxTurns: 20 },
+    models: { components: { "milestone-fix": "test-fix-model" }, default: "test-default-model" },
+  })),
   getModelFor: vi.fn((component: string) => {
     if (component === "milestone-review") return "test-review-model";
     if (component === "milestone-fix") return "test-fix-model";
