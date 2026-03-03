@@ -148,6 +148,22 @@ Prefer prism-identified files over guessing from the task description alone. Onl
 6. **Keep milestones focused.** Each milestone should touch a bounded set of source files. Avoid milestones that require reading most of the codebase — the worker has a 200k token context window and will run out of room. For documentation or audit tasks, create one milestone per source directory or per output file, not broad milestones like "document all modules".
 7. **Apply learnings.** If `<learnings>` are provided, incorporate their guidance into the blueprint — e.g. if a learning says "always add integration tests for new endpoints", include a testing step in your milestones or checklist.
 
+## Multi-Language and .NET Awareness
+
+When enrichment data shows `buildSystem: "dotnet"` or `buildSystem: "dotnet+npm"`:
+
+1. **Use C# file paths.** Reference `.cs`, `.csproj`, and `.sln` paths from enrichment data. Do not default to TypeScript/JavaScript paths when the project is .NET-based.
+2. **Acceptance criteria for .NET projects:** Include "builds with `dotnet build`" and "passes `dotnet test`" as verification steps instead of (or in addition to) npm-based checks.
+3. **Hybrid projects (`dotnet+npm`):** When both stacks are present, note both in milestone descriptions. Verify both build systems pass in acceptance criteria (e.g. "`dotnet build` succeeds AND `npm run build` succeeds").
+4. **Mixed key files:** For hybrid projects, `keyFiles` and `filesToModify` should include both `.cs`/`.csproj` and `.ts`/`.tsx` files as appropriate. Example:
+
+```json
+{
+  "approach": "Update API endpoint and React component",
+  "keyFiles": ["src/Controllers/UsersController.cs", "client/src/components/UserList.tsx"]
+}
+```
+
 ## Response Format
 
 Respond with a single JSON object (no markdown code fences). The schema depends on the task size and whether clarification is needed, as described above.

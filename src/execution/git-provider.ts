@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import logger from "../logger.js";
 import type { GitCredentials } from "../domain/types.js";
-import { parseAdoRepoName, createPullRequest, createPRComment as adoCreatePRComment, getPullRequest, getPRThreadComments } from "../integrations/azure-devops.js";
+import { parseAdoRepoName, createPullRequest, listPullRequests, createPRComment as adoCreatePRComment, getPullRequest, getPRThreadComments } from "../integrations/azure-devops.js";
 
 // ── Helper ──────────────────────────────────────────────────────────────────
 
@@ -450,8 +450,21 @@ export class AzureDevOpsProvider implements GitProvider {
     creds: GitCredentials,
   ): Promise<{ url: string; reused: boolean }> {
     const { org, project, repo } = parseAdoRepoName(repoFullName);
-    const result = await createPullRequest(org, project, repo, head, base, title, body, creds.token);
-    return { url: result.url, reused: false };
+    try {
+      const result = await createPullRequest(org, project, repo, head, base, title, body, creds.token);
+      return { url: result.url, reused: false };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("(409)") || msg.includes("TF401179")) {
+        logger.info({ repoFullName, head }, "ADO PR already exists — looking up existing PR");
+        const existing = await listPullRequests(org, project, repo, head, creds.token);
+        if (existing.length > 0) {
+          logger.info({ prUrl: existing[0].url }, "Reusing existing ADO PR");
+          return { url: existing[0].url, reused: true };
+        }
+      }
+      throw err;
+    }
   }
 
   async commentOnPR(

@@ -493,12 +493,50 @@ describe("AzureDevOpsProvider", () => {
       ).rejects.toThrow("Invalid Azure DevOps repo name");
     });
 
-    it("throws on non-OK response from Azure DevOps API", async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 409,
-        text: async () => "Conflict: PR already exists",
-      });
+    it("reuses existing PR on 409 conflict from Azure DevOps API", async () => {
+      const mockFetch = vi.fn()
+        // First call: createPullRequest returns 409
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 409,
+          text: async () => "Azure DevOps PR creation failed (409): TF401179: PR already exists",
+        })
+        // Second call: listPullRequests returns the existing PR
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            value: [{ pullRequestId: 55, status: "active" }],
+          }),
+        });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const result = await provider.createPR(
+        "myorg/myproject/myrepo",
+        "feature/ado-branch",
+        "main",
+        "Title",
+        "Body",
+        azureCreds,
+      );
+
+      expect(result.reused).toBe(true);
+      expect(result.url).toContain("/pullrequest/55");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("throws on 409 when no existing PR found", async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 409,
+          text: async () => "Azure DevOps PR creation failed (409): TF401179",
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ value: [] }),
+        });
       vi.stubGlobal("fetch", mockFetch);
 
       await expect(
@@ -510,7 +548,7 @@ describe("AzureDevOpsProvider", () => {
           "Body",
           azureCreds,
         ),
-      ).rejects.toThrow("Azure DevOps PR creation failed (409): Conflict: PR already exists");
+      ).rejects.toThrow("(409)");
 
       vi.unstubAllGlobals();
     });

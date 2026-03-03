@@ -35,8 +35,13 @@ async function hasSln(dir: string): Promise<boolean> {
   return entries.some((e) => e.isFile() && e.name.endsWith(".sln"));
 }
 
-/** Returns true if any *.csproj file exists at dir or one level deep. */
-async function hasCsproj(dir: string): Promise<boolean> {
+const SKIP_DIRS = new Set([
+  "node_modules", ".git", "bin", "obj", ".vs",
+  "TestResults", "packages", "dist", "build",
+]);
+
+/** Returns true if any *.csproj file exists within `dir` up to `maxDepth` levels deep. */
+async function hasCsproj(dir: string, maxDepth = 3): Promise<boolean> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -44,21 +49,15 @@ async function hasCsproj(dir: string): Promise<boolean> {
     return false;
   }
 
-  // Check root
   if (entries.some((e) => e.isFile() && e.name.endsWith(".csproj"))) {
     return true;
   }
 
-  // Check one level of subdirs
+  if (maxDepth <= 0) return false;
+
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    let sub;
-    try {
-      sub = await readdir(join(dir, entry.name), { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    if (sub.some((e) => e.isFile() && e.name.endsWith(".csproj"))) {
+    if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
+    if (await hasCsproj(join(dir, entry.name), maxDepth - 1)) {
       return true;
     }
   }
