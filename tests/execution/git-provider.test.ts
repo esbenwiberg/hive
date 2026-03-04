@@ -533,6 +533,33 @@ describe("AzureDevOpsProvider", () => {
       vi.unstubAllGlobals();
     });
 
+    it("throws on 409 when no existing PR found", async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 409,
+          text: async () => "Azure DevOps PR creation failed (409): TF401179",
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ value: [] }),
+        });
+      vi.stubGlobal("fetch", mockFetch);
+
+      await expect(
+        provider.createPR(
+          "myorg/myproject/myrepo",
+          "feature/ado-branch",
+          "main",
+          "Title",
+          "Body",
+          azureCreds,
+        ),
+      ).rejects.toThrow("(409)");
+
+      vi.unstubAllGlobals();
+    });
+
     it("re-throws non-409 errors from Azure DevOps API", async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,

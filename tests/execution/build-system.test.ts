@@ -49,6 +49,16 @@ describe("detectBuildSystem", () => {
     expect(result.dotnetDir).toBe(root);
   });
 
+  it("detects .sln at root as dotnet", async () => {
+    const root = await makeTempRepo();
+    dirs.push(root);
+    await touch(root, "MyApp.sln");
+
+    const result = await detectBuildSystem(root);
+    expect(result.type).toBe("dotnet");
+    expect(result.dotnetDir).toBe(root);
+  });
+
   it("does not scan into skip dirs (node_modules, bin, obj)", async () => {
     const root = await makeTempRepo();
     dirs.push(root);

@@ -22,7 +22,7 @@ Respond with a JSON object:
       "file": "src/Services/OrderService.cs",
       "line": 42,
       "message": "Description of the issue",
-      "category": "correctness | style | performance | maintainability | documentation"
+      "category": "correctness | style | performance | maintainability | documentation | security"
     }
   ],
   "securityFindings": [

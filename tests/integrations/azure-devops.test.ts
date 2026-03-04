@@ -213,6 +213,78 @@ describe("createPRComment", () => {
   });
 });
 
+describe("listPullRequests", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends correct URL with source branch filter", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ value: [] }),
+    });
+
+    await listPullRequests("myorg", "myproject", "myrepo", "feature/branch", "pat");
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+
+    expect(url).toContain("searchCriteria.sourceRefName=refs/heads/feature%2Fbranch");
+    expect(url).toContain("searchCriteria.status=active");
+    expect(url).toContain("api-version=7.1");
+    expect(opts.method).toBe("GET");
+  });
+
+  it("returns mapped PR list", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        value: [
+          { pullRequestId: 10, status: "active" },
+          { pullRequestId: 20, status: "active" },
+        ],
+      }),
+    });
+
+    const result = await listPullRequests("myorg", "myproject", "myrepo", "feature/x", "pat");
+
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe(10);
+    expect(result[0].url).toContain("/pullrequest/10");
+    expect(result[0].status).toBe("active");
+    expect(result[1].id).toBe(20);
+  });
+
+  it("returns empty array when no PRs match", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ value: [] }),
+    });
+
+    const result = await listPullRequests("org", "proj", "repo", "no-match", "pat");
+    expect(result).toEqual([]);
+  });
+
+  it("throws on non-2xx response", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => "Internal Server Error",
+    });
+
+    await expect(
+      listPullRequests("org", "proj", "repo", "branch", "pat"),
+    ).rejects.toThrow("Azure DevOps list PRs failed (500): Internal Server Error");
+  });
+});
+
 describe("getPullRequest", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
 
