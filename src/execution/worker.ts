@@ -300,7 +300,6 @@ async function executeMilestones(
     await heartbeat(task.id);
 
     const msFiles = ms.filesToModify.map(f => `\`${f}\``).join(", ");
-    let msMidNudgeSent = false;
     const msHasWritten = (calls: string[]) => calls.includes("write_file") || calls.includes("edit_file");
 
     const response = await callClaudeWithTools({
@@ -312,9 +311,21 @@ async function executeMilestones(
       onTurnComplete: () => heartbeat(task.id),
       maxNudges: 2,
       midLoopNudge: ({ toolsCalled, turns }) => {
-        if (!msMidNudgeSent && turns >= 3 && !msHasWritten(toolsCalled)) {
-          msMidNudgeSent = true;
+        if (msHasWritten(toolsCalled)) return null;
+        if (turns >= 9) {
+          return `FINAL WARNING: You have spent ${turns} turns without writing any files. Task will be TERMINATED if you do not call edit_file or write_file on your next turn. Modify ${msFiles} NOW.`;
+        }
+        if (turns >= 6) {
+          return `WARNING: You have spent ${turns} turns without writing. Your next tool call MUST be edit_file or write_file to modify ${msFiles}. Do not read any more files.`;
+        }
+        if (turns >= 3) {
           return `IMPORTANT: You have spent ${turns} turns reading without writing. Stop exploring and call edit_file or write_file NOW to modify ${msFiles}.`;
+        }
+        return null;
+      },
+      shouldTerminate: ({ toolsCalled, turns }) => {
+        if (turns >= 12 && !msHasWritten(toolsCalled)) {
+          return `Terminated: ${turns} turns without any write — exploration spiral detected`;
         }
         return null;
       },
@@ -533,7 +544,14 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
             parts.push(`\n### Files to Modify\n\n${bp.keyFiles.map(f => `- ${f}`).join("\n")}`);
           }
           if (bp.checklist?.length) {
-            parts.push(`\n### Checklist\n\n${bp.checklist.map(c => `- ${c}`).join("\n")}`);
+            // Filter out discovery-style items when exact files are already known
+            const discoveryVerbs = /^(Search|Look for|Find|Locate|Identify)\b/i;
+            const checklist = bp.keyFiles?.length
+              ? bp.checklist.filter(c => !discoveryVerbs.test(c))
+              : bp.checklist;
+            if (checklist.length) {
+              parts.push(`\n### Checklist\n\n${checklist.map(c => `- ${c}`).join("\n")}`);
+            }
           }
           enrichmentStr = parts.join("\n");
         }
@@ -566,11 +584,22 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       ? `\n## Retry Instructions (address this feedback)\n${task.retryInstructions}`
       : "";
 
+    // For small/trivial tasks, put structured plan BEFORE raw task body so the
+    // agent sees exact file paths and actionable steps first, not discovery prose.
+    const promptBody = (taskSize === "trivial" || taskSize === "small") && enrichmentStr
+      ? [enrichmentStr, `\n## Original Task Description\n\n${task.body}`]
+      : [task.body, enrichmentStr];
+
+    const bpForHint = (task.enrichment as Record<string, unknown> | null)?.architect as ArchitectBlueprint | undefined;
+    const firstFile = bpForHint?.keyFiles?.[0];
+    const firstFileHint = firstFile
+      ? ` Your FIRST tool call should be read_file on \`${firstFile}\`, then immediately edit it.`
+      : "";
+
     const userPrompt = [
       `## Task: ${task.title}`,
       ``,
-      task.body,
-      enrichmentStr,
+      ...promptBody,
       learningsStr,
       retryStr,
       ``,
@@ -581,7 +610,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       branchName,
       ``,
       `## Reminder`,
-      `You MUST call write_file to implement changes. Do not just analyze or explain — write the code.`,
+      `You MUST call edit_file or write_file to implement changes. Do not just analyze or explain — write the code.${firstFileHint}`,
     ].join("\n");
 
     // Check for architect milestones
@@ -622,8 +651,14 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       const keyFiles = architectData?.keyFiles?.length
         ? architectData.keyFiles.map(f => `\`${f}\``).join(", ")
         : "the relevant files";
-      let midNudgeSent = false;
       const hasWritten = (calls: string[]) => calls.includes("write_file") || calls.includes("edit_file");
+
+      // Per-size turn caps
+      const turnCaps: Record<string, number> = { trivial: 8, small: 15, medium: 25, large: 30 };
+      const maxTurns = turnCaps[taskSize] ?? 30;
+
+      // Per-size write deadlines (terminate if no writes by this turn)
+      const writeDeadline = (taskSize === "trivial" || taskSize === "small") ? 12 : 20;
 
       const response = await callClaudeWithTools({
         prompt: userPrompt,
@@ -632,11 +667,24 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         tools: getWorkerTools(prismConfig),
         executeTool: createWorktreeToolExecutor(worktree.path, prismConfig),
         onTurnComplete: () => heartbeat(taskId),
+        maxTurns,
         maxNudges: 2,
         midLoopNudge: ({ toolsCalled, turns }) => {
-          if (!midNudgeSent && turns >= 3 && !hasWritten(toolsCalled)) {
-            midNudgeSent = true;
-            return `IMPORTANT: You have spent ${turns} turns reading without writing any files. Stop exploring and start implementing NOW. Call edit_file (for surgical changes) or write_file (for new files) to modify ${keyFiles}. Do not explain what you would do — write the code.`;
+          if (hasWritten(toolsCalled)) return null;
+          if (turns >= 9) {
+            return `FINAL WARNING: You have spent ${turns} turns without writing any files. Task will be TERMINATED if you do not call edit_file or write_file on your next turn. Modify ${keyFiles} NOW.`;
+          }
+          if (turns >= 6) {
+            return `WARNING: You have spent ${turns} turns without writing. Your next tool call MUST be edit_file or write_file to modify ${keyFiles}. Do not read any more files.`;
+          }
+          if (turns >= 3) {
+            return `IMPORTANT: You have spent ${turns} turns reading without writing any files. Stop exploring and start implementing NOW. Call edit_file or write_file to modify ${keyFiles}. Do not explain what you would do — write the code.`;
+          }
+          return null;
+        },
+        shouldTerminate: ({ toolsCalled, turns }) => {
+          if (turns >= writeDeadline && !hasWritten(toolsCalled)) {
+            return `Terminated: ${turns} turns without any write — exploration spiral detected (size: ${taskSize}, deadline: ${writeDeadline})`;
           }
           return null;
         },

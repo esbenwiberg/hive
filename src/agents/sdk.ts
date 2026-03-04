@@ -55,12 +55,19 @@ export interface AgenticRequest {
    * which only fires after Claude stops.
    */
   midLoopNudge?: (context: { toolsCalled: string[]; turns: number }) => string | null;
+  /**
+   * Called each turn BEFORE making the API call. If it returns a non-null string,
+   * the loop breaks immediately and the string is set as terminationReason.
+   * Use this as a hard kill switch (e.g. no writes by turn N).
+   */
+  shouldTerminate?: (context: { toolsCalled: string[]; turns: number }) => string | null;
 }
 
 export interface AgenticResponse {
   text: string;
   cost: CostMeta;
   turns: number;
+  terminationReason?: string;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -303,7 +310,19 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
 
   const messages: MessageParam[] = [{ role: "user", content: req.prompt }];
 
+  let terminationReason: string | undefined;
+
   for (turns = 1; turns <= maxTurns; turns++) {
+    // Hard kill switch: check before spending tokens on the next API call
+    if (req.shouldTerminate) {
+      const reason = req.shouldTerminate({ toolsCalled, turns });
+      if (reason) {
+        terminationReason = reason;
+        logger.warn({ turn: turns, reason }, "Loop terminated by shouldTerminate callback");
+        break;
+      }
+    }
+
     const createParams = {
       model,
       ...(system ? { system } : {}),
@@ -464,5 +483,6 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
       cacheReadInputTokens: totalCacheReadTokens || undefined,
     },
     turns,
+    terminationReason,
   };
 }
