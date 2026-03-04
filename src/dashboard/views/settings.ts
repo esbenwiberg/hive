@@ -636,6 +636,40 @@ export function repoSettingsCard(repo: RepoRow): string {
       })}
     </div>
     <div class="border-t border-slate-700 pt-3 mt-3">
+      <h4 class="text-sm font-medium text-slate-300 mb-2">Package Registries</h4>
+      <p class="text-xs text-slate-500 mb-2">Private npm / NuGet feeds. Tokens are stored in Key Vault.</p>
+      <details class="space-y-3">
+        <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-400">npm</summary>
+        <div class="mt-2 space-y-2">
+          ${input(`npmRegistryUrl_${repo.id}`, "Registry URL", {
+            value: ((settings.npm as Record<string, unknown> | undefined)?.url as string) ?? "",
+            placeholder: "https://npm.pkg.github.com",
+          })}
+          ${input(`npmScope_${repo.id}`, "Scope", {
+            value: ((settings.npm as Record<string, unknown> | undefined)?.scope as string) ?? "",
+            placeholder: "@myorg (optional)",
+          })}
+          ${input(`npmToken_${repo.id}`, "Auth Token", {
+            type: "password",
+            placeholder: (settings.npm as Record<string, unknown> | undefined)?.tokenVaultId ? "Saved — leave blank to keep" : "npm_...",
+          })}
+        </div>
+      </details>
+      <details class="space-y-3 mt-2">
+        <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-400">NuGet</summary>
+        <div class="mt-2 space-y-2">
+          ${input(`nugetFeedUrl_${repo.id}`, "Feed URL", {
+            value: ((settings.nuget as Record<string, unknown> | undefined)?.url as string) ?? "",
+            placeholder: "https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json",
+          })}
+          ${input(`nugetToken_${repo.id}`, "Auth Token", {
+            type: "password",
+            placeholder: (settings.nuget as Record<string, unknown> | undefined)?.tokenVaultId ? "Saved — leave blank to keep" : "PAT or API key",
+          })}
+        </div>
+      </details>
+    </div>
+    <div class="border-t border-slate-700 pt-3 mt-3">
       <h4 class="text-sm font-medium text-slate-300 mb-2">Preview</h4>
       ${select(`previewEnabled_${repo.id}`, "Preview Enabled", [
         { value: "", label: "-- Use Global Default --" },

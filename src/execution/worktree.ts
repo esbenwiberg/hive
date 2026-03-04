@@ -1,9 +1,9 @@
-import { rm, mkdir, appendFile } from "node:fs/promises";
+import { rm, mkdir, appendFile, writeFile, access } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import logger from "../logger.js";
 import { getByUserAndProvider } from "../db/queries/user-credentials.js";
-import { getSecret } from "../vault/keyvault.js";
+import { getSecret, repoSecretName } from "../vault/keyvault.js";
 import { getGitProvider } from "./git-provider.js";
 import type { GitCredentials, WorktreeInfo } from "../domain/types.js";
 
@@ -44,6 +44,7 @@ export async function createWorktree(
   branch: string,
   defaultBranch: string,
   userId: number,
+  repoSettings?: { repoId?: number; settings?: Record<string, unknown> },
 ): Promise<WorktreeInfo> {
   const creds = await resolveGitCredentials(userId, provider);
   const dirName = `${branch.replace(/\//g, "-")}-${Date.now()}`;
@@ -97,7 +98,63 @@ export async function createWorktree(
   await execFileAsync("git", ["config", "user.email", "hive@thehive.ai"], { cwd: worktreePath });
 
   // Exclude preview artifacts from git tracking so `git add -A` never picks them up
-  await appendFile(`${worktreePath}/.git/info/exclude`, "\ndocker-compose.hive-preview.yml\n");
+  const excludes = ["\ndocker-compose.hive-preview.yml\n"];
+
+  // Inject private package registry auth files
+  if (repoSettings?.settings && repoSettings.repoId) {
+    const s = repoSettings.settings;
+
+    // npm — .npmrc
+    const npm = s.npm as Record<string, unknown> | undefined;
+    if (npm?.url && npm.tokenVaultId) {
+      const token = await getSecret(npm.tokenVaultId as string);
+      if (token) {
+        const registryUrl = npm.url as string;
+        const lines: string[] = [];
+        // URL without protocol for auth line
+        const hostPath = registryUrl.replace(/^https?:\/\//, "");
+        if (npm.scope) {
+          lines.push(`${npm.scope as string}:registry=${registryUrl}`);
+        }
+        lines.push(`//${hostPath}/:_authToken=${token}`);
+        await writeFile(`${worktreePath}/.npmrc`, lines.join("\n") + "\n");
+        excludes.push(".npmrc\n");
+        logger.info({ repoFullName }, "Injected .npmrc for private npm registry");
+      }
+    }
+
+    // NuGet — nuget.config
+    const nuget = s.nuget as Record<string, unknown> | undefined;
+    if (nuget?.url && nuget.tokenVaultId) {
+      const token = await getSecret(nuget.tokenVaultId as string);
+      if (token) {
+        // Only write if no existing nuget.config
+        let exists = false;
+        try { await access(`${worktreePath}/nuget.config`); exists = true; } catch { /* does not exist */ }
+        if (!exists) {
+          const xml = [
+            '<?xml version="1.0" encoding="utf-8"?>',
+            "<configuration>",
+            "  <packageSources>",
+            `    <add key="private" value="${nuget.url as string}" />`,
+            "  </packageSources>",
+            "  <packageSourceCredentials>",
+            "    <private>",
+            '      <add key="Username" value="hive" />',
+            `      <add key="ClearTextPassword" value="${token}" />`,
+            "    </private>",
+            "  </packageSourceCredentials>",
+            "</configuration>",
+          ].join("\n") + "\n";
+          await writeFile(`${worktreePath}/nuget.config`, xml);
+          excludes.push("nuget.config\n");
+          logger.info({ repoFullName }, "Injected nuget.config for private NuGet feed");
+        }
+      }
+    }
+  }
+
+  await appendFile(`${worktreePath}/.git/info/exclude`, excludes.join(""));
 
   logger.info({ repoFullName, branch, path: worktreePath, baseSha, recovered }, "Worktree created");
 

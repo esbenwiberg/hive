@@ -14,6 +14,14 @@ export function userSecretName(
   return `hive-user-${userId}-${safe(provider)}-${safe(label)}`;
 }
 
+export function repoSecretName(
+  repoId: number,
+  type: string,
+): string {
+  const safe = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, "-");
+  return `hive-repo-${repoId}-${safe(type)}`;
+}
+
 // ── Client initialisation ────────────────────────────────────────────────────
 
 const vaultUri = process.env.AZURE_KEYVAULT_URI;

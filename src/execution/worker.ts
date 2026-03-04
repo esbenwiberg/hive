@@ -475,6 +475,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         branchName,
         repo.defaultBranch ?? "main",
         task.createdBy,
+        { repoId: repo.id, settings: (repo.settings ?? {}) as Record<string, unknown> },
       );
       await addEvent(taskId, "worktree_created", "worker", "Git worktree created");
     }

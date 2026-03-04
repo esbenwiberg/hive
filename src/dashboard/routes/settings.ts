@@ -11,6 +11,7 @@ import {
 } from "../../domain/autonomous-config.js";
 import * as repoQueries from "../../db/queries/repos.js";
 import { create } from "../../db/queries/tasks.js";
+import { repoSecretName, setSecret, deleteSecret } from "../../vault/keyvault.js";
 import { isDuplicate } from "../../producers/base.js";
 import type { SettingsTab } from "../views/settings.js";
 import {
@@ -471,6 +472,72 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
 
     if (Object.keys(preview).length > 0) {
       settings.preview = preview;
+    }
+
+    // npm registry
+    const npmUrlKey = `npmRegistryUrl_${repoId}`;
+    const npmScopeKey = `npmScope_${repoId}`;
+    const npmTokenKey = `npmToken_${repoId}`;
+    const npmUrl = body[npmUrlKey]?.trim();
+    const npmScope = body[npmScopeKey]?.trim();
+    const npmToken = body[npmTokenKey]?.trim();
+
+    if (npmUrl) {
+      const npmSettings: Record<string, unknown> = { url: npmUrl };
+      if (npmScope) npmSettings.scope = npmScope;
+
+      if (npmToken) {
+        const secretName = repoSecretName(repoId, "npm-token");
+        await setSecret(secretName, npmToken);
+        npmSettings.tokenVaultId = secretName;
+      } else {
+        // Preserve existing vault reference
+        const currentRepo = await repoQueries.getById(repoId);
+        const cur = (currentRepo?.settings ?? {}) as Record<string, unknown>;
+        const curNpm = cur.npm as Record<string, unknown> | undefined;
+        if (curNpm?.tokenVaultId) npmSettings.tokenVaultId = curNpm.tokenVaultId;
+      }
+
+      settings.npm = npmSettings;
+    } else {
+      // URL cleared — remove npm config and clean up vault secret
+      const currentRepo = await repoQueries.getById(repoId);
+      const cur = (currentRepo?.settings ?? {}) as Record<string, unknown>;
+      const curNpm = cur.npm as Record<string, unknown> | undefined;
+      if (curNpm?.tokenVaultId) {
+        await deleteSecret(curNpm.tokenVaultId as string);
+      }
+      // Don't set settings.npm — it will be removed
+    }
+
+    // NuGet feed
+    const nugetUrlKey = `nugetFeedUrl_${repoId}`;
+    const nugetTokenKey = `nugetToken_${repoId}`;
+    const nugetUrl = body[nugetUrlKey]?.trim();
+    const nugetToken = body[nugetTokenKey]?.trim();
+
+    if (nugetUrl) {
+      const nugetSettings: Record<string, unknown> = { url: nugetUrl };
+
+      if (nugetToken) {
+        const secretName = repoSecretName(repoId, "nuget-token");
+        await setSecret(secretName, nugetToken);
+        nugetSettings.tokenVaultId = secretName;
+      } else {
+        const currentRepo = await repoQueries.getById(repoId);
+        const cur = (currentRepo?.settings ?? {}) as Record<string, unknown>;
+        const curNuget = cur.nuget as Record<string, unknown> | undefined;
+        if (curNuget?.tokenVaultId) nugetSettings.tokenVaultId = curNuget.tokenVaultId;
+      }
+
+      settings.nuget = nugetSettings;
+    } else {
+      const currentRepo = await repoQueries.getById(repoId);
+      const cur = (currentRepo?.settings ?? {}) as Record<string, unknown>;
+      const curNuget = cur.nuget as Record<string, unknown> | undefined;
+      if (curNuget?.tokenVaultId) {
+        await deleteSecret(curNuget.tokenVaultId as string);
+      }
     }
 
     // If docs just got enabled, create a bootstrap task
