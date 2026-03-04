@@ -116,10 +116,34 @@ export async function createWorktree(
         if (npm.scope) {
           lines.push(`${npm.scope as string}:registry=${registryUrl}`);
         }
-        lines.push(`//${hostPath}/:_authToken=${token}`);
-        await writeFile(`${worktreePath}/.npmrc`, lines.join("\n") + "\n");
+        // Azure DevOps Artifacts feeds require base64 _password, not _authToken
+        const isAzureDevOps = /pkgs\.dev\.azure\.com|\.pkgs\.visualstudio\.com/.test(registryUrl);
+        if (isAzureDevOps) {
+          lines.push(`//${hostPath}/:username=hive`);
+          lines.push(`//${hostPath}/:_password=${Buffer.from(token).toString("base64")}`);
+        } else {
+          lines.push(`//${hostPath}/:_authToken=${token}`);
+        }
+        const npmrcContent = lines.join("\n") + "\n";
+
+        // Write .npmrc at repo root
+        await writeFile(`${worktreePath}/.npmrc`, npmrcContent);
         excludes.push(".npmrc\n");
-        logger.info({ repoFullName }, "Injected .npmrc for private npm registry");
+
+        // Also write into npm subdirectory if package.json isn't at root
+        const build = s.build as Record<string, unknown> | undefined;
+        const npmDir = build?.npmDir as string | undefined;
+        if (npmDir) {
+          const subPath = `${worktreePath}/${npmDir.replace(/^\.\//, "")}`;
+          try {
+            await access(subPath);
+            await writeFile(`${subPath}/.npmrc`, npmrcContent);
+            logger.info({ repoFullName, npmDir }, "Injected .npmrc into npm subdirectory");
+          } catch {
+            // Subdirectory doesn't exist yet — root .npmrc is enough
+          }
+        }
+        logger.info({ repoFullName, isAzureDevOps }, "Injected .npmrc for private npm registry");
       }
     }
 
