@@ -20,8 +20,19 @@ RUN apt-get update \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends gh \
-    && apt-get purge -y curl gpg \
+    && apt-get purge -y gpg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install .NET 10 SDK (for dotnet+npm repos)
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+    && chmod +x /tmp/dotnet-install.sh \
+    && /tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet \
+    && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
+    && rm /tmp/dotnet-install.sh \
+    && apt-get purge -y curl \
+    && rm -rf /var/lib/apt/lists/*
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+ENV DOTNET_NOLOGO=1
 
 ARG BUILD_SHA=dev
 ENV BUILD_SHA=$BUILD_SHA
