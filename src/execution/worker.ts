@@ -653,6 +653,21 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         : "the relevant files";
       const hasWritten = (calls: string[]) => calls.includes("write_file") || calls.includes("edit_file");
 
+      // Wrap tool executor to log calls as task events for debuggability
+      const baseExecutor = createWorktreeToolExecutor(worktree.path, prismConfig);
+      const loggingExecutor = async (name: string, input: Record<string, unknown>) => {
+        const summary = (input.path ?? input.command ?? input.query ?? "") as string;
+        try {
+          const result = await baseExecutor(name, input);
+          await addEvent(taskId, "tool_call", "worker", `${name}(${summary})`, { tool: name, input: summary });
+          return result;
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          await addEvent(taskId, "tool_call_error", "worker", `${name}(${summary}) → ERROR: ${errorMsg}`, { tool: name, input: summary, error: errorMsg });
+          throw err;
+        }
+      };
+
       // Per-size turn caps
       const turnCaps: Record<string, number> = { trivial: 8, small: 15, medium: 25, large: 30 };
       const maxTurns = turnCaps[taskSize] ?? 30;
@@ -665,7 +680,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         model: callModel,
         systemPrompt: getFlowPrompt(),
         tools: getWorkerTools(prismConfig),
-        executeTool: createWorktreeToolExecutor(worktree.path, prismConfig),
+        executeTool: loggingExecutor,
         onTurnComplete: () => heartbeat(taskId),
         maxTurns,
         maxNudges: 2,
