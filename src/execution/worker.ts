@@ -656,7 +656,19 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       // Wrap tool executor to log calls as task events for debuggability
       const baseExecutor = createWorktreeToolExecutor(worktree.path, prismConfig);
       const loggingExecutor = async (name: string, input: Record<string, unknown>) => {
-        const summary = (input.path ?? input.command ?? input.query ?? "") as string;
+        // Build a rich summary: for run_command show full command + args, for edit show char counts
+        let summary: string;
+        if (name === "run_command") {
+          const cmd = input.command as string;
+          const args = Array.isArray(input.args) ? (input.args as string[]).join(" ") : "";
+          summary = args ? `${cmd} ${args}` : cmd;
+        } else if (name === "edit_file") {
+          const oldLen = typeof input.old_string === "string" ? input.old_string.length : 0;
+          const newLen = typeof input.new_string === "string" ? input.new_string.length : 0;
+          summary = `${input.path} (${oldLen}→${newLen} chars)`;
+        } else {
+          summary = (input.path ?? input.query ?? "") as string;
+        }
         try {
           const result = await baseExecutor(name, input);
           logger.info({ taskId, tool: name, input: summary }, "Tool call OK: %s(%s)", name, summary);
@@ -744,6 +756,11 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
     // Empty-diff detection: catch cases where Claude produced no code changes
     const validatedSha = await validateBaseSha(worktree.path, worktree.baseSha);
+    // Log git status before diff check for debugging
+    try {
+      const { stdout: statusOut } = await execFileAsync("git", ["status", "--short"], { cwd: worktree.path });
+      logger.info({ taskId, status: statusOut.trim() || "(clean)" }, "Worktree git status before diff check");
+    } catch { /* non-critical */ }
     const { stdout: diffOutput } = await execFileAsync(
       "git", ["diff", "--name-only", validatedSha],
       { cwd: worktree.path },

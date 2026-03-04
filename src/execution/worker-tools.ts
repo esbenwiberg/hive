@@ -184,6 +184,18 @@ export function createWorktreeToolExecutor(
       case "run_command": {
         const command = input.command as string;
         const args = (input.args as string[] | undefined) ?? [];
+
+        // Block commands that could revert changes or break the worktree.
+        // Check both direct git commands and shell-wrapped variants (bash -c "git checkout ...")
+        const fullCmd = [command, ...args].join(" ");
+        const dangerous = [
+          /\bgit\s+(checkout|restore|reset|clean|stash)/,
+          /\bgit\s+.*--\s/,  // git <cmd> -- <path> (selective restore)
+        ];
+        if (dangerous.some((re) => re.test(fullCmd))) {
+          throw new Error(`Blocked: git state commands are not allowed (they could revert your changes)`);
+        }
+
         const { stdout, stderr } = await execFileAsync(command, args, {
           cwd: worktreePath,
           timeout: CMD_TIMEOUT_MS,
