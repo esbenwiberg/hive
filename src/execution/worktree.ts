@@ -1,4 +1,5 @@
-import { rm, mkdir, appendFile, writeFile, access } from "node:fs/promises";
+import { rm, mkdir, appendFile, writeFile, readdir, access } from "node:fs/promises";
+import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import logger from "../logger.js";
@@ -130,20 +131,39 @@ export async function createWorktree(
         await writeFile(`${worktreePath}/.npmrc`, npmrcContent);
         excludes.push(".npmrc\n");
 
-        // Also write into npm subdirectory if package.json isn't at root
+        // Also write .npmrc into every subdirectory that has a package.json,
+        // since npm won't walk above the project root (nearest package.json).
+        // Use explicit setting first, then auto-scan one level of subdirs.
         const build = s.build as Record<string, unknown> | undefined;
-        const npmDir = build?.npmDir as string | undefined;
-        if (npmDir) {
-          const subPath = `${worktreePath}/${npmDir.replace(/^\.\//, "")}`;
+        const explicitNpmDir = build?.npmDir as string | undefined;
+        const npmSubDirs: string[] = [];
+
+        if (explicitNpmDir) {
+          npmSubDirs.push(explicitNpmDir.replace(/^\.\//, ""));
+        } else {
+          // Auto-scan: find subdirs with package.json
+          try {
+            const entries = await readdir(worktreePath, { withFileTypes: true });
+            for (const entry of entries) {
+              if (!entry.isDirectory() || entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+              try {
+                await access(join(worktreePath, entry.name, "package.json"));
+                npmSubDirs.push(entry.name);
+              } catch { /* no package.json here */ }
+            }
+          } catch { /* readdir failed — skip */ }
+        }
+
+        for (const subDir of npmSubDirs) {
+          const subPath = join(worktreePath, subDir);
           try {
             await access(subPath);
-            await writeFile(`${subPath}/.npmrc`, npmrcContent);
-            logger.info({ repoFullName, npmDir }, "Injected .npmrc into npm subdirectory");
-          } catch {
-            // Subdirectory doesn't exist yet — root .npmrc is enough
-          }
+            await writeFile(join(subPath, ".npmrc"), npmrcContent);
+            logger.info({ repoFullName, subDir }, "Injected .npmrc into npm subdirectory");
+          } catch { /* dir doesn't exist */ }
         }
-        logger.info({ repoFullName, isAzureDevOps }, "Injected .npmrc for private npm registry");
+
+        logger.info({ repoFullName, isAzureDevOps, npmSubDirs }, "Injected .npmrc for private npm registry");
       }
     }
 
