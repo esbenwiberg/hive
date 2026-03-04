@@ -410,11 +410,11 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
     const toolResults: ToolResultBlockParam[] = [];
     let toolResultChars = 0;
     for (const toolUse of toolUseBlocks) {
-      toolsCalled.push(toolUse.name);
       const input = toolUse.input as Record<string, unknown>;
       const inputSummary = input.path ?? input.command ?? input.file_path ?? toolUse.name;
       try {
         const result = await req.executeTool(toolUse.name, input);
+        toolsCalled.push(toolUse.name); // Only track successful calls — failed edits shouldn't disable write nudges
         const resultLen = typeof result === "string" ? result.length : JSON.stringify(result).length;
         toolResultChars += resultLen;
         logger.debug({ turn: turns, tool: toolUse.name, input: inputSummary, resultLen }, "Tool call succeeded");

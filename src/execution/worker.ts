@@ -731,7 +731,14 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         await db
           .update(tasks)
           .set({
-            retryInstructions: "Your previous attempt produced no code changes. You MUST call write_file to implement the solution. Do not just analyze — write the code.",
+            retryInstructions: [
+              "CRITICAL: Your previous attempt produced no code changes.",
+              "You MUST call edit_file or write_file to implement the solution.",
+              architectData?.keyFiles?.length
+                ? `Start by reading ${architectData.keyFiles[0]}, then immediately edit it.`
+                : "Start by reading the target file, then immediately edit it.",
+              "Do not just analyze or explain — write the code on your FIRST turn after reading.",
+            ].join(" "),
             reworkCount: 1,
             updatedAt: new Date(),
           })
