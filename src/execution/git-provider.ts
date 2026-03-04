@@ -385,8 +385,11 @@ export class AzureDevOpsProvider implements GitProvider {
       );
     }
 
-    const url = `https://${creds.token}@dev.azure.com/${org}/${project}/_git/${repo}`;
-    const sanitizedUrl = `https://dev.azure.com/${org}/${project}/_git/${repo}`;
+    const encOrg = encodeURIComponent(org);
+    const encProject = encodeURIComponent(project);
+    const encRepo = encodeURIComponent(repo);
+    const url = `https://${creds.token}@dev.azure.com/${encOrg}/${encProject}/_git/${encRepo}`;
+    const sanitizedUrl = `https://dev.azure.com/${encOrg}/${encProject}/_git/${encRepo}`;
     logger.info({ repoFullName, branch, targetDir }, "Cloning Azure DevOps repo");
     const args = ["clone", "--branch", branch, "--single-branch"];
     if (opts?.depth) args.push("--depth", String(opts.depth));
