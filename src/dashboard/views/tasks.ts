@@ -1465,6 +1465,38 @@ function debugEnrichmentTable(runs: EnrichmentRunRow[]): string {
   </div>`;
 }
 
+function debugToolCalls(events: TaskEventRow[]): string {
+  const toolEvents = events.filter((e) => e.event === "tool_call" || e.event === "tool_call_error");
+  if (toolEvents.length === 0) return "";
+
+  const rows = toolEvents.map((e) => {
+    const ts = e.createdAt ? new Date(e.createdAt) : null;
+    const timeStr = ts ? ts.toLocaleTimeString() : "-";
+    const isError = e.event === "tool_call_error";
+    const meta = (e.metadata ?? {}) as Record<string, unknown>;
+    const tool = (meta.tool as string) ?? "";
+    const input = (meta.input as string) ?? "";
+    const error = (meta.error as string) ?? "";
+
+    const toolColor = isError ? "text-red-400" : "text-emerald-400";
+    const msgColor = isError ? "text-red-300" : "text-slate-300";
+    const icon = isError ? "x" : "check";
+    const iconColor = isError ? "text-red-400" : "text-emerald-400";
+
+    return `<div class="flex items-start gap-2 py-1 text-xs">
+      <span class="shrink-0 w-16 text-right text-slate-500">${escapeHtml(timeStr)}</span>
+      <span class="shrink-0 ${iconColor}">${icon === "check" ? "\u2713" : "\u2717"}</span>
+      <span class="${toolColor} font-medium shrink-0">${escapeHtml(tool)}</span>
+      <span class="${msgColor} truncate" title="${escapeHtml(isError ? error : input)}">${escapeHtml(isError ? error : input)}</span>
+    </div>`;
+  }).join("");
+
+  return `<div>
+    <h5 class="text-xs font-medium text-slate-400 mb-1">Tool Calls <span class="text-slate-500">(${toolEvents.length})</span></h5>
+    <div class="rounded-lg bg-slate-900 px-3 py-2 max-h-60 overflow-y-auto divide-y divide-slate-800">${rows}</div>
+  </div>`;
+}
+
 function debugEventTimeline(events: TaskEventRow[]): string {
   if (events.length === 0) return "";
 
@@ -1547,6 +1579,7 @@ export function taskDebugPanel(
     ${stuckDiagnosis(task, agent)}
     ${debugAgentDetails(task, agent)}
     ${debugEnrichmentTable(enrichRuns)}
+    ${debugToolCalls(events)}
     ${debugEventTimeline(events)}
     ${debugCostTable(costBreakdown)}
   </div>`;

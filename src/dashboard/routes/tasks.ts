@@ -373,7 +373,7 @@ router.get("/api/tasks/:id/debug", requireAuth, async (req: Request, res: Respon
     const [agent, enrichRuns, events, costBreakdown] = await Promise.all([
       activeAgentQueries.getByTaskId(id),
       enrichmentRunQueries.listByTask(id),
-      getEvents(id, 20),
+      getEvents(id, 100),
       costQueries.getBreakdownForTask(id),
     ]);
 
