@@ -39,7 +39,7 @@ export function parseBlueprint(markdown: string): BlueprintParseResult {
   const errors: BlueprintValidationError[] = [];
 
   // Extract approach section
-  const approachMatch = markdown.match(/^#+\s+Approach\s*\n([\s\S]*?)(?=^#+\s+Milestone|$)/m);
+  const approachMatch = markdown.match(/^#+\s+Approach\s*\n([\s\S]*?)(?=^#+\s+Milestone|(?![\s\S]))/m);
   if (!approachMatch || !approachMatch[1].trim()) {
     errors.push({
       field: "approach",
@@ -49,7 +49,7 @@ export function parseBlueprint(markdown: string): BlueprintParseResult {
   const approach = approachMatch ? approachMatch[1].trim() : "";
 
   // Extract milestones
-  const milestonePattern = /^#+\s+Milestone\s+\d+:\s+(.+?)\s*\n([\s\S]*?)(?=^#+\s+Milestone|\Z)/gm;
+  const milestonePattern = /^#+\s+Milestone\s+\d+:\s+(.+?)\s*\n([\s\S]*?)(?=^#+\s+Milestone|(?![\s\S]))/gm;
   const milestones: BlueprintMilestone[] = [];
   let match;
 
@@ -67,7 +67,7 @@ export function parseBlueprint(markdown: string): BlueprintParseResult {
     }
 
     // Extract description section
-    const descMatch = content.match(/^##\s+Description\s*\n([\s\S]*?)(?=^##|\Z)/m);
+    const descMatch = content.match(/^##\s+Description\s*\n([\s\S]*?)(?=^##|(?![\s\S]))/m);
     const description = descMatch ? descMatch[1].trim() : "";
 
     if (!description) {
@@ -78,7 +78,7 @@ export function parseBlueprint(markdown: string): BlueprintParseResult {
     }
 
     // Extract files to modify section
-    const filesMatch = content.match(/^##\s+Files to Modify\s*\n([\s\S]*?)(?=^##|\Z)/m);
+    const filesMatch = content.match(/^##\s+Files to Modify\s*\n([\s\S]*?)(?=^##|(?![\s\S]))/m);
     const filesText = filesMatch ? filesMatch[1].trim() : "";
     const filesToModify = filesText
       .split("\n")
@@ -93,7 +93,7 @@ export function parseBlueprint(markdown: string): BlueprintParseResult {
     }
 
     // Extract acceptance criteria section
-    const criteriaMatch = content.match(/^##\s+Acceptance Criteria\s*\n([\s\S]*?)(?=^##|\Z)/m);
+    const criteriaMatch = content.match(/^##\s+Acceptance Criteria\s*\n([\s\S]*?)(?=^##|(?![\s\S]))/m);
     const criteriaText = criteriaMatch ? criteriaMatch[1].trim() : "";
     const acceptanceCriteria = criteriaText
       .split("\n")
