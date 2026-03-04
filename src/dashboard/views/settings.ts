@@ -670,6 +670,20 @@ export function repoSettingsCard(repo: RepoRow): string {
       </details>
     </div>
     <div class="border-t border-slate-700 pt-3 mt-3">
+      <h4 class="text-sm font-medium text-slate-300 mb-2">Build System</h4>
+      <p class="text-xs text-slate-500 mb-2">Override auto-detection for repos where build tools aren't at root.</p>
+      ${select(`buildSystem_${repo.id}`, "Build System", [
+        { value: "", label: "Auto-detect" },
+        { value: "npm", label: "npm" },
+        { value: "dotnet", label: "dotnet" },
+        { value: "dotnet+npm", label: "dotnet+npm" },
+      ], ((settings.build as Record<string, unknown> | undefined)?.system as string) ?? "")}
+      ${input(`buildNpmDir_${repo.id}`, "npm Directory", {
+        value: ((settings.build as Record<string, unknown> | undefined)?.npmDir as string) ?? "",
+        placeholder: "./Client (relative path, optional)",
+      })}
+    </div>
+    <div class="border-t border-slate-700 pt-3 mt-3">
       <h4 class="text-sm font-medium text-slate-300 mb-2">Preview</h4>
       ${select(`previewEnabled_${repo.id}`, "Preview Enabled", [
         { value: "", label: "-- Use Global Default --" },

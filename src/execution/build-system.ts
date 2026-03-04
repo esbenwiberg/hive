@@ -113,17 +113,23 @@ async function findNpmSubdir(repoDir: string): Promise<string | null> {
  * 5. Scan one level of subdirs for package.json (prefers client/frontend/web/app).
  * 6. Combine to determine type: dotnet | npm | dotnet+npm.
  *
- * @param repoDir   Absolute path to the repository root.
- * @param override  Force a specific build system type (still populates roots).
+ * @param repoDir       Absolute path to the repository root.
+ * @param override      Force a specific build system type (still populates roots).
+ * @param repoSettings  Optional build settings from the Hive settings UI (takes priority over .hive.yaml).
  */
 export async function detectBuildSystem(
   repoDir: string,
   override?: BuildSystemType,
+  repoSettings?: { system?: string; npmDir?: string },
 ): Promise<BuildSystemInfo> {
   // Read .hive.yaml build config
   const hiveBuild = parseHiveBuildConfig(repoDir);
-  const effectiveOverride = override ?? hiveBuild?.system;
-  const hiveNpmDir = hiveBuild?.npmDir ? join(repoDir, hiveBuild.npmDir) : undefined;
+  const effectiveOverride = override ?? (repoSettings?.system as BuildSystemType | undefined) ?? hiveBuild?.system;
+  const hiveNpmDir = repoSettings?.npmDir
+    ? join(repoDir, repoSettings.npmDir)
+    : hiveBuild?.npmDir
+      ? join(repoDir, hiveBuild.npmDir)
+      : undefined;
 
   // Detect dotnet
   const dotnetPresent = (await hasSln(repoDir)) || (await hasCsproj(repoDir));

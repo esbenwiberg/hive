@@ -77,10 +77,13 @@ async function runStep(
  * Detects npm / dotnet / dotnet+npm automatically (or via .hive.yaml override).
  * Collects ALL failures rather than stopping at the first one.
  */
-export async function quickVerify(worktreePath: string): Promise<QuickVerifyResult> {
+export async function quickVerify(
+  worktreePath: string,
+  buildSettings?: { system?: string; npmDir?: string },
+): Promise<QuickVerifyResult> {
   const failures: string[] = [];
 
-  const info = await detectBuildSystem(worktreePath);
+  const info = await detectBuildSystem(worktreePath, undefined, buildSettings);
   logger.info({ worktreePath, buildSystem: info.type }, "quickVerify: detected build system");
 
   // ── npm steps ────────────────────────────────────────────────────────────
@@ -292,6 +295,7 @@ export async function reviewFix(
   worktreePath: string,
   milestoneSummary: string,
   model: string,
+  buildSettings?: { system?: string; npmDir?: string },
 ): Promise<ReviewFixResult> {
   const autonomousConfig = getAutonomousConfig();
   const maxIterations = autonomousConfig.reviewFix.maxIterations;
@@ -308,7 +312,7 @@ export async function reviewFix(
     logger.info({ iteration, maxIterations, worktreePath, reviewModel, fixModel }, "review-fix iteration start");
 
     // Step 1: Run shell verification
-    const verify = await quickVerify(worktreePath);
+    const verify = await quickVerify(worktreePath, buildSettings);
     const shellIssues = verify.failures;
     logger.info({ iteration, passed: verify.passed, failureCount: shellIssues.length, worktreePath }, "review-fix quickVerify done");
 
@@ -351,7 +355,7 @@ export async function reviewFix(
 
     // After the last iteration, do a final verify to see if fixes worked
     if (iteration === maxIterations) {
-      const finalVerify = await quickVerify(worktreePath);
+      const finalVerify = await quickVerify(worktreePath, buildSettings);
       if (finalVerify.passed) {
         // Final shell check passed — do one last Claude review (incremental)
         const diff = await getDiff(worktreePath);

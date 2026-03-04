@@ -361,6 +361,24 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
     const docsEnabled = body[docsEnabledKey] === "true";
     settings.docs = { enabled: docsEnabled };
 
+    // Build system override
+    const VALID_BUILD_SYSTEMS = new Set(["npm", "dotnet", "dotnet+npm"]);
+    const buildSystemKey = `buildSystem_${repoId}`;
+    const buildNpmDirKey = `buildNpmDir_${repoId}`;
+    const buildSystemVal = body[buildSystemKey]?.trim();
+    const buildNpmDirVal = body[buildNpmDirKey]?.trim();
+
+    if (buildSystemVal || buildNpmDirVal) {
+      if (buildSystemVal && !VALID_BUILD_SYSTEMS.has(buildSystemVal)) {
+        res.status(400).send("Invalid build system. Must be one of: npm, dotnet, dotnet+npm");
+        return;
+      }
+      const build: Record<string, string> = {};
+      if (buildSystemVal) build.system = buildSystemVal;
+      if (buildNpmDirVal) build.npmDir = buildNpmDirVal;
+      settings.build = build;
+    }
+
     // Preview settings
     const preview: Record<string, unknown> = {};
     const previewEnabledKey = `previewEnabled_${repoId}`;

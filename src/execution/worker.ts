@@ -17,6 +17,8 @@ import { createWorktree, cleanupWorktree, resolveGitCredentials } from "./worktr
 import { getGitProvider } from "./git-provider.js";
 import { reviewChanges, validateBaseSha } from "./review-gate.js";
 import { reviewFix, quickVerify } from "./milestone-review.js";
+import { detectBuildSystem } from "./build-system.js";
+import type { BuildSystemInfo } from "./build-system.js";
 import { refineTask } from "../agents/refiner.js";
 import { parseHiveYaml } from "../hive-yaml.js";
 import type { PreviewConfig, BasePreviewConfig, ComposePreviewConfig, TestcontainersPreviewConfig, ProcessPreviewConfig } from "../hive-yaml.js";
@@ -74,6 +76,20 @@ const execFileAsync = promisify(execFile);
 
 function getFlowPrompt(): string {
   return loadPrompt("flow");
+}
+
+/** Builds a `## Build System` prompt section from detected build info. */
+function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): string {
+  const lines: string[] = [`## Build System`, `Type: ${info.type}`];
+  if (info.npmDir) {
+    const rel = info.npmDir === repoDir ? "./" : "./" + info.npmDir.slice(repoDir.length + 1);
+    lines.push(`npm directory: ${rel} (run npm install, npm run build here)`);
+  }
+  if (info.dotnetDir) {
+    const rel = info.dotnetDir === repoDir ? "./" : "./" + info.dotnetDir.slice(repoDir.length + 1);
+    lines.push(`dotnet directory: ${rel} (run dotnet restore, dotnet build here)`);
+  }
+  return lines.join("\n");
 }
 
 // ── PR helpers ────────────────────────────────────────────────────────────────
@@ -219,6 +235,8 @@ async function executeMilestones(
   startFrom: number = 0,
   pushFn?: () => Promise<void>,
   prismConfig?: PrismConfig,
+  buildSystemSection?: string,
+  buildSettings?: { system?: string; npmDir?: string },
 ): Promise<{ totalCostUsd: number; reviewFixIssues: string[] }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
@@ -278,6 +296,10 @@ async function executeMilestones(
 
     if (learningsStr) {
       sections.push(learningsStr);
+    }
+
+    if (buildSystemSection) {
+      sections.push("", buildSystemSection);
     }
 
     sections.push("", `## Working Directory`, worktreePath);
@@ -349,7 +371,7 @@ async function executeMilestones(
 
     // ── 3. Review-fix loop ────────────────────────────────────────────────
     await addEvent(task.id, "review_fix_started", "worker", `Review-fix loop for milestone ${i + 1}/${milestones.length}`);
-    const review = await reviewFix(worktreePath, ms.title, model);
+    const review = await reviewFix(worktreePath, ms.title, model, buildSettings);
     totalCostUsd += review.costUsd;
     await addEvent(task.id, "review_fix_complete", "worker", `Review-fix ${review.passed ? "passed" : "failed"} (${review.iterations} iterations, $${review.costUsd.toFixed(2)})`);
     if (review.issues.length > 0) {
@@ -499,6 +521,13 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       }
     }
 
+    // Detect build system (using settings UI override if configured)
+    const repoBuildCfg = (repo.settings ?? {}) as Record<string, unknown>;
+    const buildSettings = repoBuildCfg.build as { system?: string; npmDir?: string } | undefined;
+    const buildInfo = await detectBuildSystem(worktree.path, undefined, buildSettings);
+    const buildSystemSection = buildSystemPromptSection(buildInfo, worktree.path);
+    logger.info({ taskId, buildSystem: buildInfo.type, npmDir: buildInfo.npmDir, dotnetDir: buildInfo.dotnetDir }, "Detected build system for worker prompt");
+
     // Retrieve relevant learnings for this task (non-blocking — failures degrade gracefully)
     let learningIds: number[] = [];
     let relevantLearnings: Awaited<ReturnType<typeof retrieveRelevantLearnings>> = [];
@@ -604,6 +633,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       learningsStr,
       retryStr,
       ``,
+      buildSystemSection,
+      ``,
       `## Working Directory`,
       worktree.path,
       ``,
@@ -630,7 +661,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         await milestoneGitProvider.push(worktree!.path, branchName, milestoneCreds);
       };
 
-      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig);
+      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings);
       implCostUsd = totalCostUsd;
       allReviewFixIssues.push(...reviewFixIssues);
     } else {
@@ -867,7 +898,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     // Rework fixes or late-stage changes can introduce build errors that slip
     // through. Run quickVerify here to catch them before pushing.
     await addEvent(taskId, "final_verify_started", "worker", "Running final build/test verification");
-    const finalVerify = await quickVerify(worktree.path);
+    const finalVerify = await quickVerify(worktree.path, buildSettings);
 
     if (!finalVerify.passed) {
       logger.warn({ taskId, failures: finalVerify.failures }, "Final build/test verification failed after review pass");
