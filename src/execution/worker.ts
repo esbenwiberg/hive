@@ -659,11 +659,13 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         const summary = (input.path ?? input.command ?? input.query ?? "") as string;
         try {
           const result = await baseExecutor(name, input);
-          await addEvent(taskId, "tool_call", "worker", `${name}(${summary})`, { tool: name, input: summary });
+          logger.info({ taskId, tool: name, input: summary }, "Tool call OK: %s(%s)", name, summary);
+          addEvent(taskId, "tool_call", "worker", `${name}(${summary})`, { tool: name, input: summary }).catch(() => {});
           return result;
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
-          await addEvent(taskId, "tool_call_error", "worker", `${name}(${summary}) → ERROR: ${errorMsg}`, { tool: name, input: summary, error: errorMsg });
+          logger.warn({ taskId, tool: name, input: summary, error: errorMsg }, "Tool call FAILED: %s(%s) → %s", name, summary, errorMsg);
+          addEvent(taskId, "tool_call_error", "worker", `${name}(${summary}) → ERROR: ${errorMsg}`, { tool: name, input: summary, error: errorMsg }).catch(() => {});
           throw err;
         }
       };
@@ -711,6 +713,15 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         },
       });
       implCostUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+
+      if (response.terminationReason) {
+        logger.warn({ taskId, reason: response.terminationReason }, "Claude terminated early");
+      }
+      // Log Claude's final text (truncated) for debugging empty changesets
+      if (response.text) {
+        const snippet = response.text.slice(0, 500).replace(/\n/g, " ");
+        logger.info({ taskId }, "Claude output: %s", snippet);
+      }
 
       await addEvent(taskId, "claude_call_complete", "worker", `Claude complete (${callModel}, ${response.cost.inputTokens}+${response.cost.outputTokens} tokens, $${implCostUsd.toFixed(2)}, ${response.turns} turns)`, {
         inputTokens: response.cost.inputTokens,
