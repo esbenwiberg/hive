@@ -606,33 +606,8 @@ function prismEnrichmentContent(prism: Record<string, unknown>): string {
     </div>`);
   }
 
-  if (findings.length > 0) {
-    const SEVERITY_COLORS: Record<string, string> = {
-      critical: "bg-red-500/20 text-red-300",
-      high: "bg-orange-500/20 text-orange-300",
-      medium: "bg-amber-500/20 text-amber-300",
-      low: "bg-slate-500/20 text-slate-300",
-      info: "bg-blue-500/20 text-blue-300",
-    };
-    const items = findings.map((f) => {
-      const sev = String(f.severity ?? "").toLowerCase();
-      const sevColor = SEVERITY_COLORS[sev] ?? "bg-slate-500/20 text-slate-300";
-      const title = f.title ? escapeHtml(String(f.title)) : "—";
-      const desc = f.description ? escapeHtml(String(f.description).slice(0, 200)) : null;
-      const suggestion = f.suggestion ? escapeHtml(String(f.suggestion).slice(0, 160)) : null;
-      return `<li class="py-1.5 border-b border-slate-800 last:border-0">
-        <div class="flex items-start gap-2">
-          <span class="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${sevColor}">${escapeHtml(sev || "?")}</span>
-          <span class="text-xs font-medium text-slate-200">${title}</span>
-        </div>
-        ${desc ? `<p class="text-xs text-slate-400 mt-0.5 ml-0">${escapeHtml(desc)}</p>` : ""}
-        ${suggestion ? `<p class="text-xs text-slate-500 mt-0.5 italic">${escapeHtml(suggestion)}</p>` : ""}
-      </li>`;
-    }).join("");
-    parts.push(`<div class="mb-3">
-      <p class="text-xs font-medium text-slate-400 mb-1">Findings (${findings.length})</p>
-      <ul class="list-none">${items}</ul>
-    </div>`);
+  if (relevantCode.length === 0) {
+    parts.push(`<p class="text-xs text-slate-500 italic">No relevant code found</p>`);
   }
 
   if (moduleSummaries.length > 0) {
@@ -651,7 +626,6 @@ function enrichmentHeaderExtra(key: string, value: unknown): string {
     const parts: string[] = [];
     if (stats.searchResults) parts.push(`${stats.searchResults} code`);
     if (stats.summariesReturned) parts.push(`${stats.summariesReturned} summaries`);
-    if (stats.findingsReturned) parts.push(`${stats.findingsReturned} findings`);
     if (parts.length === 0) return "";
     return `<span class="rounded-full bg-violet-900/40 px-2 py-0.5 text-xs text-violet-300 font-normal">${parts.join(" · ")}</span>`;
   }
