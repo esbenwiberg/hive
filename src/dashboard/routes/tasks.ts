@@ -11,12 +11,14 @@ import { canTransition } from "../../domain/state-machine.js";
 import {
   taskListPage,
   taskListPartial,
+  taskCreateForm,
   taskDetailPanel,
   previewSection,
   previewMetaRow,
   activityEventList,
   taskDebugPanel,
 } from "../views/tasks.js";
+import { parseBlueprint } from "../../blueprints/parser.js";
 import { getEvents } from "../../db/queries/task-events.js";
 import { getLatestByTask as getLatestReview } from "../../db/queries/code-reviews.js";
 import * as activeAgentQueries from "../../db/queries/active-agents.js";
@@ -139,7 +141,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
 
 router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { title, body, repoId, type, size, visibility, skipPreview } = req.body;
+    const { title, body, repoId, type, size, visibility, skipPreview, blueprintMode, blueprintMarkdown } = req.body;
     const user = req.session.user!;
 
     if (!title || typeof title !== "string" || title.trim().length === 0) {
@@ -174,6 +176,51 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
     if (trimmedBody.length > 10000) {
       res.status(400).send("Description must be 10,000 characters or fewer");
       return;
+    }
+
+    // ── Blueprint pre-validation ───────────────────────────────────────────
+    const isBlueprintMode = blueprintMode === "true" || blueprintMode === true;
+    const rawBlueprintMarkdown = typeof blueprintMarkdown === "string" ? blueprintMarkdown.trim() : "";
+
+    if (isBlueprintMode) {
+      if (!rawBlueprintMarkdown) {
+        // Blueprint toggled on but nothing pasted — re-render form with error
+        const repos = await repoQueries.listAll();
+        const accessibleRepoIds = await getAccessibleRepoIds(user);
+        const filteredRepos = accessibleRepoIds
+          ? repos.filter((r) => accessibleRepoIds.includes(r.id))
+          : repos;
+        res.status(422).send(
+          taskCreateForm(filteredRepos, user, HIVE_SELF_REPO, ["Blueprint markdown is required when blueprint mode is enabled."], ""),
+        );
+        return;
+      }
+
+      if (rawBlueprintMarkdown.length > 50000) {
+        const repos = await repoQueries.listAll();
+        const accessibleRepoIds = await getAccessibleRepoIds(user);
+        const filteredRepos = accessibleRepoIds
+          ? repos.filter((r) => accessibleRepoIds.includes(r.id))
+          : repos;
+        res.status(422).send(
+          taskCreateForm(filteredRepos, user, HIVE_SELF_REPO, ["Blueprint markdown must be 50,000 characters or fewer."], rawBlueprintMarkdown),
+        );
+        return;
+      }
+
+      const parseResult = parseBlueprint(rawBlueprintMarkdown);
+      if (!parseResult.ok) {
+        const errorMessages = parseResult.errors.map((e: { message: string }) => e.message);
+        const repos = await repoQueries.listAll();
+        const accessibleRepoIds = await getAccessibleRepoIds(user);
+        const filteredRepos = accessibleRepoIds
+          ? repos.filter((r) => accessibleRepoIds.includes(r.id))
+          : repos;
+        res.status(422).send(
+          taskCreateForm(filteredRepos, user, HIVE_SELF_REPO, errorMessages, rawBlueprintMarkdown),
+        );
+        return;
+      }
     }
 
     // Repo access check for non-admins
@@ -220,6 +267,9 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       createdBy: user.id,
       visibility: resolvedVisibility,
       skipPreview: skipPreview === "true" || skipPreview === true,
+      ...(isBlueprintMode && rawBlueprintMarkdown
+        ? { blueprintSource: "user" as const, userBlueprintMarkdown: rawBlueprintMarkdown }
+        : {}),
     });
 
     // Return updated task list

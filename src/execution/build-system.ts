@@ -35,12 +35,11 @@ async function hasSln(dir: string): Promise<boolean> {
   return entries.some((e) => e.isFile() && e.name.endsWith(".sln"));
 }
 
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", "bin", "obj", ".vs",
-  "TestResults", "packages", "dist", "build",
+const CSPROJ_SKIP_DIRS = new Set([
+  "node_modules", ".git", "bin", "obj", ".vs", "TestResults", "packages", "dist", "build",
 ]);
 
-/** Returns true if any *.csproj file exists within `dir` up to `maxDepth` levels deep. */
+/** Returns true if any *.csproj file exists within `maxDepth` levels of `dir`. */
 async function hasCsproj(dir: string, maxDepth = 3): Promise<boolean> {
   let entries;
   try {
@@ -56,7 +55,7 @@ async function hasCsproj(dir: string, maxDepth = 3): Promise<boolean> {
   if (maxDepth <= 0) return false;
 
   for (const entry of entries) {
-    if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
+    if (!entry.isDirectory() || CSPROJ_SKIP_DIRS.has(entry.name)) continue;
     if (await hasCsproj(join(dir, entry.name), maxDepth - 1)) {
       return true;
     }
@@ -109,7 +108,7 @@ async function findNpmSubdir(repoDir: string): Promise<string | null> {
  * Detection order:
  * 1. Check `.hive.yaml` build section for an override.
  * 2. Look for .sln at root → dotnet.
- * 3. Glob *.csproj at depth ≤ 1 → dotnet.
+ * 3. Glob *.csproj at depth ≤ 3 → dotnet.
  * 4. Look for package.json at root → npm.
  * 5. Scan one level of subdirs for package.json (prefers client/frontend/web/app).
  * 6. Combine to determine type: dotnet | npm | dotnet+npm.

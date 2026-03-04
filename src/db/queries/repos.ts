@@ -2,6 +2,8 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "../connection.js";
 import { repos } from "../schema.js";
 
+export type { RepoRow } from "../schema.js";
+
 /**
  * Finds an existing repo by provider + full_name, or creates a new one.
  * Uses an upsert (INSERT ... ON CONFLICT DO UPDATE) so that

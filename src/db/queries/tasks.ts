@@ -4,7 +4,7 @@ import { tasks } from "../schema.js";
 import { generateTaskId } from "../../domain/types.js";
 import { canTransition } from "../../domain/state-machine.js";
 import { getTotalCostForTask } from "./costs.js";
-import type { TaskFilters } from "../../domain/types.js";
+import type { TaskFilters, BlueprintSourceValue } from "../../domain/types.js";
 
 function escapeLike(str: string): string {
   return str.replace(/[\\%_]/g, (ch) => `\\${ch}`);
@@ -33,6 +33,8 @@ export async function create(data: {
   createdBy: number;
   visibility?: string;
   skipPreview?: boolean;
+  blueprintSource?: BlueprintSourceValue;
+  userBlueprintMarkdown?: string | null;
 }) {
   const id = generateTaskId();
 
@@ -51,10 +53,36 @@ export async function create(data: {
       visibility: data.visibility ?? "public",
       skipPreview: data.skipPreview ?? false,
       status: "pending",
+      blueprintSource: data.blueprintSource ?? "architect",
+      userBlueprintMarkdown: data.userBlueprintMarkdown ?? null,
     })
     .returning();
 
   return task;
+}
+
+/**
+ * Updates the blueprint source and optional raw user-supplied blueprint markdown.
+ * Called when a task transitions into blueprint-validation mode.
+ */
+export async function updateBlueprintSource(
+  id: string,
+  data: {
+    blueprintSource: BlueprintSourceValue;
+    userBlueprintMarkdown?: string | null;
+  },
+) {
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      blueprintSource: data.blueprintSource,
+      userBlueprintMarkdown: data.userBlueprintMarkdown ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, id))
+    .returning();
+
+  return updated;
 }
 
 /**

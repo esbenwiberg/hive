@@ -493,21 +493,26 @@ describe("AzureDevOpsProvider", () => {
       ).rejects.toThrow("Invalid Azure DevOps repo name");
     });
 
-    it("reuses existing PR on 409 conflict from Azure DevOps API", async () => {
-      const mockFetch = vi.fn()
-        // First call: createPullRequest returns 409
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 409,
-          text: async () => "Azure DevOps PR creation failed (409): TF401179: PR already exists",
-        })
-        // Second call: listPullRequests returns the existing PR
-        .mockResolvedValueOnce({
+    it("reuses existing PR on 409 conflict", async () => {
+      let callCount = 0;
+      const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: createPullRequest → 409
+          return {
+            ok: false,
+            status: 409,
+            text: async () => "TF401179: An active pull request already exists",
+          };
+        }
+        // Second call: listPullRequests → return existing PR
+        return {
           ok: true,
           json: async () => ({
-            value: [{ pullRequestId: 55, status: "active" }],
+            value: [{ pullRequestId: 77, status: "active" }],
           }),
-        });
+        };
+      });
       vi.stubGlobal("fetch", mockFetch);
 
       const result = await provider.createPR(
@@ -519,8 +524,10 @@ describe("AzureDevOpsProvider", () => {
         azureCreds,
       );
 
-      expect(result.reused).toBe(true);
-      expect(result.url).toContain("/pullrequest/55");
+      expect(result).toEqual({
+        url: "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/77",
+        reused: true,
+      });
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
       vi.unstubAllGlobals();
@@ -549,6 +556,28 @@ describe("AzureDevOpsProvider", () => {
           azureCreds,
         ),
       ).rejects.toThrow("(409)");
+
+      vi.unstubAllGlobals();
+    });
+
+    it("re-throws non-409 errors from Azure DevOps API", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => "Bad Request: missing fields",
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      await expect(
+        provider.createPR(
+          "myorg/myproject/myrepo",
+          "feature/ado-branch",
+          "main",
+          "Title",
+          "Body",
+          azureCreds,
+        ),
+      ).rejects.toThrow("Azure DevOps PR creation failed (400)");
 
       vi.unstubAllGlobals();
     });

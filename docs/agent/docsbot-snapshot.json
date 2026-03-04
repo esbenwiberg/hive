@@ -1,0 +1,466 @@
+{
+  "generatedAt": "2026-02-26T14:54:13.251Z",
+  "modules": {
+    "auth/middleware.ts": {
+      "contentHash": "13f5fcf7f34effc8b9451493c4c3a7772d1049d107dde9ef0c3b30f78ae8739a",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/auth/middleware.md"
+    },
+    "auth/session.ts": {
+      "contentHash": "4d266475c94c687d687adebd6e4bb23ece7ecc6875309ad8f8abe2d73f6048d5",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/auth/session.md"
+    },
+    "auth/entra.ts": {
+      "contentHash": "350985c98b22719c2e7b26c764f86b2c7c69ebe80b8126542a6d936abd073485",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/auth/entra.md"
+    },
+    "dashboard/server.ts": {
+      "contentHash": "9cc5c71a65c7bb70e5e06975155ffcc41fcbff6dbc2b42929c1c60b4e9dd9af1",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/server.md"
+    },
+    "dashboard/views/costs.ts": {
+      "contentHash": "4c6ee70d563807d8fb4c697b14351161bf57939b41a7b605ba1a151dd3dabf76",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/costs.md"
+    },
+    "dashboard/views/dashboard.ts": {
+      "contentHash": "d1a69bc18ff6982707fd90cc28dcba434b1fbc99f7222292eff919dcb4c4a56b",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/dashboard.md"
+    },
+    "dashboard/views/instances.ts": {
+      "contentHash": "3220b81c9d6b52a7e863d2dce2dd8a37a56361d713b950b603e93155bf2702f2",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/instances.md"
+    },
+    "dashboard/views/profile.ts": {
+      "contentHash": "ab105cde4f838017b2a5e4db3e6084d6b7d8d3854f8abd1fdaa4f931361ca860",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/profile.md"
+    },
+    "dashboard/views/health.ts": {
+      "contentHash": "577aae33d9119b4a56134244357a0d3b0a2ac387142f45b2edfad5c233d0b048",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/health.md"
+    },
+    "dashboard/views/logs.ts": {
+      "contentHash": "531b8c0fd018bd3d6ad99eb3e95ee2f317bb1be7d0fbcabb20938b7e92045c72",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/logs.md"
+    },
+    "dashboard/views/hivemind.ts": {
+      "contentHash": "c49f7ec63b53b655a4afdc6985ac1adeb119df0d01de23a71e81f4a808c5bf71",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/hivemind.md"
+    },
+    "dashboard/views/layout.ts": {
+      "contentHash": "c33c6eb4b0cc73721f6d284acaceda15383193c6498103d4e8a35f53e7ea0696",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/layout.md"
+    },
+    "dashboard/views/prompts.ts": {
+      "contentHash": "562189eb0b8be9427e8487b33dac3776e847144ac76b2262bc148e7cb7fe43cd",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/prompts.md"
+    },
+    "dashboard/views/tasks.ts": {
+      "contentHash": "fd21b4af99f40419d63c72257d372655e0ae6a22f207dc9ed54bd5e880426d1d",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/tasks.md"
+    },
+    "dashboard/views/permissions.ts": {
+      "contentHash": "44bc76108dbc730efedbb3a2ec39687e3d9e720af964e13ef52c9fd5b3d75317",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/permissions.md"
+    },
+    "dashboard/views/producers.ts": {
+      "contentHash": "35d7340b4c1f74c0fbe8189ff1a931854c8d6a83cdb8212d05e919e87e3b2874",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/producers.md"
+    },
+    "dashboard/views/settings.ts": {
+      "contentHash": "d34a5cec0dd894e634b9e069b4e0454c26be08bf5813ea410edf92bc47436890",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/settings.md"
+    },
+    "dashboard/views/workflow.ts": {
+      "contentHash": "414491c83924749a1b304aff51daec5ca522dedc874f57da15771a06b08eed9c",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/workflow.md"
+    },
+    "dashboard/views/changelog.ts": {
+      "contentHash": "d48658aff36c68a595ca2d230c5a728cfaa417f3f94582973ae15f21d9e4d1d3",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/changelog.md"
+    },
+    "dashboard/views/components.ts": {
+      "contentHash": "3efd729dc1597f0f9d2139350b28097dbf00d1a0368bcb82663b6058a691e21b",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/components.md"
+    },
+    "dashboard/views/tasks.test.ts": {
+      "contentHash": "dc065bc21fb28ebf464ea8110e4332e67fcca7ce29990feb1ac0a40c486b7b1c",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/views/tasks.test.md"
+    },
+    "dashboard/routes/costs.ts": {
+      "contentHash": "6326dd8bef085cc6535cc8751b7894640d16429554acc1b6d68aca1c4430e77e",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/costs.md"
+    },
+    "dashboard/routes/dashboard.ts": {
+      "contentHash": "8c2eca17e7c48b5bff1cde6feeb2c1147774e75f08d39aa5849711a9d2b2387f",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/dashboard.md"
+    },
+    "dashboard/routes/instances.ts": {
+      "contentHash": "cbfd147fc462c62fb30c213205832695671af942888eb4c28216b2b1383bbe24",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/instances.md"
+    },
+    "dashboard/routes/profile.ts": {
+      "contentHash": "a09a1e1b3c1c75c3fa30c8fbab6eca4bd1ac34c7beff8ababb70c8dd46de342f",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/profile.md"
+    },
+    "dashboard/routes/health.ts": {
+      "contentHash": "0bf7d1a5ccd4c820ddde12633b6f63e888997383dd11b5896088ac6abc88ba3b",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/health.md"
+    },
+    "dashboard/routes/logs.ts": {
+      "contentHash": "897577c1fa5592d86b4b41d40a6d2f5ba927004f73611ca7761c23906c99204e",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/logs.md"
+    },
+    "dashboard/routes/hivemind.ts": {
+      "contentHash": "130053e3bb83fda6eee23df64ed5e61bbeb61f932edc16be823daebbb3969cc1",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/hivemind.md"
+    },
+    "dashboard/routes/preview-test.ts": {
+      "contentHash": "41ebd2073c8791a261e4378b4d9713746709f8181a8049a03d99e9aab828df9b",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/preview-test.md"
+    },
+    "dashboard/routes/tasks.ts": {
+      "contentHash": "7eab89a7e7aa59a683e43469af7dd8189d472364e29f34ff9a1f7ee10259baf2",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/tasks.md"
+    },
+    "dashboard/routes/permissions.ts": {
+      "contentHash": "0d5937e2db10b1ef6610d567302c36b7d1ce84d101be89fc4e511fe70eebe7db",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/permissions.md"
+    },
+    "dashboard/routes/producers.ts": {
+      "contentHash": "ec8152e0762bbdc427729054298f09ca791a143360a736e138814608bf0cf23b",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/producers.md"
+    },
+    "dashboard/routes/settings.ts": {
+      "contentHash": "e094546505752039a4e1b155acb25a0a4fb5bbc3c18a74b47a1c6acafc9aeba6",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/dashboard/routes/settings.md"
+    },
+    "vault/keyvault.ts": {
+      "contentHash": "11c8f4069017072c440fd26a974079c60108713db8fa9fc0ea3f462ff9288ee8",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/vault/keyvault.md"
+    },
+    "execution/worker.ts": {
+      "contentHash": "8e36786a5a9be2e69c3d8465b2cc15f66ec3edeca4ebaafea739ee2da4956cd2",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/worker.md"
+    },
+    "execution/disk-cleaner.ts": {
+      "contentHash": "cb9b77380703c55330a18b7e53d261f1c37cbcd75ae1b1e0d24965aaa7a9c9f5",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/disk-cleaner.md"
+    },
+    "execution/milestone-review.ts": {
+      "contentHash": "91e364c0479dd915ef692f128aad82f40fee0dc1abc2b7fb8a72e6a7337a79c0",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/milestone-review.md"
+    },
+    "execution/preview/manager.ts": {
+      "contentHash": "b30538025cd0e44a39812880f8b1f7c27b4661ca4cfbde1fcec17c52762081af",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/preview/manager.md"
+    },
+    "execution/preview/remote-docker.ts": {
+      "contentHash": "b502b82fccbbe7bea4aa4505e7018c010cbd7c38b4fbd6baf04d3001a487121c",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/preview/remote-docker.md"
+    },
+    "execution/preview/validator.ts": {
+      "contentHash": "b675abc00110b62f9328a336fb9eac92a0c2d70403b29c52bf73925383133ec4",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/preview/validator.md"
+    },
+    "execution/preview/types.ts": {
+      "contentHash": "6767ae55d2dd203f1e1f4d388ff850c63a2518ef6928d39c7c8f15b80029b7c9",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/preview/types.md"
+    },
+    "execution/worker-tools.ts": {
+      "contentHash": "f2f8710a5b7aed3d14f0dee7b42f8eb4385dd75413bd9add5b844715dca30cb1",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/worker-tools.md"
+    },
+    "execution/build-system.ts": {
+      "contentHash": "0eb44fa5837d6089f41e9bd9d53ab20fd81355a0821ee6297ec754b2c884f27f",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/build-system.md"
+    },
+    "execution/browser-tools.ts": {
+      "contentHash": "ba2176d01bf0837d7ac6563a4393d0df043e7c620e7dd9569372c340d8f2c6b6",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/browser-tools.md"
+    },
+    "execution/worktree.ts": {
+      "contentHash": "0f806a1d70e12843683dfde963ed0d5986876c1b1a566c9af2846e46f6f48c4b",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/worktree.md"
+    },
+    "execution/git-provider.ts": {
+      "contentHash": "ef593adc6ddf99eace4fb275bef01ed22b6276866232f5c3d5123bd3dbdc259c",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/git-provider.md"
+    },
+    "execution/review-gate.ts": {
+      "contentHash": "e9672c9b98d490af79f8b5338ba33c04defb96193fd7f6b87de2bd7889b5ba61",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/execution/review-gate.md"
+    },
+    "producers/doc-auditor.ts": {
+      "contentHash": "499647896c120827307bfcadebb46c01404a31bf4787f8b3d1147494295a35c8",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/producers/doc-auditor.md"
+    },
+    "producers/maintenance.ts": {
+      "contentHash": "da7fef8662182d1437118ac4d5d8b3523a356a70b279feca14d1b03f65c559d2",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/producers/maintenance.md"
+    },
+    "producers/feature-scout.ts": {
+      "contentHash": "36eae8e8967a48569c2adcac62b66a3a9f6895a47d842fb291c2a03f668fbbaa",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/producers/feature-scout.md"
+    },
+    "producers/bug-hunter.ts": {
+      "contentHash": "fb566f6b1f4b6648fa0ccba4a1e2a690d106c56ef6b4e7f337315b90bd1f3da8",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/producers/bug-hunter.md"
+    },
+    "producers/self-monitor.ts": {
+      "contentHash": "0512e97c26cdc7ad3910b11fd7a8231a1a15e6a71d46ff6957961760878c29eb",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/producers/self-monitor.md"
+    },
+    "producers/base.ts": {
+      "contentHash": "38efd8ca00537d8cb488366f8d6b9667669386b077b060a043c60f8dede4a433",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/producers/base.md"
+    },
+    "producers/security-scanner.ts": {
+      "contentHash": "3c0357914c0eebeff1e460ab5043587a72deda9691eaef947af33319017a7de3",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/producers/security-scanner.md"
+    },
+    "producers/log-scanner.ts": {
+      "contentHash": "ef911f3657403bfd94b38099579d25e9f85d94e05dc189828fb84f6ff44e315c",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/producers/log-scanner.md"
+    },
+    "enrichers/docs.ts": {
+      "contentHash": "65a3fe89ef59b727afa8ac41edda0586ef0b69e2f06ecd0d76ee689593468816",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/docs.md"
+    },
+    "enrichers/codebase.ts": {
+      "contentHash": "9a04ebbe09e879237be45a4aa2ef86200f16b5a9e188b3db783dfe4db2e15b1a",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/codebase.md"
+    },
+    "enrichers/git-history.ts": {
+      "contentHash": "e49e124287e4b5ef48fced50c4d7e5993d14c1824b43ef84803f421fe71e3530",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/git-history.md"
+    },
+    "enrichers/scorer.ts": {
+      "contentHash": "dfc68a29401ae66971f86540230e904d407ff3b9d0f55f56ea7d523274278aae",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/scorer.md"
+    },
+    "enrichers/dependencies.ts": {
+      "contentHash": "e79405a94a5f67ee41c3600c19cd1a9b571d7af8c455dc0a7d5a4c1a905ddc4d",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/dependencies.md"
+    },
+    "enrichers/base.ts": {
+      "contentHash": "a26501b23014c6188c86f2c71ad43545550ec8943da6bed87c2ff5296e61a253",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/base.md"
+    },
+    "enrichers/index.ts": {
+      "contentHash": "99e5d287fb3bc6483f9f03a0736349364496c1128631e08b8bf35b6f1a544004",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/index.md"
+    },
+    "enrichers/prism.ts": {
+      "contentHash": "360d1ab5bc62db354829801b4000526a6ccf68f96f901a23cc7c4bcad78d4f99",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/prism.md"
+    },
+    "enrichers/architect.ts": {
+      "contentHash": "885361802b35a59a719d03b01f4905c4e58033b09c6165a991c53d35737e168a",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/enrichers/architect.md"
+    },
+    "notifications.ts": {
+      "contentHash": "5c55453deec931bccdf4124f29c5e0c55b1800b2e027fbdf06d076c7543d8109",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/notifications.md"
+    },
+    "domain/config.ts": {
+      "contentHash": "c7e23f6d73cd50ebbef658f4d3d67445529a8d099c37e195003971f251c31e7d",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/domain/config.md"
+    },
+    "domain/autonomous-config.ts": {
+      "contentHash": "d2009597c027ab6b18902e2146a33df18bba460dd657c2aa485a8a580a275b80",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/domain/autonomous-config.md"
+    },
+    "domain/types.ts": {
+      "contentHash": "0a1154808588128eac76dddfa969e4274b0cd1b733952f8e1aeb0ca43946133f",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/domain/types.md"
+    },
+    "domain/state-machine.ts": {
+      "contentHash": "c61bb49a193a85755b17ba74f86747770726a739b4e1a78be6317a62c5337475",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/domain/state-machine.md"
+    },
+    "integrations/azure-monitor.ts": {
+      "contentHash": "18e97e24381f613ab9d031af0acde9700b06823909c761534479bfab03195ee8",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/integrations/azure-monitor.md"
+    },
+    "integrations/azure-devops.ts": {
+      "contentHash": "a981ca856554ba5cffef765822c9578a9c33f84e8e86bfd581b119c14dca8eb3",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/integrations/azure-devops.md"
+    },
+    "prompts.ts": {
+      "contentHash": "de9c467331268048a9ad6d7158a8096959bcd11345f5678438d7eee385e18730",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/prompts.md"
+    },
+    "hive-yaml.ts": {
+      "contentHash": "90253f81e4865ccff4bcf043346fbe6fe11c3e011fb46354b368cb62863a3ffa",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/hive-yaml.md"
+    },
+    "agents/browser-validator.ts": {
+      "contentHash": "d13d0d5db43977d50eb3c9573c71d48316c984aa217e9da46801818996ad9112",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/browser-validator.md"
+    },
+    "agents/cost-utils.ts": {
+      "contentHash": "cad30e33b801db51afb3240a81a65457ff3d5a9551510cbb42c1384f7da0dcbf",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/cost-utils.md"
+    },
+    "agents/retry.ts": {
+      "contentHash": "e4e64cf3ff91a378e6537f21f2af7bce6351540ee7663db50fb496cc5554b0db",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/retry.md"
+    },
+    "agents/router.ts": {
+      "contentHash": "cadf02bddba85c7274ccf4d8e44822830fecc0da25be0bf673514f836f8f669e",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/router.md"
+    },
+    "agents/gate-analyst.ts": {
+      "contentHash": "29aa7c7e3e0e2a99dc3bb2353df6eaf4c049082e81e6619317f289192acc7ccf",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/gate-analyst.md"
+    },
+    "agents/feedback-loop.ts": {
+      "contentHash": "6d4731e2a06b46201d828cf8b3decaba249138f1b89809642ffbe2678c175042",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/feedback-loop.md"
+    },
+    "agents/gate.ts": {
+      "contentHash": "a56b841634ff78650358c6bd186f12e046ec0e14f7a11ed2beea55040fd37b29",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/gate.md"
+    },
+    "agents/keeper.ts": {
+      "contentHash": "d76204bbe2d06bc326eca9af28c46bb58237d8a5b60310aafc640fe9d75109a2",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/keeper.md"
+    },
+    "agents/retrospective.ts": {
+      "contentHash": "93e817daabec5fe7d72c1546acd08eb20be931884747ee8368e3ffe4882e6155",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/retrospective.md"
+    },
+    "agents/refiner.ts": {
+      "contentHash": "532ab3565632cbde4554ead968aaeb856d9a16dbd8e964b676c3e707553faf0f",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/refiner.md"
+    },
+    "agents/decomposer.ts": {
+      "contentHash": "db622e715006cdaddfbad18331279cc7bfbedea7ec1b2321cd87c3efb771e223",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/decomposer.md"
+    },
+    "agents/sdk.ts": {
+      "contentHash": "00796fc484e83abde1db249012c42a75406853d68dc95a46214f0e6417a4138a",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/sdk.md"
+    },
+    "agents/pipeline.ts": {
+      "contentHash": "c3889a9aaa66ece6a67d1607d375bfcbd2031e85b4668a3385b9665fb9e3b548",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/pipeline.md"
+    },
+    "agents/code-quality-analyst.ts": {
+      "contentHash": "66b0723a1b104473ce83dcc9f4deb5ef42b082c8a9089f62777d0524062fa6be",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/agents/code-quality-analyst.md"
+    },
+    "daemon/preview-cleanup.ts": {
+      "contentHash": "8d9b56da5a1a32d4f6a32ae8022c358cfc1a63eeff60d17d2bea284cf4925fc9",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/daemon/preview-cleanup.md"
+    },
+    "daemon/daemon.ts": {
+      "contentHash": "6d0df71ad1d8c07765c1d1a39d11e2821ea98f4c87ff5b903262e216b03e4e97",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/daemon/daemon.md"
+    },
+    "daemon/scheduler.ts": {
+      "contentHash": "661d4089e558ee089cf8eb31da44c6b5ceb721efcac8cbe727d67344fa8091d3",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/daemon/scheduler.md"
+    },
+    "daemon/pr-close-cleanup.ts": {
+      "contentHash": "d165822c93adb6adfacd9fe44f214e36f362120fbfed97d29ab67ea8b6623fdb",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/daemon/pr-close-cleanup.md"
+    },
+    "daemon/pr-feedback-poll.ts": {
+      "contentHash": "668ffe5b55af72ec216b9d73daae81d4ace2e230751ba9dfb7039c5116fb27db",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/daemon/pr-feedback-poll.md"
+    },
+    "daemon/stale-tasks.ts": {
+      "contentHash": "4e09c3768d6935a17a9a1be3bff49dfb7139a5c8e987d0fa2020b21da7aa70bc",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/daemon/stale-tasks.md"
+    },
+    "prompt-cache.ts": {
+      "contentHash": "6a57539ca266cc96ab52d497c63819ff76476ce3d2673404aae864b4e0488842",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/prompt-cache.md"
+    },
+    "index.ts": {
+      "contentHash": "64f79b4826679c9a311c537460b4265fef050385c76fa653d6bd903f28d0d546",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/index.md"
+    },
+    "cli.ts": {
+      "contentHash": "9f54c0c54326c916d02035e1db439adaec7648dd4a1af7dffcac52c44c316a5e",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/cli.md"
+    },
+    "log-buffer.ts": {
+      "contentHash": "8f775b267bac8b8293869d865f8826f0610a812364c8f5282af1a50c1ac007da",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/log-buffer.md"
+    },
+    "db/schema.ts": {
+      "contentHash": "4518116faef394472228998b5fa9d608989ae332207197021e597232df32fd81",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/schema.md"
+    },
+    "db/queries/learning-events.ts": {
+      "contentHash": "b270c31ee05ed9662c23f40c9737399b49203f47b1afa4ae945bae08d5d6e179",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/learning-events.md"
+    },
+    "db/queries/users.ts": {
+      "contentHash": "477ac13158b31eea01d5b660c6ca3c1a455521cab3d7292d1ed8cd13fbd64b41",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/users.md"
+    },
+    "db/queries/costs.ts": {
+      "contentHash": "a950742719d1fc7f4256fff92d89aaf31fe9e71e861ab794eba5b25cdca7087e",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/costs.md"
+    },
+    "db/queries/preview-instances.ts": {
+      "contentHash": "ad3be7d6051441a3ffb69465929482ddf0273f125dd564bd09c0d1abec6badae",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/preview-instances.md"
+    },
+    "db/queries/producer-runs.ts": {
+      "contentHash": "034910a045f6ebfd1b6fec1d5b6bdf8a1a96ead19cc2617f90871d8fc3982e88",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/producer-runs.md"
+    },
+    "db/queries/active-agents.ts": {
+      "contentHash": "cbd96b2d547f8d04755d952bb447e9f3cea468856016f444a50c0043858b3907",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/active-agents.md"
+    },
+    "db/queries/code-reviews.ts": {
+      "contentHash": "67d66baee16b717ad5264f29874edea68395d201a0d743f28acba02f4463cd3c",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/code-reviews.md"
+    },
+    "db/queries/learnings.ts": {
+      "contentHash": "38a948f23b2550f71776abf9e7f913e8a58b20110ba7bd5d30961f6e94bb9d0d",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/learnings.md"
+    },
+    "db/queries/enrichment-runs.ts": {
+      "contentHash": "43f15bc10f8c8952b21142c607de8d6dfa9cb8ddb9fdda3d1973c0b91888e069",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/enrichment-runs.md"
+    },
+    "db/queries/task-events.ts": {
+      "contentHash": "ce67167b31ea95b11be640b0eaf7989af68dc59aa03e261dc9b4431736031a78",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/task-events.md"
+    },
+    "db/queries/user-credentials.ts": {
+      "contentHash": "b50a6d8e1ecf69f2a78c1a9ab49bc5d335a3fd0e37efcac35588de51b3537e0d",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/user-credentials.md"
+    },
+    "db/queries/preview-logs.ts": {
+      "contentHash": "5156b8759a3d3ceba244afff280b4c4990eb341b91e640cc85b0eae670bb5517",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/preview-logs.md"
+    },
+    "db/queries/user-repo-access.ts": {
+      "contentHash": "6771c8a573dc37bebfdde6d7e552732a220514de260b1e882812e47ff90cb0bc",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/user-repo-access.md"
+    },
+    "db/queries/tasks.ts": {
+      "contentHash": "4b2fcba6e7ab68860cda1faa6e00ba67e6613ba02e01a466f76a2149923283be",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/tasks.md"
+    },
+    "db/queries/repos.ts": {
+      "contentHash": "ad10cb6ed22fb34ef6d9da58eb95c01d96f58cdc41e22d9819005f82d8cc8be3",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/repos.md"
+    },
+    "db/queries/gate-decisions.ts": {
+      "contentHash": "23f3dac4b5c979253a1ea3c5678ed42e587c1af4dd5a090f850557ddafbcce2a",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/queries/gate-decisions.md"
+    },
+    "db/migrate.ts": {
+      "contentHash": "692670ff118253d236b469592c69d8b07dd452de61d44876f9d33fecf4f35f51",
+      "docPath": "/home/ewi/repos/orcha-clones/hive/docs/agent/db/migrate.md"
+    }
+  },
+  "lastCommit": "46f5a6261a4f36cc5b71572e3d971e8567d44150"
+}

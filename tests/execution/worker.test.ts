@@ -12,6 +12,7 @@ vi.mock("../../src/agents/sdk.js", () => ({
 // Mock worker-tools so we don't need real filesystem/exec
 vi.mock("../../src/execution/worker-tools.js", () => ({
   WORKER_TOOLS: [],
+  getWorkerTools: vi.fn(() => []),
   createWorktreeToolExecutor: vi.fn(() => vi.fn()),
 }));
 
@@ -370,7 +371,7 @@ describe("executeTask", () => {
 
   // ── Max rework cycles exceeded ───────────────────────────────────────────
 
-  it("force-passes when max rework cycles exceeded and creates PR with findings", async () => {
+  it("fails task for human intervention when max rework cycles exceeded", async () => {
     const { task } = await seedApprovedTask();
 
     // Set reworkCount to 2 (the max)
@@ -387,12 +388,11 @@ describe("executeTask", () => {
 
     const result = await executeTask(task.id);
 
-    // At max cycles the worker force-passes and creates a PR
-    expect(result.success).toBe(true);
-    expect(result.branch).toBeDefined();
+    // At max cycles the worker stops for human intervention (no auto-force PR)
+    expect(result.success).toBe(false);
 
     const final = await getById(task.id);
-    expect(final!.status).toBe("done");
+    expect(final!.status).toBe("failed");
   });
 
   // ── Review fails (verdict = fail) ────────────────────────────────────────

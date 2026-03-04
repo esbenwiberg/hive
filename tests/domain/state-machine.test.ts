@@ -164,11 +164,12 @@ describe("getAvailableActions", () => {
     expect(actions[1].label).toBe("PR Rework");
   });
 
-  it("returns accept_browser_validation, more_cycles, redesign, continue, retry and archive for failed", () => {
+  it("returns accept_browser_validation, force_pr, more_cycles, redesign, continue, retry and archive for failed", () => {
     const actions = getAvailableActions("failed");
-    expect(actions).toHaveLength(6);
+    expect(actions).toHaveLength(7);
     const actionNames = actions.map((a) => a.action);
     expect(actionNames).toContain("accept_browser_validation");
+    expect(actionNames).toContain("force_pr");
     expect(actionNames).toContain("more_cycles");
     expect(actionNames).toContain("redesign");
     expect(actionNames).toContain("continue");

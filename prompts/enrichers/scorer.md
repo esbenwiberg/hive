@@ -46,7 +46,7 @@ Estimate the total cost in USD based on realistic token usage for an agentic cod
 - **Milestone review cost (calculate at max: 2 iterations per milestone)**: Each milestone runs up to 3 review passes (~8,000 input + ~2,000 output tokens each) and up to 2 fix passes (same token range as milestone execution). At max: ~24,000 input + 6,000 output for reviews, plus 2× the execution token range for fixes.
 - **Final review gate (calculate at max: 3 passes total = initial + 2 rework cycles)**: Each review gate pass processes the full PR diff (~20,000 input + 5,000 output tokens). Each rework cycle also runs a targeted fix execution (~50,000 input + 7,000 output tokens). At max: 3 gate passes + 2 rework executions.
 - **PR follow-up for human review**: Add one targeted fix execution (~50,000 input + 7,000 output tokens) and one review gate pass (~20,000 input + 5,000 output tokens) for the expected human PR review cycle.
-- **Hybrid projects (`dotnet+npm`)**: When enrichment data shows a dual build system, execution cost is typically ~1.3–1.5× a single-stack project because the worker must interact with both toolchains. Adjust per-milestone token estimates and reference totals accordingly.
+- **Hybrid projects**: When enrichment data shows `buildSystem: "dotnet+npm"`, multiply the execution cost estimate by ~1.3–1.5× to account for dual build toolchains, separate test suites, and cross-stack integration. Adjust reference totals accordingly.
 
 Use these token costs for estimation:
 - Input: $3 per million tokens

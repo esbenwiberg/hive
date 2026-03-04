@@ -1,6 +1,14 @@
 # Changelog
 
+## 2026-03-03
+- feat: .NET/ADO multi-language pipeline support
+- docs: add .NET and Azure DevOps multi-language support plan
+
 ## 2026-02-25
+- fix: skip db tests gracefully when no postgres is available
+- feat: stop auto-forcing PR at max rework cycles; add Force PR button
+- feat: reduce review-fix cost and feed issues into hivemind
+- feat: expose prism index to worker and architect
 - fix: increase scorer cost estimates to account for max review turns and PR follow-up
 - Merge pull request #27 from esbenwiberg/hive/HIVE-20260222-116ce634
 - Broken references in docs/internal/modules/dashboard.md

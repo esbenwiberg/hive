@@ -60,6 +60,12 @@ vi.mock("../../src/db/queries/preview-logs.js", () => ({
   addPreviewLog: (...args: unknown[]) => mockAddPreviewLog(...args),
 }));
 
+// Mock domain/config to prevent transitive import of db/connection
+vi.mock("../../src/domain/config.js", () => ({
+  getConfig: vi.fn().mockResolvedValue(undefined),
+  setConfig: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ── Import (after mocks) ─────────────────────────────────────────────────────
 
 const { cleanupClosedPRPreviews } = await import(

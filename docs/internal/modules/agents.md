@@ -932,10 +932,91 @@ const response = await callClaudeWithTools({
 
 ---
 
+---
+
+## Blueprint Validation Mode (Architect Enricher)
+
+When a task is created from a user-supplied blueprint (`task.blueprintSource === true`), the
+architect enricher shifts from **plan generation** to **plan validation**. Everything else in
+the enrichment pipeline runs identically — there is no short-circuit for blueprint-sourced tasks.
+
+### What changes
+
+| Aspect | Normal task | Blueprint-sourced task |
+|---|---|---|
+| Architect role | Generate a milestone plan | Validate the user-supplied blueprint |
+| System prompt | Standard architect prompt | Architect prompt + blueprint validation addendum |
+| User prompt | Task title + body | Task title + body + raw blueprint markdown |
+| Output fields | `milestones`, `questions`, `awaitingInput` | Same output schema — validation errors surface as `questions` |
+| `awaitingInput` | Set when architect needs clarification | Set when blueprint has gaps or contradictions |
+| Pipeline flow after architect | Standard approval gate | Same — no bypass |
+
+### Validation behaviour
+
+The architect receives the blueprint text inside a `<blueprint>` XML tag and is instructed to:
+
+1. **Parse** the milestone list, acceptance criteria, and file lists.
+2. **Validate** that every milestone has a non-empty title, at least one acceptance criterion,
+   and at least one file to modify.
+3. **Flag gaps** — if a milestone references a file that doesn't exist in the codebase context,
+   the architect raises it as a clarifying question rather than blocking outright.
+4. **Ask questions** — if any milestone is ambiguous or the overall scope is unclear, the
+   architect sets `awaitingInput: true` and returns its questions. The task enters the
+   `awaiting-input` state and the user is notified via the dashboard, exactly as it would be
+   for a normally-created task.
+5. **Approve** — if the blueprint is coherent and complete, the architect sets
+   `awaitingInput: false` and the pipeline continues to the approval gate.
+
+### Enricher pipeline for blueprint tasks
+
+`getEnrichersForTask()` (exported from `src/enrichers/index.ts`) is the correct function to
+call when building the enricher list for a task. For blueprint-sourced tasks it returns the
+**same full pipeline** as `getEnabledEnrichers()` — the function exists to make the
+no-short-circuit guarantee explicit and auditable at the call site:
+
+```ts
+// src/enrichers/index.ts
+export function getEnrichersForTask(task: Task, config: AutonomousConfig): Enricher[] {
+  // Blueprint-sourced tasks always run the full pipeline.
+  // We still respect the config's enabled-enricher list so operators can
+  // disable specific enrichers globally, but we never skip enrichers
+  // solely because the task has a blueprint source.
+  return getEnabledEnrichers(config);
+}
+```
+
+Enrichers that run for every blueprint task:
+
+| Enricher | Why it still runs |
+|---|---|
+| `codebaseEnricher` | Architect needs file-tree context to validate file references |
+| `gitHistoryEnricher` | Provides recent-commit context for risk assessment |
+| `dependenciesEnricher` | Detects dependency version constraints that milestones may miss |
+| `docsEnricher` | Surfaces existing docs the blueprint should align with |
+| `prismEnricher` (scorer) | Produces cost / risk estimates — blueprint does not bypass scoring |
+| `architectEnricher` | Validates blueprint; may set `awaitingInput: true` |
+| `scorerEnricher` | Final complexity and budget signal for the gate |
+
+### Gate and approval flow
+
+A blueprint-sourced task that passes architect validation enters the **standard approval gate
+flow** — there is no auto-approval bypass. The gate evaluates the enriched task (including the
+blueprint and the architect's validation notes) using the same approve / reject / rework
+logic as any other task. The gate mode (`human`, `ai`, `auto`) is respected exactly as normal.
+
+### Prompt files
+
+- `src/prompts/architect.md` — base architect prompt
+- `src/prompts/architect-blueprint-addendum.md` — injected when `task.blueprintSource === true`;
+  instructs the architect to validate rather than generate
+
+---
+
 ## See Also
 
 - [`docs/internal/architecture.md`](../architecture.md) — system-wide data flow and component map
 - [`docs/internal/modules/database.md`](./database.md) — database schema and query layer
 - [`docs/internal/modules/daemon.md`](./daemon.md) *(upcoming)* — task scheduling and agent dispatch
+- `src/blueprints/` — blueprint schema, parser, and template
 - `src/prompts/` — system prompts loaded by each agent
 - `autonomous.config.yaml` — model assignments, gate mode, cost rates

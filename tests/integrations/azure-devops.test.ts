@@ -350,3 +350,76 @@ describe("getPullRequest", () => {
     ).rejects.toThrow("Azure DevOps get PR failed (404): Not Found");
   });
 });
+
+describe("listPullRequests", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends correct URL with source branch filter", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        value: [{ pullRequestId: 42, status: "active" }],
+      }),
+    });
+
+    await listPullRequests("myorg", "myproject", "myrepo", "feature/branch", "my-pat");
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+
+    expect(url).toContain("dev.azure.com/myorg/myproject/_apis/git/repositories/myrepo/pullrequests");
+    expect(url).toContain("searchCriteria.sourceRefName=refs/heads/feature%2Fbranch");
+    expect(url).toContain("searchCriteria.status=active");
+    expect(opts.method).toBe("GET");
+  });
+
+  it("returns mapped PR list with URLs", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        value: [
+          { pullRequestId: 10, status: "active" },
+          { pullRequestId: 20, status: "active" },
+        ],
+      }),
+    });
+
+    const result = await listPullRequests("myorg", "myproject", "myrepo", "branch", "pat");
+
+    expect(result).toEqual([
+      { id: 10, url: "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/10", status: "active" },
+      { id: 20, url: "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/20", status: "active" },
+    ]);
+  });
+
+  it("returns empty array when no PRs match", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ value: [] }),
+    });
+
+    const result = await listPullRequests("org", "proj", "repo", "branch", "pat");
+    expect(result).toEqual([]);
+  });
+
+  it("throws on non-2xx response", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => "Unauthorized",
+    });
+
+    await expect(
+      listPullRequests("org", "proj", "repo", "branch", "pat"),
+    ).rejects.toThrow("Azure DevOps list PRs failed (401): Unauthorized");
+  });
+});
