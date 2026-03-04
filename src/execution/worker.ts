@@ -83,7 +83,10 @@ function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): strin
   const lines: string[] = [`## Build System`, `Type: ${info.type}`];
   if (info.npmDir) {
     const rel = info.npmDir === repoDir ? "./" : "./" + info.npmDir.slice(repoDir.length + 1);
-    lines.push(`npm directory: ${rel} (run npm install, npm run build here)`);
+    lines.push(`npm directory: ${rel}`);
+    if (rel !== "./") {
+      lines.push(`**CRITICAL: There is NO package.json at repo root. You MUST cd to \`${rel}\` before running ANY npm command (npm install, npm run build, npm run test, etc). Running npm at root WILL fail.**`);
+    }
   }
   if (info.dotnetDir) {
     const rel = info.dotnetDir === repoDir ? "./" : "./" + info.dotnetDir.slice(repoDir.length + 1);
@@ -633,13 +636,13 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       learningsStr,
       retryStr,
       ``,
-      buildSystemSection,
-      ``,
       `## Working Directory`,
       worktree.path,
       ``,
       `## Branch`,
       branchName,
+      ``,
+      buildSystemSection,
       ``,
       `## Reminder`,
       `You MUST call edit_file or write_file to implement changes. Do not just analyze or explain — write the code.${firstFileHint}`,
