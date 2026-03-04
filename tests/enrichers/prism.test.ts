@@ -100,7 +100,7 @@ describe("prismEnricher", () => {
 
     expect(result.data).toEqual({});
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:4000/api/projects/org%2Frepo/search",
+      "http://localhost:4000/api/projects/org/repo/search",
       expect.objectContaining({ method: "POST" }),
     );
   });
@@ -195,7 +195,7 @@ describe("prismEnricher", () => {
 
     // Verify query text includes title and body
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:4000/api/projects/org%2Frepo/search",
+      "http://localhost:4000/api/projects/org/repo/search",
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining("Fix authentication bug"),

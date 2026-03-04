@@ -88,7 +88,8 @@ export const prismEnricher: Enricher = {
       return { data: {}, durationMs: Date.now() - startTime };
     }
 
-    const slug = encodeURIComponent(repo.fullName);
+    const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+    const slug = (repoSettings.prismSlug as string) || repo.fullName;
     const query = `${task.title} ${task.body ?? ""}`.trim();
 
     let result: { relevantCode: PrismRelevantCode[]; moduleSummaries: PrismModuleSummary[]; findings: PrismFinding[] };
@@ -109,7 +110,7 @@ export const prismEnricher: Enricher = {
       });
 
       if (response.status === 404) {
-        logger.info({ taskId: task.id, slug: repo.fullName }, "Prism enricher: project not found, skipping");
+        logger.info({ taskId: task.id, slug }, "Prism enricher: project not found, skipping");
         return { data: {}, durationMs: Date.now() - startTime };
       }
 

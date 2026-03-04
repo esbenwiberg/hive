@@ -629,6 +629,13 @@ export function repoSettingsCard(repo: RepoRow): string {
       ${checkbox(`docs_enabled_${repo.id}`, "Enable documentation", ((settings.docs as Record<string, unknown> | undefined)?.enabled === true))}
     </div>
     <div class="border-t border-slate-700 pt-3 mt-3">
+      <h4 class="text-sm font-medium text-slate-300 mb-2">Prism</h4>
+      ${input(`prismSlug_${repo.id}`, "Prism Slug", {
+        value: (settings.prismSlug as string) ?? "",
+        placeholder: "org/project (optional)",
+      })}
+    </div>
+    <div class="border-t border-slate-700 pt-3 mt-3">
       <h4 class="text-sm font-medium text-slate-300 mb-2">Preview</h4>
       ${select(`previewEnabled_${repo.id}`, "Preview Enabled", [
         { value: "", label: "-- Use Global Default --" },

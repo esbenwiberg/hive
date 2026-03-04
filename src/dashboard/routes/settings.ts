@@ -293,6 +293,13 @@ router.post("/settings/repos/:id", requireRole("admin"), async (req: Request, re
       settings.perTaskMax = val;
     }
 
+    // Prism slug
+    const prismSlugKey = `prismSlug_${repoId}`;
+    const prismSlugVal = body[prismSlugKey]?.trim();
+    if (prismSlugVal) {
+      settings.prismSlug = prismSlugVal;
+    }
+
     // Daily budget
     const dailyBudgetKey = `dailyBudget_${repoId}`;
     if (body[dailyBudgetKey] && body[dailyBudgetKey] !== "") {
