@@ -62,7 +62,14 @@ async function runStep(
     logger.debug({ step: label, cwd }, "quickVerify step passed");
     return true;
   } catch (err: unknown) {
-    const error = err as { stdout?: string; stderr?: string; message?: string };
+    const error = err as { code?: string; stdout?: string; stderr?: string; message?: string };
+
+    // ENOENT = binary not installed — skip gracefully instead of failing the task
+    if (error.code === "ENOENT") {
+      logger.info({ step: label, bin, cwd }, "quickVerify step skipped — tool not installed");
+      return true;
+    }
+
     const output = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
     const detail = output || error.message || "unknown error";
     const message = `${label} failed: ${detail}`;
