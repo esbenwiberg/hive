@@ -185,7 +185,27 @@ export function createWorktreeToolExecutor(
 
       case "run_command": {
         const command = input.command as string;
-        const args = (input.args as string[] | undefined) ?? [];
+
+        // Claude sometimes sends args as a single string instead of an array;
+        // coerce gracefully so execFile doesn't throw a confusing type error.
+        let args: string[];
+        if (Array.isArray(input.args)) {
+          args = input.args as string[];
+        } else if (typeof input.args === "string") {
+          args = (input.args as string).split(/\s+/).filter(Boolean);
+        } else {
+          args = [];
+        }
+
+        // `cd` is a shell builtin, not an executable — execFile can't run it.
+        // The cwd for npm/dotnet is auto-resolved, so `cd` is never needed.
+        if (command === "cd") {
+          throw new Error(
+            "`cd` is not supported — it is a shell builtin. " +
+            "npm/npx commands automatically run in the correct directory. " +
+            "For other tools, use `bash -c 'cd <dir> && <command>'`.",
+          );
+        }
 
         // Block commands that could revert changes or break the worktree.
         // Check both direct git commands and shell-wrapped variants (bash -c "git checkout ...")

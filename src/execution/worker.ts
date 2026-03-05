@@ -85,7 +85,11 @@ function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): strin
     const rel = info.npmDir === repoDir ? "./" : "./" + info.npmDir.slice(repoDir.length + 1);
     lines.push(`npm directory: ${rel}`);
     if (rel !== "./") {
-      lines.push(`**CRITICAL: There is NO package.json at repo root. You MUST cd to \`${rel}\` before running ANY npm command (npm install, npm run build, npm run test, etc). Running npm at root WILL fail.**`);
+      lines.push(
+        `The package.json is in \`${rel}\`, not the repo root. ` +
+        `npm/npx commands via run_command automatically execute in the correct directory — ` +
+        `do NOT use cd, --prefix, or bash wrappers to change directory. Just run \`npm\` or \`npx\` directly.`,
+      );
     }
   }
   if (info.dotnetDir) {
@@ -698,7 +702,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         let summary: string;
         if (name === "run_command") {
           const cmd = input.command as string;
-          const args = Array.isArray(input.args) ? (input.args as string[]).join(" ") : "";
+          const args = Array.isArray(input.args) ? (input.args as string[]).join(" ") : (typeof input.args === "string" ? input.args as string : "");
           summary = args ? `${cmd} ${args}` : cmd;
         } else if (name === "edit_file") {
           const oldLen = typeof input.old_string === "string" ? input.old_string.length : 0;
