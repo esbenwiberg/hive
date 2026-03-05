@@ -13,13 +13,13 @@ import { getAutonomousConfig } from "../domain/autonomous-config.js";
  * Posts to the Prism API; Prism queues and deduplicates the request.
  * Non-blocking; failures are logged but never propagate.
  */
-function triggerPostMergePrismReindex(repoFullName: string, taskId: string): void {
+function triggerPostMergePrismReindex(repoFullName: string, taskId: string, repoSettings?: Record<string, unknown>): void {
   const prismConfig = getAutonomousConfig().prism;
   const apiUrl = process.env.PRISM_API_URL || prismConfig.apiUrl;
   if (!apiUrl) return;
 
   const apiKey = process.env.PRISM_API_KEY || prismConfig.apiKey;
-  const slug = encodeURIComponent(repoFullName);
+  const slug = encodeURIComponent((repoSettings?.prismSlug as string) || repoFullName);
 
   (async () => {
     try {
@@ -100,7 +100,7 @@ export async function cleanupClosedPRPreviews(): Promise<void> {
 
         // On merge: trigger incremental structural reindex of main branch
         if (prState === "merged") {
-          triggerPostMergePrismReindex(repo.fullName, taskId);
+          triggerPostMergePrismReindex(repo.fullName, taskId, (repo.settings ?? {}) as Record<string, unknown>);
         }
       }
     } catch (err) {
@@ -137,7 +137,7 @@ export async function autoMergeDoneTasks(): Promise<void> {
       if (prState === "merged") {
         await updateStatus(task.id, "merged");
         logger.info({ taskId: task.id }, "Auto-merge: transitioned to merged after PR merge");
-        triggerPostMergePrismReindex(repo.fullName, task.id);
+        triggerPostMergePrismReindex(repo.fullName, task.id, (repo.settings ?? {}) as Record<string, unknown>);
       }
     } catch (err) {
       logger.error({ taskId: task.id, err }, "Auto-merge: error checking task");

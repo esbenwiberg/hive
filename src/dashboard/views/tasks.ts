@@ -1355,6 +1355,15 @@ function formatDuration(ms: number): string {
   return remMin > 0 ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
+/** Renders a debug section header with a "Copy" button that copies the sibling container's text. */
+function debugSectionHeader(title: string, subtitle: string, containerId: string): string {
+  return `<div class="flex items-center justify-between mb-1">
+    <h5 class="text-xs font-medium text-slate-400">${title} <span class="text-slate-500">${subtitle}</span></h5>
+    <button type="button" onclick="const el=document.getElementById('${containerId}');if(el){navigator.clipboard.writeText(el.innerText).then(()=>showToast('Copied','success')).catch(()=>showToast('Copy failed','error'))}"
+      class="text-xs text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded hover:bg-slate-800 transition-colors" title="Copy to clipboard">Copy</button>
+  </div>`;
+}
+
 function stuckDiagnosis(task: TaskRow, agent: ActiveAgentRow | null): string {
   if (!TRANSITIONAL_STATUSES.includes(task.status)) {
     return `<div class="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2">
@@ -1449,8 +1458,8 @@ function debugEnrichmentTable(runs: EnrichmentRunRow[]): string {
   }).join("");
 
   return `<div>
-    <h5 class="text-xs font-medium text-slate-400 mb-1">Enrichment Runs</h5>
-    <div class="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2">
+    ${debugSectionHeader("Enrichment Runs", `(${runs.length})`, "debug-enrichment-runs")}
+    <div id="debug-enrichment-runs" class="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2">
       <table class="w-full">
         <thead><tr class="text-xs text-slate-500">
           <th class="text-left py-1 pr-3">Enricher</th>
@@ -1492,8 +1501,8 @@ function debugToolCalls(events: TaskEventRow[]): string {
   }).join("");
 
   return `<div>
-    <h5 class="text-xs font-medium text-slate-400 mb-1">Tool Calls <span class="text-slate-500">(${toolEvents.length})</span></h5>
-    <div class="rounded-lg bg-slate-900 px-3 py-2 max-h-60 overflow-y-auto divide-y divide-slate-800">${rows}</div>
+    ${debugSectionHeader("Tool Calls", `(${toolEvents.length})`, "debug-tool-calls")}
+    <div id="debug-tool-calls" class="rounded-lg bg-slate-900 px-3 py-2 max-h-60 overflow-y-auto divide-y divide-slate-800">${rows}</div>
   </div>`;
 }
 
@@ -1526,8 +1535,8 @@ function debugEventTimeline(events: TaskEventRow[]): string {
   }).join("");
 
   return `<div>
-    <h5 class="text-xs font-medium text-slate-400 mb-1">Event Timeline <span class="text-slate-500">(last ${events.length})</span></h5>
-    <div class="rounded-lg bg-slate-900 px-3 py-2 max-h-60 overflow-y-auto divide-y divide-slate-800">${rows}</div>
+    ${debugSectionHeader("Event Timeline", `(last ${events.length})`, "debug-event-timeline")}
+    <div id="debug-event-timeline" class="rounded-lg bg-slate-900 px-3 py-2 max-h-60 overflow-y-auto divide-y divide-slate-800">${rows}</div>
   </div>`;
 }
 
@@ -1547,8 +1556,8 @@ function debugCostTable(breakdown: TaskCostBreakdownRow[]): string {
   ).join("");
 
   return `<div>
-    <h5 class="text-xs font-medium text-slate-400 mb-1">Cost Breakdown <span class="text-slate-300">$${total.toFixed(4)}</span></h5>
-    <div class="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2">
+    ${debugSectionHeader("Cost Breakdown", `$${total.toFixed(4)}`, "debug-cost-table")}
+    <div id="debug-cost-table" class="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2">
       <table class="w-full">
         <thead><tr class="text-xs text-slate-500">
           <th class="text-left py-1 pr-3">Agent</th>

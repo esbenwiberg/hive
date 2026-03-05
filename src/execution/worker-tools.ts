@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, relative } from "node:path";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages/messages.js";
+import type { BuildSystemInfo } from "./build-system.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -139,6 +140,7 @@ export function getWorkerTools(prismConfig?: PrismConfig): Tool[] {
 export function createWorktreeToolExecutor(
   worktreePath: string,
   prismConfig?: PrismConfig,
+  buildInfo?: BuildSystemInfo,
 ): (name: string, input: Record<string, unknown>) => Promise<string> {
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
     switch (name) {
@@ -196,8 +198,19 @@ export function createWorktreeToolExecutor(
           throw new Error(`Blocked: git state commands are not allowed (they could revert your changes)`);
         }
 
+        // Auto-resolve cwd for npm/dotnet commands when package.json or .sln
+        // lives in a subdirectory (mirrors quickVerify behaviour).
+        let cwd = worktreePath;
+        if (buildInfo) {
+          if ((command === "npm" || command === "npx") && buildInfo.npmDir) {
+            cwd = buildInfo.npmDir;
+          } else if (command === "dotnet" && buildInfo.dotnetDir) {
+            cwd = buildInfo.dotnetDir;
+          }
+        }
+
         const { stdout, stderr } = await execFileAsync(command, args, {
-          cwd: worktreePath,
+          cwd,
           timeout: CMD_TIMEOUT_MS,
           maxBuffer: CMD_MAX_BUFFER,
         });
@@ -222,11 +235,11 @@ export function createWorktreeToolExecutor(
           },
         );
         if (!response.ok) {
-          throw new Error(`Prism search failed: ${response.status}`);
+          return `search_codebase is unavailable (HTTP ${response.status}). Use list_directory and read_file to explore the codebase instead.`;
         }
         const contentType = response.headers.get("content-type") ?? "";
         if (!contentType.includes("application/json")) {
-          throw new Error(`Prism returned unexpected content-type: ${contentType}`);
+          return "search_codebase is unavailable (index server returned non-JSON — likely an auth or config issue). Use list_directory and read_file to explore the codebase instead.";
         }
         const data = await response.json() as {
           relevantCode: Array<{

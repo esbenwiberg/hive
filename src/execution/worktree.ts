@@ -116,6 +116,8 @@ export async function createWorktree(
         const hostPath = registryUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
         if (npm.scope) {
           lines.push(`${npm.scope as string}:registry=${registryUrl}`);
+        } else {
+          lines.push(`registry=${registryUrl}`);
         }
         lines.push("always-auth=true");
         // Azure DevOps Artifacts feeds require base64 _password + email on two URL paths

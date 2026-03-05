@@ -7,6 +7,7 @@ import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js
 import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import { loadPrompt } from "../prompt-cache.js";
 import { detectBuildSystem } from "./build-system.js";
+import type { BuildSystemInfo } from "./build-system.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -252,6 +253,7 @@ async function claudeFix(
   changedFiles: string[],
   model: string,
   maxTurns: number,
+  buildInfo?: BuildSystemInfo,
 ): Promise<{ costUsd: number }> {
   const prompt = [
     "## Milestone",
@@ -274,7 +276,7 @@ async function claudeFix(
     model,
     systemPrompt: getFixPrompt(),
     tools: WORKER_TOOLS,
-    executeTool: createWorktreeToolExecutor(worktreePath),
+    executeTool: createWorktreeToolExecutor(worktreePath, undefined, buildInfo),
     maxTurns,
   });
 
@@ -307,6 +309,7 @@ export async function reviewFix(
   milestoneSummary: string,
   model: string,
   buildSettings?: { system?: string; npmDir?: string },
+  buildInfo?: BuildSystemInfo,
 ): Promise<ReviewFixResult> {
   const autonomousConfig = getAutonomousConfig();
   const maxIterations = autonomousConfig.reviewFix.maxIterations;
@@ -360,7 +363,7 @@ export async function reviewFix(
     // Step 3: Ask Claude to fix
     const changedFiles = await getChangedFiles(worktreePath);
     logger.info({ iteration, issueCount: iterationIssues.length, changedFileCount: changedFiles.length, worktreePath }, "review-fix calling claudeFix");
-    const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, fixModel, fixMaxTurns);
+    const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, fixModel, fixMaxTurns, buildInfo);
     totalCostUsd += fix.costUsd;
     logger.info({ iteration, costUsd: fix.costUsd, worktreePath }, "review-fix claudeFix done");
 

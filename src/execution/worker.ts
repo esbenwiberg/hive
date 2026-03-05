@@ -240,6 +240,7 @@ async function executeMilestones(
   prismConfig?: PrismConfig,
   buildSystemSection?: string,
   buildSettings?: { system?: string; npmDir?: string },
+  buildInfo?: BuildSystemInfo,
 ): Promise<{ totalCostUsd: number; reviewFixIssues: string[] }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
@@ -332,7 +333,7 @@ async function executeMilestones(
       model,
       systemPrompt,
       tools: getWorkerTools(prismConfig),
-      executeTool: createWorktreeToolExecutor(worktreePath, prismConfig),
+      executeTool: createWorktreeToolExecutor(worktreePath, prismConfig, buildInfo),
       onTurnComplete: () => heartbeat(task.id),
       maxNudges: 2,
       midLoopNudge: ({ toolsCalled, turns }) => {
@@ -374,7 +375,7 @@ async function executeMilestones(
 
     // ── 3. Review-fix loop ────────────────────────────────────────────────
     await addEvent(task.id, "review_fix_started", "worker", `Review-fix loop for milestone ${i + 1}/${milestones.length}`);
-    const review = await reviewFix(worktreePath, ms.title, model, buildSettings);
+    const review = await reviewFix(worktreePath, ms.title, model, buildSettings, buildInfo);
     totalCostUsd += review.costUsd;
     await addEvent(task.id, "review_fix_complete", "worker", `Review-fix ${review.passed ? "passed" : "failed"} (${review.iterations} iterations, $${review.costUsd.toFixed(2)})`);
     if (review.issues.length > 0) {
@@ -435,13 +436,15 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
   const repo = await getRepo(task.repoId);
   if (!repo) throw new Error(`Repo ${task.repoId} not found for task ${taskId}`);
 
-  // Build prism config if available
+  // Build prism config if available (prefer repo-level prismSlug over fullName)
   const prismApiUrl = process.env.PRISM_API_URL || config.prism?.apiUrl;
-  const prismConfig: PrismConfig | undefined = prismApiUrl && repo.fullName
+  const repoSettingsRaw = (repo.settings ?? {}) as Record<string, unknown>;
+  const prismSlug = (repoSettingsRaw.prismSlug as string) || repo.fullName;
+  const prismConfig: PrismConfig | undefined = prismApiUrl && prismSlug
     ? {
         apiUrl: prismApiUrl,
         apiKey: process.env.PRISM_API_KEY || config.prism?.apiKey,
-        repoSlug: encodeURIComponent(repo.fullName),
+        repoSlug: encodeURIComponent(prismSlug),
       }
     : undefined;
 
@@ -664,7 +667,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         await milestoneGitProvider.push(worktree!.path, branchName, milestoneCreds);
       };
 
-      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings);
+      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings, buildInfo);
       implCostUsd = totalCostUsd;
       allReviewFixIssues.push(...reviewFixIssues);
     } else {
@@ -689,7 +692,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       const hasWritten = (calls: string[]) => calls.includes("write_file") || calls.includes("edit_file");
 
       // Wrap tool executor to log calls as task events for debuggability
-      const baseExecutor = createWorktreeToolExecutor(worktree.path, prismConfig);
+      const baseExecutor = createWorktreeToolExecutor(worktree.path, prismConfig, buildInfo);
       const loggingExecutor = async (name: string, input: Record<string, unknown>) => {
         // Build a rich summary: for run_command show full command + args, for edit show char counts
         let summary: string;
@@ -789,7 +792,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       })
       .where(eq(tasks.id, taskId));
 
-    // Empty-diff detection: catch cases where Claude produced no code changes
+    // Empty-diff detection: catch cases where Claude produced no code changes.
+    // Check both tracked-file diffs AND untracked new files — git diff alone
+    // misses newly created files that haven't been staged yet.
     const validatedSha = await validateBaseSha(worktree.path, worktree.baseSha);
     // Log git status before diff check for debugging
     try {
@@ -800,7 +805,15 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       "git", ["diff", "--name-only", validatedSha],
       { cwd: worktree.path },
     );
-    if (!diffOutput.trim()) {
+    const { stdout: untrackedOutput } = await execFileAsync(
+      "git", ["ls-files", "--others", "--exclude-standard"],
+      { cwd: worktree.path },
+    );
+    const hasChanges = !!(diffOutput.trim() || untrackedOutput.trim());
+    if (untrackedOutput.trim()) {
+      logger.info({ taskId, untracked: untrackedOutput.trim() }, "Detected untracked new files");
+    }
+    if (!hasChanges) {
       const reworkCount = task.reworkCount ?? 0;
       if (reworkCount === 0) {
         // First attempt with empty diff — send for automatic rework
