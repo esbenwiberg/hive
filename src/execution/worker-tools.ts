@@ -209,10 +209,16 @@ export function createWorktreeToolExecutor(
           }
         }
 
+        // Strip NODE_ENV=production (set for the Hive container) so that
+        // target-repo npm installs include devDependencies (build tools,
+        // postinstall helpers like patch-package, etc.).
+        const { NODE_ENV: _drop, ...cleanEnv } = process.env;
+
         const { stdout, stderr } = await execFileAsync(command, args, {
           cwd,
           timeout: CMD_TIMEOUT_MS,
           maxBuffer: CMD_MAX_BUFFER,
+          env: cleanEnv,
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
         return output || "(no output)";

@@ -55,10 +55,14 @@ async function runStep(
   failures: string[],
 ): Promise<boolean> {
   try {
+    // Strip NODE_ENV=production so target-repo npm installs include devDependencies
+    const { NODE_ENV: _drop, ...cleanEnv } = process.env;
+
     await execFileAsync(bin, args, {
       cwd,
       timeout: SHELL_TIMEOUT_MS,
       maxBuffer: 2 * 1024 * 1024,
+      env: cleanEnv,
     });
     logger.debug({ step: label, cwd }, "quickVerify step passed");
     return true;
