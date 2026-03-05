@@ -48,7 +48,8 @@ const DECAY_MIN_GAP_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 const PREVIEW_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const PR_CLOSE_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const PR_FEEDBACK_POLL_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
-const SUSPEND_DRAIN_MS = 10_000; // 10s for _dispatch finally blocks to clean up
+const SUSPEND_DRAIN_MS = 5_000; // 5s for in-flight work to react to abort signal
+const SUSPEND_COOLDOWN_MS = 60_000; // Don't re-execute tasks suspended less than 60s ago
 
 const ALL_PRODUCERS: Producer[] = [
   logScanner,
@@ -65,6 +66,7 @@ export class Daemon {
   private readonly producerIntervalMs: number;
 
   private readonly activeTaskIds = new Set<string>();
+  private readonly abortControllers = new Map<string, AbortController>();
   private readonly userCounts = new Map<number, number>();
   /** Tasks already notified about budget exhaustion (reset on budget recovery). */
   private readonly budgetNotified = new Set<string>();
@@ -117,10 +119,41 @@ export class Daemon {
       }
     }
 
-    // Resume suspended tasks from a prior graceful shutdown
+    // Resume suspended tasks from a prior graceful shutdown.
+    // Apply cooldown: if the task was suspended very recently (< 60s), defer it
+    // to avoid thrashing during rapid restart cycles (e.g. repeated deploys).
     const suspendedTasks = await findSuspended();
+    const now = Date.now();
     for (const task of suspendedTasks) {
       try {
+        const suspendedAt = task.updatedAt ? new Date(task.updatedAt).getTime() : 0;
+        const elapsed = now - suspendedAt;
+        if (elapsed < SUSPEND_COOLDOWN_MS) {
+          logger.info(
+            { taskId: task.id, elapsedMs: elapsed, cooldownMs: SUSPEND_COOLDOWN_MS },
+            "Daemon: deferring recently-suspended task (cooldown)",
+          );
+          // Leave it as suspended — next tick won't pick it up either.
+          // Schedule a one-shot timer to resume it after cooldown expires.
+          const delay = SUSPEND_COOLDOWN_MS - elapsed;
+          setTimeout(() => {
+            void (async () => {
+              try {
+                const resumeTo =
+                  task.suspendedFrom === "executing" || task.suspendedFrom === "reviewing"
+                    ? "approved"
+                    : "pending";
+                await updateStatus(task.id, resumeTo);
+                await addEvent(task.id, "resumed", "daemon", `Task resumed after cooldown (was ${task.suspendedFrom}) → ${resumeTo}`);
+                logger.info({ taskId: task.id, resumeTo }, "Daemon: deferred task resumed after cooldown");
+              } catch (err) {
+                logger.warn({ taskId: task.id, err }, "Daemon: failed to resume deferred task");
+              }
+            })();
+          }, delay);
+          continue;
+        }
+
         // queued/enriching → re-enrich from pending; executing/reviewing → re-execute from approved
         const resumeTo =
           task.suspendedFrom === "executing" || task.suspendedFrom === "reviewing"
@@ -211,12 +244,22 @@ export class Daemon {
     await this.prFeedbackPollScheduler.stop();
     await this.scheduler.stop();
 
-    // Suspend all in-flight tasks so they survive a deploy
+    // Abort in-flight tasks so they stop doing expensive work (clone, install, Claude calls),
+    // then suspend them in the DB so they get resumed on the next start.
     if (this.activeTaskIds.size > 0) {
       logger.info(
         { active: this.activeTaskIds.size },
-        "Daemon: suspending in-flight tasks",
+        "Daemon: aborting and suspending in-flight tasks",
       );
+
+      // Signal abort first — executeTask checks this before each expensive step
+      for (const [taskId, controller] of this.abortControllers) {
+        controller.abort();
+        logger.info({ taskId }, "Daemon: abort signaled");
+      }
+
+      // Brief drain to let in-flight work react to the abort signal
+      await new Promise((resolve) => setTimeout(resolve, SUSPEND_DRAIN_MS));
 
       for (const taskId of this.activeTaskIds) {
         try {
@@ -227,9 +270,6 @@ export class Daemon {
           logger.warn({ taskId, err }, "Daemon: could not suspend task");
         }
       }
-
-      // Brief drain for _dispatch finally blocks to clean up in-memory tracking
-      await new Promise((resolve) => setTimeout(resolve, SUSPEND_DRAIN_MS));
     }
 
     logger.info("Daemon stopped");
@@ -588,12 +628,15 @@ export class Daemon {
   private async _dispatch(
     task: { id: string; status: string; createdBy: number },
   ): Promise<void> {
+    const controller = new AbortController();
+    this.abortControllers.set(task.id, controller);
+
     try {
       if (task.status === "pending") {
         await runPipeline(task.id);
         logger.info({ taskId: task.id }, "Daemon: pipeline completed");
       } else if (task.status === "approved" || task.status === "rework") {
-        const result = await executeTask(task.id);
+        const result = await executeTask(task.id, controller.signal);
         logger.info(
           { taskId: task.id, success: result.success },
           "Daemon: execution completed",
@@ -605,6 +648,12 @@ export class Daemon {
         );
       }
     } catch (err) {
+      // Abort errors are expected during shutdown — don't fail the task
+      if (controller.signal.aborted) {
+        logger.info({ taskId: task.id }, "Daemon: task execution aborted by shutdown");
+        return;
+      }
+
       logger.error(
         { taskId: task.id, err },
         "Daemon: dispatch error",
@@ -620,6 +669,7 @@ export class Daemon {
       }
     } finally {
       this.activeTaskIds.delete(task.id);
+      this.abortControllers.delete(task.id);
       const current = this.userCounts.get(task.createdBy) ?? 0;
       this.userCounts.set(task.createdBy, Math.max(0, current - 1));
     }

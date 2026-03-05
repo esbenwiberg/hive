@@ -245,6 +245,7 @@ async function executeMilestones(
   buildSystemSection?: string,
   buildSettings?: { system?: string; npmDir?: string },
   buildInfo?: BuildSystemInfo,
+  signal?: AbortSignal,
 ): Promise<{ totalCostUsd: number; reviewFixIssues: string[] }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
@@ -354,6 +355,9 @@ async function executeMilestones(
         return null;
       },
       shouldTerminate: ({ toolsCalled, turns }) => {
+        if (signal?.aborted) {
+          return "Aborted: daemon shutdown";
+        }
         if (turns >= 12 && !msHasWritten(toolsCalled)) {
           return `Terminated: ${turns} turns without any write — exploration spiral detected`;
         }
@@ -429,9 +433,16 @@ async function executeMilestones(
  * Executes a single flow task: creates worktree, runs Claude agent, reviews, pushes PR.
  * Handles rework cycles up to MAX_REWORK_CYCLES.
  */
-export async function executeTask(taskId: string): Promise<WorkerResult> {
+export async function executeTask(taskId: string, signal?: AbortSignal): Promise<WorkerResult> {
   const startTime = Date.now();
   const config = getAutonomousConfig();
+
+  /** Throws if the daemon signaled shutdown — checked before expensive operations. */
+  const checkAbort = () => {
+    if (signal?.aborted) {
+      throw new Error("Task execution aborted by daemon shutdown");
+    }
+  };
 
   // Load task and repo
   const task = await getTask(taskId);
@@ -500,6 +511,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       }
     }
 
+    checkAbort();
+
     if (!worktree) {
       worktree = await createWorktree(
         repo.fullName,
@@ -540,6 +553,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
 
     // Pre-install dependencies so the agent doesn't waste turns discovering they're missing.
     // Mirrors quickVerify's install steps. Failures are non-fatal — the agent can retry.
+    checkAbort();
     const { NODE_ENV: _dropEnv, ...cleanInstallEnv } = process.env;
     const installOpts = { timeout: 120_000, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
     if (buildInfo.npmDir && (buildInfo.type === "npm" || buildInfo.type === "dotnet+npm")) {
@@ -694,7 +708,7 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
         await milestoneGitProvider.push(worktree!.path, branchName, milestoneCreds);
       };
 
-      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings, buildInfo);
+      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings, buildInfo, signal);
       implCostUsd = totalCostUsd;
       allReviewFixIssues.push(...reviewFixIssues);
     } else {
@@ -705,6 +719,8 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
       const callModel = isReworkCycle
         ? (config.models.components["rework"] ?? model)
         : model;
+
+      checkAbort();
 
       if (isReworkCycle) {
         await addEvent(taskId, "rework_fix_started", "worker", `Applying targeted review fixes (rework cycle ${task.reworkCount}, model: ${callModel})`);
@@ -777,6 +793,9 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
           return null;
         },
         shouldTerminate: ({ toolsCalled, turns }) => {
+          if (signal?.aborted) {
+            return "Aborted: daemon shutdown";
+          }
           if (turns >= writeDeadline && !hasWritten(toolsCalled)) {
             return `Terminated: ${turns} turns without any write — exploration spiral detected (size: ${taskSize}, deadline: ${writeDeadline})`;
           }
