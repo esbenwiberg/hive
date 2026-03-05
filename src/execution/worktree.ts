@@ -113,17 +113,28 @@ export async function createWorktree(
         const registryUrl = npm.url as string;
         const lines: string[] = [];
         // URL without protocol for auth line
-        const hostPath = registryUrl.replace(/^https?:\/\//, "");
+        const hostPath = registryUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
         if (npm.scope) {
           lines.push(`${npm.scope as string}:registry=${registryUrl}`);
         }
-        // Azure DevOps Artifacts feeds require base64 _password, not _authToken
+        lines.push("always-auth=true");
+        // Azure DevOps Artifacts feeds require base64 _password + email on two URL paths
         const isAzureDevOps = /pkgs\.dev\.azure\.com|\.pkgs\.visualstudio\.com/.test(registryUrl);
         if (isAzureDevOps) {
-          lines.push(`//${hostPath}/:username=hive`);
-          lines.push(`//${hostPath}/:_password=${Buffer.from(token).toString("base64")}`);
+          const b64 = Buffer.from(token.trim()).toString("base64");
+          // Collect auth paths: the registry URL itself + the parent /npm/ path if applicable
+          const authPaths = [hostPath];
+          const npmParent = hostPath.replace(/\/npm\/registry\/?$/, "/npm");
+          if (npmParent !== hostPath && npmParent !== hostPath + "/") {
+            authPaths.push(npmParent);
+          }
+          for (const p of authPaths) {
+            lines.push(`//${p}/:username=hive`);
+            lines.push(`//${p}/:_password=${b64}`);
+            lines.push(`//${p}/:email=hive@thehive.ai`);
+          }
         } else {
-          lines.push(`//${hostPath}/:_authToken=${token}`);
+          lines.push(`//${hostPath}/:_authToken=${token.trim()}`);
         }
         const npmrcContent = lines.join("\n") + "\n";
 

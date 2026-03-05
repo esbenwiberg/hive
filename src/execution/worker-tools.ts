@@ -224,6 +224,10 @@ export function createWorktreeToolExecutor(
         if (!response.ok) {
           throw new Error(`Prism search failed: ${response.status}`);
         }
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) {
+          throw new Error(`Prism returned unexpected content-type: ${contentType}`);
+        }
         const data = await response.json() as {
           relevantCode: Array<{
             filePath: string | null;

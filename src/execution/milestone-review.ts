@@ -124,8 +124,12 @@ export async function quickVerify(
     if (!restored) {
       logger.warn({ dotnetDir }, "quickVerify: dotnet restore failed — skipping dotnet build/test");
     } else {
-      await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures);
-      await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures);
+      const built = await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures);
+      if (built) {
+        await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures);
+      } else {
+        logger.warn({ dotnetDir }, "quickVerify: dotnet build failed — skipping dotnet test");
+      }
     }
   }
 
