@@ -24,7 +24,7 @@ function execGit(args: string[], cwd: string): Promise<string> {
       },
       (error, stdout, stderr) => {
         if (error) {
-          logger.error({ args: redactArgs(args), cwd, stderr: stderr.toString() }, "git command failed");
+          logger.debug({ args: redactArgs(args), cwd, stderr: stderr.toString() }, "git command failed");
           reject(error);
           return;
         }
