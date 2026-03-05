@@ -192,7 +192,18 @@ export function createWorktreeToolExecutor(
         if (Array.isArray(input.args)) {
           args = input.args as string[];
         } else if (typeof input.args === "string") {
-          args = (input.args as string).split(/\s+/).filter(Boolean);
+          // Try JSON parse first (Claude sometimes sends '["run", "build"]' as a string)
+          const raw = (input.args as string).trim();
+          if (raw.startsWith("[")) {
+            try {
+              const parsed = JSON.parse(raw) as unknown;
+              args = Array.isArray(parsed) ? (parsed as string[]).map(String) : raw.split(/\s+/).filter(Boolean);
+            } catch {
+              args = raw.split(/\s+/).filter(Boolean);
+            }
+          } else {
+            args = raw.split(/\s+/).filter(Boolean);
+          }
         } else {
           args = [];
         }

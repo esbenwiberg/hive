@@ -83,7 +83,7 @@ function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): strin
   const lines: string[] = [`## Build System`, `Type: ${info.type}`];
   if (info.npmDir) {
     const rel = info.npmDir === repoDir ? "./" : "./" + info.npmDir.slice(repoDir.length + 1);
-    lines.push(`npm directory: ${rel}`);
+    lines.push(`npm directory: ${rel} (dependencies are already installed — do NOT run npm install)`);
     if (rel !== "./") {
       lines.push(
         `The package.json is in \`${rel}\`, not the repo root. ` +
@@ -94,7 +94,7 @@ function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): strin
   }
   if (info.dotnetDir) {
     const rel = info.dotnetDir === repoDir ? "./" : "./" + info.dotnetDir.slice(repoDir.length + 1);
-    lines.push(`dotnet directory: ${rel} (run dotnet restore, dotnet build here)`);
+    lines.push(`dotnet directory: ${rel} (packages are already restored — do NOT run dotnet restore)`);
   }
   return lines.join("\n");
 }
@@ -537,6 +537,29 @@ export async function executeTask(taskId: string): Promise<WorkerResult> {
     const buildInfo = await detectBuildSystem(worktree.path, undefined, buildSettings);
     const buildSystemSection = buildSystemPromptSection(buildInfo, worktree.path);
     logger.info({ taskId, buildSystem: buildInfo.type, npmDir: buildInfo.npmDir, dotnetDir: buildInfo.dotnetDir }, "Detected build system for worker prompt");
+
+    // Pre-install dependencies so the agent doesn't waste turns discovering they're missing.
+    // Mirrors quickVerify's install steps. Failures are non-fatal — the agent can retry.
+    const { NODE_ENV: _dropEnv, ...cleanInstallEnv } = process.env;
+    const installOpts = { timeout: 120_000, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
+    if (buildInfo.npmDir && (buildInfo.type === "npm" || buildInfo.type === "dotnet+npm")) {
+      try {
+        await addEvent(taskId, "dep_install", "worker", "Installing npm dependencies");
+        await execFileAsync("npm", ["install", "--prefer-offline", "--include=dev"], { ...installOpts, cwd: buildInfo.npmDir });
+        logger.info({ taskId, npmDir: buildInfo.npmDir }, "Pre-installed npm dependencies");
+      } catch (npmErr) {
+        logger.warn({ taskId, npmDir: buildInfo.npmDir, err: npmErr }, "npm install failed — agent will need to handle it");
+      }
+    }
+    if (buildInfo.dotnetDir && (buildInfo.type === "dotnet" || buildInfo.type === "dotnet+npm")) {
+      try {
+        await addEvent(taskId, "dep_install", "worker", "Restoring dotnet packages");
+        await execFileAsync("dotnet", ["restore"], { ...installOpts, cwd: buildInfo.dotnetDir });
+        logger.info({ taskId, dotnetDir: buildInfo.dotnetDir }, "Pre-restored dotnet packages");
+      } catch (dotnetErr) {
+        logger.warn({ taskId, dotnetDir: buildInfo.dotnetDir, err: dotnetErr }, "dotnet restore failed — agent will need to handle it");
+      }
+    }
 
     // Retrieve relevant learnings for this task (non-blocking — failures degrade gracefully)
     let learningIds: number[] = [];
