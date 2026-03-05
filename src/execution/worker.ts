@@ -83,7 +83,11 @@ function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): strin
   const lines: string[] = [`## Build System`, `Type: ${info.type}`];
   if (info.npmDir) {
     const rel = info.npmDir === repoDir ? "./" : "./" + info.npmDir.slice(repoDir.length + 1);
-    lines.push(`npm directory: ${rel} (dependencies are already installed — do NOT run npm install)`);
+    lines.push(`npm directory: ${rel}`);
+    lines.push(
+      `Dependencies are pre-installed. Do NOT run \`npm install\`, \`npm ci\`, or \`npm i\` — they waste time and may fail. ` +
+      `Just run \`npm run build\`, \`npm run test\`, \`npm run lint\`, etc. directly.`,
+    );
     if (rel !== "./") {
       lines.push(
         `The package.json is in \`${rel}\`, not the repo root. ` +
@@ -94,7 +98,8 @@ function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): strin
   }
   if (info.dotnetDir) {
     const rel = info.dotnetDir === repoDir ? "./" : "./" + info.dotnetDir.slice(repoDir.length + 1);
-    lines.push(`dotnet directory: ${rel} (packages are already restored — do NOT run dotnet restore)`);
+    lines.push(`dotnet directory: ${rel}`);
+    lines.push(`Packages are pre-restored. Do NOT run \`dotnet restore\` — just run \`dotnet build\`, \`dotnet test\`, etc. directly.`);
   }
   return lines.join("\n");
 }
