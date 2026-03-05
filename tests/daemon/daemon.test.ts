@@ -296,7 +296,7 @@ describe("Daemon", () => {
     await new Promise((r) => setTimeout(r, 200));
     await daemon.stop();
 
-    expect(mockExecuteTask).toHaveBeenCalledWith("HIVE-REWORK-01");
+    expect(mockExecuteTask).toHaveBeenCalledWith("HIVE-REWORK-01", expect.any(AbortSignal));
   });
 
   it("skips task when budget is exhausted", async () => {

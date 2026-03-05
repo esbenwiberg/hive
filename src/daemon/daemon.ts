@@ -244,23 +244,15 @@ export class Daemon {
     await this.prFeedbackPollScheduler.stop();
     await this.scheduler.stop();
 
-    // Abort in-flight tasks so they stop doing expensive work (clone, install, Claude calls),
-    // then suspend them in the DB so they get resumed on the next start.
+    // Suspend in-flight tasks in DB so they get resumed on the next start,
+    // then abort and drain so in-flight work stops quickly.
     if (this.activeTaskIds.size > 0) {
       logger.info(
         { active: this.activeTaskIds.size },
-        "Daemon: aborting and suspending in-flight tasks",
+        "Daemon: suspending and aborting in-flight tasks",
       );
 
-      // Signal abort first — executeTask checks this before each expensive step
-      for (const [taskId, controller] of this.abortControllers) {
-        controller.abort();
-        logger.info({ taskId }, "Daemon: abort signaled");
-      }
-
-      // Brief drain to let in-flight work react to the abort signal
-      await new Promise((resolve) => setTimeout(resolve, SUSPEND_DRAIN_MS));
-
+      // Suspend in DB first (before drain can let _dispatch finish and clear activeTaskIds)
       for (const taskId of this.activeTaskIds) {
         try {
           await suspendTask(taskId);
@@ -270,6 +262,15 @@ export class Daemon {
           logger.warn({ taskId, err }, "Daemon: could not suspend task");
         }
       }
+
+      // Signal abort — executeTask checks this before each expensive step
+      for (const [taskId, controller] of this.abortControllers) {
+        controller.abort();
+        logger.info({ taskId }, "Daemon: abort signaled");
+      }
+
+      // Brief drain to let in-flight work react to the abort signal
+      await new Promise((resolve) => setTimeout(resolve, SUSPEND_DRAIN_MS));
     }
 
     logger.info("Daemon stopped");
