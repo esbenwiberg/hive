@@ -25,7 +25,8 @@ echo "==> Updating container app..."
 az containerapp update \
   --name "$CONTAINER_APP_NAME" \
   --resource-group "$RESOURCE_GROUP" \
-  --image "$FULL_IMAGE"
+  --image "$FULL_IMAGE" \
+  --min-replicas 1
 
 echo "==> Done. Waiting for health check..."
 sleep 10
