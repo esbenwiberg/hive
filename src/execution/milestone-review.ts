@@ -32,7 +32,7 @@ interface ClaudeReviewResponse {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const SHELL_TIMEOUT_MS = 120_000;
-const MAX_DIFF_CHARS = 50_000;
+const MAX_DIFF_CHARS = 200_000;
 
 // Lock / generated / vendored files excluded from milestone review diffs.
 const REVIEW_EXCLUDED_PATHSPECS = [
