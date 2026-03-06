@@ -685,7 +685,8 @@ router.post("/api/tasks/:id/blueprint", requireAuth, async (req: Request, res: R
       return;
     }
 
-    const result = parseBlueprint(markdown);
+    const isSmallTask = task.size === "small" || task.size === "trivial";
+    const result = parseBlueprint(markdown, { requireMilestones: !isSmallTask });
     if (!result.ok) {
       const errorHtml = result.errors
         .map((e) => `<p class="text-xs text-red-400">${escapeHtml(e.field)}: ${escapeHtml(e.message)}</p>`)
@@ -699,12 +700,13 @@ router.post("/api/tasks/:id/blueprint", requireAuth, async (req: Request, res: R
     const existingArchitect = (enrichment.architect ?? {}) as Record<string, unknown>;
     const bp = result.blueprint;
 
+    const hasMilestones = bp.milestones.length > 0;
     const updatedArchitect = {
       ...existingArchitect,
       approach: bp.approach,
-      milestones: bp.milestones,
-      keyFiles: undefined,
-      checklist: undefined,
+      milestones: hasMilestones ? bp.milestones : undefined,
+      keyFiles: hasMilestones ? undefined : bp.keyFiles,
+      checklist: hasMilestones ? undefined : bp.checklist,
     };
 
     const updatedEnrichment = { ...enrichment, architect: updatedArchitect };

@@ -219,6 +219,10 @@ export interface Blueprint {
   approach: string;
   /** Ordered list of milestones that together deliver the full feature. */
   milestones: BlueprintMilestone[];
+  /** Key files relevant to the task (small-task format, no milestones). */
+  keyFiles?: string[];
+  /** Checklist items for the task (small-task format, no milestones). */
+  checklist?: string[];
 }
 
 export interface BlueprintValidationError {

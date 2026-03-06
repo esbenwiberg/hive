@@ -35,11 +35,17 @@ import type {
  * Returns a structured Blueprint if parsing succeeds, otherwise returns
  * an array of BlueprintValidationError objects explaining what is wrong.
  */
-export function parseBlueprint(markdown: string): BlueprintParseResult {
+export interface ParseBlueprintOptions {
+  /** When true, milestones are required; when false, a small-task format (approach + optional key files/checklist) is accepted. Defaults to true. */
+  requireMilestones?: boolean;
+}
+
+export function parseBlueprint(markdown: string, options?: ParseBlueprintOptions): BlueprintParseResult {
+  const requireMilestones = options?.requireMilestones ?? true;
   const errors: BlueprintValidationError[] = [];
 
   // Extract approach section
-  const approachMatch = markdown.match(/^#+\s+Approach\s*\n([\s\S]*?)(?=^#+\s+Milestone|(?![\s\S]))/m);
+  const approachMatch = markdown.match(/^#+\s+Approach\s*\n([\s\S]*?)(?=^#+\s+Milestone|^#+\s+Key Files|^#+\s+Checklist|(?![\s\S]))/m);
   if (!approachMatch || !approachMatch[1].trim()) {
     errors.push({
       field: "approach",
@@ -115,7 +121,7 @@ export function parseBlueprint(markdown: string): BlueprintParseResult {
     });
   }
 
-  if (milestones.length === 0) {
+  if (milestones.length === 0 && requireMilestones) {
     errors.push({
       field: "milestones",
       message: 'No milestones found. Define at least one milestone using "# Milestone 1: Title" format.',
@@ -126,11 +132,35 @@ export function parseBlueprint(markdown: string): BlueprintParseResult {
     return { ok: false, errors };
   }
 
+  // For small-task format (no milestones), extract key files and checklist
+  let keyFiles: string[] | undefined;
+  let checklist: string[] | undefined;
+
+  if (milestones.length === 0) {
+    const keyFilesMatch = markdown.match(/^#+\s+Key Files\s*\n([\s\S]*?)(?=^#+|(?![\s\S]))/m);
+    if (keyFilesMatch) {
+      keyFiles = keyFilesMatch[1].trim()
+        .split("\n")
+        .map((line) => line.replace(/^[-*]\s+/, "").replace(/`/g, "").trim())
+        .filter((line) => line.length > 0);
+    }
+
+    const checklistMatch = markdown.match(/^#+\s+Checklist\s*\n([\s\S]*?)(?=^#+|(?![\s\S]))/m);
+    if (checklistMatch) {
+      checklist = checklistMatch[1].trim()
+        .split("\n")
+        .map((line) => line.replace(/^[-*]\s+/, "").trim())
+        .filter((line) => line.length > 0);
+    }
+  }
+
   return {
     ok: true,
     blueprint: {
       approach,
       milestones,
+      keyFiles,
+      checklist,
     },
   };
 }

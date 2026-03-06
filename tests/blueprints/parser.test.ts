@@ -91,7 +91,7 @@ Do something.
       }
     });
 
-    it("returns error when no milestones are present", () => {
+    it("returns error when no milestones are present and milestones are required", () => {
       const markdown = `# Approach
 This is the approach.`;
 
@@ -105,6 +105,60 @@ This is the approach.`;
             message: expect.stringContaining("No milestones found"),
           }),
         );
+      }
+    });
+
+    it("accepts small-task format without milestones when requireMilestones is false", () => {
+      const markdown = `## Approach
+
+Update the dialog to add a toggle label.
+
+### Key Files
+
+- \`src/Components/Dialog.tsx\`
+- \`src/Locales/Locale_Dialog.ts\`
+
+### Checklist
+
+- Add toggle label
+- Add locale keys`;
+
+      const result = parseBlueprint(markdown, { requireMilestones: false });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.blueprint.approach).toContain("toggle label");
+        expect(result.blueprint.milestones).toHaveLength(0);
+        expect(result.blueprint.keyFiles).toEqual([
+          "src/Components/Dialog.tsx",
+          "src/Locales/Locale_Dialog.ts",
+        ]);
+        expect(result.blueprint.checklist).toEqual([
+          "Add toggle label",
+          "Add locale keys",
+        ]);
+      }
+    });
+
+    it("still parses milestones when present even with requireMilestones false", () => {
+      const markdown = `# Approach
+Strategy.
+
+# Milestone 1: Do thing
+## Description
+Do the thing.
+## Files to Modify
+- file.ts
+## Acceptance Criteria
+- It works`;
+
+      const result = parseBlueprint(markdown, { requireMilestones: false });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.blueprint.milestones).toHaveLength(1);
+        expect(result.blueprint.keyFiles).toBeUndefined();
+        expect(result.blueprint.checklist).toBeUndefined();
       }
     });
 
