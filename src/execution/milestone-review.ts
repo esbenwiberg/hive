@@ -34,8 +34,9 @@ interface ClaudeReviewResponse {
 const SHELL_TIMEOUT_MS = 120_000;
 const MAX_DIFF_CHARS = 50_000;
 
-// Lock / generated files excluded from milestone review diffs.
+// Lock / generated / vendored files excluded from milestone review diffs.
 const REVIEW_EXCLUDED_PATHSPECS = [
+  // Lock files
   ":!**/package-lock.json",
   ":!**/yarn.lock",
   ":!**/pnpm-lock.yaml",
@@ -45,10 +46,25 @@ const REVIEW_EXCLUDED_PATHSPECS = [
   ":!**/Pipfile.lock",
   ":!**/poetry.lock",
   ":!**/packages.lock.json",
+  // Minified / source maps
   ":!**/*.min.js",
   ":!**/*.min.css",
   ":!**/*.js.map",
   ":!**/*.css.map",
+  // Vendored / generated directories
+  ":!**/node_modules/**",
+  ":!**/vendor/**",
+  ":!**/dist/**",
+  ":!**/.next/**",
+  ":!**/.nuxt/**",
+  ":!**/build/**",
+  ":!**/__pycache__/**",
+  ":!**/.venv/**",
+  ":!**/venv/**",
+  ":!**/target/**",
+  ":!**/bin/Debug/**",
+  ":!**/bin/Release/**",
+  ":!**/obj/**",
 ];
 
 function getReviewPrompt(): string {

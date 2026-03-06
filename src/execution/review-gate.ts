@@ -17,10 +17,11 @@ import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
 const execFileAsync = promisify(execFile);
 
-// Lock / generated files excluded from review diffs and changed-file lists.
-// These inflate diffs, aren't human-reviewable, and cause the worker to waste
-// context trying to revert them when flagged as "out-of-scope".
+// Lock / generated / vendored files excluded from review diffs and changed-file
+// lists.  These inflate diffs, aren't human-reviewable, and cause the worker to
+// waste context trying to revert them when flagged as "out-of-scope".
 const REVIEW_EXCLUDED_PATHSPECS = [
+  // Lock files
   ":!**/package-lock.json",
   ":!**/yarn.lock",
   ":!**/pnpm-lock.yaml",
@@ -30,10 +31,25 @@ const REVIEW_EXCLUDED_PATHSPECS = [
   ":!**/Pipfile.lock",
   ":!**/poetry.lock",
   ":!**/packages.lock.json",
+  // Minified / source maps
   ":!**/*.min.js",
   ":!**/*.min.css",
   ":!**/*.js.map",
   ":!**/*.css.map",
+  // Vendored / generated directories
+  ":!**/node_modules/**",
+  ":!**/vendor/**",
+  ":!**/dist/**",
+  ":!**/.next/**",
+  ":!**/.nuxt/**",
+  ":!**/build/**",
+  ":!**/__pycache__/**",
+  ":!**/.venv/**",
+  ":!**/venv/**",
+  ":!**/target/**",
+  ":!**/bin/Debug/**",
+  ":!**/bin/Release/**",
+  ":!**/obj/**",
 ];
 
 function getReviewPrompt(): string {
@@ -73,13 +89,60 @@ export async function validateBaseSha(worktreePath: string, baseSha: string): Pr
  */
 async function getGitDiff(worktreePath: string, baseSha: string): Promise<string> {
   try {
-    // Diff from the base commit to the working tree — captures both committed and uncommitted changes
-    const { stdout } = await execFileAsync("git", ["diff", "--stat", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000 });
-    const { stdout: fullDiff } = await execFileAsync("git", ["diff", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000, maxBuffer: 1024 * 1024 });
-    return `${stdout}\n\n${fullDiff}`;
-  } catch {
+    const { stdout } = await execFileAsync("git", ["diff", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000, maxBuffer: 2 * 1024 * 1024 });
+    return stdout;
+  } catch (err) {
+    logger.warn({ worktreePath, baseSha, err }, "Failed to get git diff for review");
     return "(no diff available)";
   }
+}
+
+/**
+ * Gets a compact stat summary for the given files relative to baseSha.
+ */
+async function getFileStat(worktreePath: string, baseSha: string, files: string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["diff", "--stat", baseSha, "--", ...files], { cwd: worktreePath, timeout: 30_000 });
+    return stdout.trim();
+  } catch {
+    return files.map(f => `  ${f} (stat unavailable)`).join("\n");
+  }
+}
+
+const MAX_REVIEW_DIFF_CHARS = 100_000;
+
+/**
+ * Truncates a diff at file boundaries. Files that don't fit get a stat-only
+ * summary so the reviewer knows they changed and by how much.
+ */
+async function truncateDiff(
+  diff: string,
+  changedFiles: string[],
+  worktreePath: string,
+  baseSha: string,
+): Promise<string> {
+  if (diff.length <= MAX_REVIEW_DIFF_CHARS) return diff;
+
+  // Split into per-file sections (each starts with "diff --git")
+  const fileDiffs = diff.split(/(?=^diff --git )/m).filter(Boolean);
+
+  let result = "";
+  const includedFiles = new Set<string>();
+
+  for (const fileDiff of fileDiffs) {
+    if (result.length + fileDiff.length > MAX_REVIEW_DIFF_CHARS && result.length > 0) break;
+    result += fileDiff;
+    const match = fileDiff.match(/^diff --git a\/(.+?) b\//);
+    if (match) includedFiles.add(match[1]);
+  }
+
+  const truncatedFiles = changedFiles.filter(f => !includedFiles.has(f));
+  if (truncatedFiles.length > 0) {
+    const stat = await getFileStat(worktreePath, baseSha, truncatedFiles);
+    result += `\n\n(diff truncated — stat-only summary for remaining ${truncatedFiles.length} file(s))\n${stat}`;
+  }
+
+  return result;
 }
 
 /**
@@ -89,7 +152,8 @@ async function getChangedFiles(worktreePath: string, baseSha: string): Promise<s
   try {
     const { stdout } = await execFileAsync("git", ["diff", "--name-only", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000 });
     return stdout.trim().split("\n").filter(Boolean);
-  } catch {
+  } catch (err) {
+    logger.warn({ worktreePath, baseSha, err }, "Failed to get changed files for review");
     return [];
   }
 }
@@ -198,13 +262,15 @@ export async function reviewChanges(
       );
     }
 
+    const reviewDiff = await truncateDiff(diff, changedFiles, worktreeInfo.path, safeSha);
+
     promptSections.push(
       `## Changed Files`,
       changedFiles.map(f => `- ${f}`).join("\n"),
       ``,
       `## Git Diff`,
       "```",
-      diff.substring(0, 50000), // Truncate very large diffs
+      reviewDiff,
       "```",
     );
 
