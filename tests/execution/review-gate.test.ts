@@ -387,9 +387,11 @@ describe("reviewChanges", () => {
   it("truncates very large diffs", async () => {
     const { task } = await seedReviewingTask();
 
-    // Create a diff that exceeds the 400k char review limit
-    const largeDiff = "x".repeat(500_000);
-    setupExecFileMock("1 file changed", largeDiff, "big-file.ts");
+    // Create a realistic diff that exceeds the 400k char review limit
+    const fileA = `diff --git a/big-file.ts b/big-file.ts\n` + "x".repeat(300_000);
+    const fileB = `diff --git a/other-file.ts b/other-file.ts\n` + "y".repeat(300_000);
+    const largeDiff = fileA + fileB;
+    setupExecFileMock("2 files changed", largeDiff, "big-file.ts\nother-file.ts");
 
     mockPassResponse();
 
@@ -398,6 +400,8 @@ describe("reviewChanges", () => {
     // The prompt should have been passed to callClaude with a truncated diff
     const call = mockCallClaude.mock.calls[0][0];
     expect(call.prompt.length).toBeLessThan(largeDiff.length);
+    // Second file should appear as stat-only, not full diff
+    expect(call.prompt).not.toContain("y".repeat(1000));
   });
 });
 

@@ -130,7 +130,15 @@ async function truncateDiff(
   const includedFiles = new Set<string>();
 
   for (const fileDiff of fileDiffs) {
-    if (result.length + fileDiff.length > MAX_REVIEW_DIFF_CHARS && result.length > 0) break;
+    if (result.length + fileDiff.length > MAX_REVIEW_DIFF_CHARS) {
+      // If nothing included yet, hard-truncate the first chunk so we never exceed the cap
+      if (result.length === 0) {
+        result = fileDiff.substring(0, MAX_REVIEW_DIFF_CHARS) + "\n...(truncated)";
+        const match = fileDiff.match(/^diff --git a\/(.+?) b\//);
+        if (match) includedFiles.add(match[1]);
+      }
+      break;
+    }
     result += fileDiff;
     const match = fileDiff.match(/^diff --git a\/(.+?) b\//);
     if (match) includedFiles.add(match[1]);
