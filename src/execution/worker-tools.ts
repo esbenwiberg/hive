@@ -105,15 +105,18 @@ export const WORKER_TOOLS: Tool[] = [
   },
   {
     name: "run_command",
-    description: "Run a shell command in the working directory. Use for build, test, lint, git, etc.",
+    description: "Run a command in the working directory. Use for build, test, lint, git, etc. " +
+      "Commands are executed directly (not through a shell) — do NOT use shell syntax like " +
+      "pipes (|), redirections (>, 2>&1), chaining (&&, ||, ;), or globs (*). " +
+      "If you need shell features, use command: 'bash' with args: ['-c', 'your command here'].",
     input_schema: {
       type: "object" as const,
       properties: {
-        command: { type: "string", description: "The command to run (e.g. 'npm')" },
+        command: { type: "string", description: "The executable to run (e.g. 'npm', 'dotnet', 'git')" },
         args: {
           type: "array",
           items: { type: "string" },
-          description: "Command arguments (e.g. ['run', 'build'])",
+          description: "Command arguments (e.g. ['run', 'build']). Do not include shell syntax like 2>&1 or |.",
         },
       },
       required: ["command"],
@@ -240,10 +243,18 @@ export function createWorktreeToolExecutor(
           }
         }
 
+        // Strip shell metacharacters that Claude sometimes includes.
+        // execFile doesn't interpret shell syntax, so these would be passed
+        // literally to the binary (e.g. "2>&1" becomes an ESLint file pattern).
+        const shellTokens = /^[|;&]|^[12]?>>?|^2>&1$|^<<|^\|\|$|^&&$/;
+        args = args.filter(a => !shellTokens.test(a));
+
         // Strip NODE_ENV=production (set for the Hive container) so that
         // target-repo npm installs include devDependencies (build tools,
         // postinstall helpers like patch-package, etc.).
+        // Set CI=true so tools like vitest/jest disable interactive/watch mode.
         const { NODE_ENV: _drop, ...cleanEnv } = process.env;
+        cleanEnv.CI = "true";
 
         const { stdout, stderr } = await execFileAsync(command, args, {
           cwd,

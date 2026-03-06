@@ -55,8 +55,10 @@ async function runStep(
   failures: string[],
 ): Promise<boolean> {
   try {
-    // Strip NODE_ENV=production so target-repo npm installs include devDependencies
+    // Strip NODE_ENV=production so target-repo npm installs include devDependencies.
+    // Set CI=true so tools like vitest/jest disable interactive/watch mode.
     const { NODE_ENV: _drop, ...cleanEnv } = process.env;
+    cleanEnv.CI = "true";
 
     await execFileAsync(bin, args, {
       cwd,
@@ -92,49 +94,56 @@ async function runStep(
 export async function quickVerify(
   worktreePath: string,
   buildSettings?: { system?: string; npmDir?: string },
+  options?: { skipInstall?: boolean },
 ): Promise<QuickVerifyResult> {
   const failures: string[] = [];
+  const skipInstall = options?.skipInstall ?? false;
 
   const info = await detectBuildSystem(worktreePath, undefined, buildSettings);
-  logger.info({ worktreePath, buildSystem: info.type }, "quickVerify: detected build system");
+  logger.info({ worktreePath, buildSystem: info.type, skipInstall }, "quickVerify: detected build system");
 
   // ── npm steps ────────────────────────────────────────────────────────────
   if (info.type === "npm" || info.type === "dotnet+npm") {
     const npmDir = info.npmDir ?? worktreePath;
 
-    const installed = await runStep(
-      "npm", ["install", "--prefer-offline", "--include=dev"],
-      npmDir, "npm install", failures,
-    );
+    if (!skipInstall) {
+      const installed = await runStep(
+        "npm", ["install", "--prefer-offline", "--include=dev"],
+        npmDir, "npm install", failures,
+      );
 
-    if (!installed) {
-      logger.warn({ npmDir }, "quickVerify: npm install failed — skipping npm build/test");
-      if (info.type === "npm") return { passed: false, failures };
-    } else {
-      await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", failures);
-      await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures);
-      await runStep("npm", ["run", "test", "--if-present"], npmDir, "npm test", failures);
+      if (!installed) {
+        logger.warn({ npmDir }, "quickVerify: npm install failed — skipping npm build/test");
+        if (info.type === "npm") return { passed: false, failures };
+      }
     }
+
+    await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", failures);
+    await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures);
+    await runStep("npm", ["run", "test", "--if-present"], npmDir, "npm test", failures);
   }
 
   // ── dotnet steps ─────────────────────────────────────────────────────────
   if (info.type === "dotnet" || info.type === "dotnet+npm") {
     const dotnetDir = info.dotnetDir ?? worktreePath;
 
-    const restored = await runStep(
-      "dotnet", ["restore"],
-      dotnetDir, "dotnet restore", failures,
-    );
+    if (!skipInstall) {
+      const restored = await runStep(
+        "dotnet", ["restore"],
+        dotnetDir, "dotnet restore", failures,
+      );
 
-    if (!restored) {
-      logger.warn({ dotnetDir }, "quickVerify: dotnet restore failed — skipping dotnet build/test");
-    } else {
-      const built = await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures);
-      if (built) {
-        await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures);
-      } else {
-        logger.warn({ dotnetDir }, "quickVerify: dotnet build failed — skipping dotnet test");
+      if (!restored) {
+        logger.warn({ dotnetDir }, "quickVerify: dotnet restore failed — skipping dotnet build/test");
+        if (info.type === "dotnet") return { passed: false, failures };
       }
+    }
+
+    const built = await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures);
+    if (built) {
+      await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures);
+    } else {
+      logger.warn({ dotnetDir }, "quickVerify: dotnet build failed — skipping dotnet test");
     }
   }
 
@@ -314,6 +323,7 @@ export async function reviewFix(
   model: string,
   buildSettings?: { system?: string; npmDir?: string },
   buildInfo?: BuildSystemInfo,
+  options?: { skipInstall?: boolean },
 ): Promise<ReviewFixResult> {
   const autonomousConfig = getAutonomousConfig();
   const maxIterations = autonomousConfig.reviewFix.maxIterations;
@@ -330,7 +340,7 @@ export async function reviewFix(
     logger.info({ iteration, maxIterations, worktreePath, reviewModel, fixModel }, "review-fix iteration start");
 
     // Step 1: Run shell verification
-    const verify = await quickVerify(worktreePath, buildSettings);
+    const verify = await quickVerify(worktreePath, buildSettings, options);
     const shellIssues = verify.failures;
     logger.info({ iteration, passed: verify.passed, failureCount: shellIssues.length, worktreePath }, "review-fix quickVerify done");
 
@@ -373,7 +383,7 @@ export async function reviewFix(
 
     // After the last iteration, do a final verify to see if fixes worked
     if (iteration === maxIterations) {
-      const finalVerify = await quickVerify(worktreePath, buildSettings);
+      const finalVerify = await quickVerify(worktreePath, buildSettings, options);
       if (finalVerify.passed) {
         // Final shell check passed — do one last Claude review (incremental)
         const diff = await getDiff(worktreePath);

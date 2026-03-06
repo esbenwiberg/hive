@@ -432,7 +432,7 @@ async function executeMilestones(
 
     // ── 3. Review-fix loop ────────────────────────────────────────────────
     await addEvent(task.id, "review_fix_started", "worker", `Review-fix loop for milestone ${i + 1}/${milestones.length}`);
-    const review = await reviewFix(worktreePath, ms.title, model, buildSettings, buildInfo);
+    const review = await reviewFix(worktreePath, ms.title, model, buildSettings, buildInfo, { skipInstall: true });
     totalCostUsd += review.costUsd;
     await addEvent(task.id, "review_fix_complete", "worker", `Review-fix ${review.passed ? "passed" : "failed"} (${review.iterations} iterations, $${review.costUsd.toFixed(2)})`);
     if (review.issues.length > 0) {
@@ -621,6 +621,22 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         logger.info({ taskId, dotnetDir: buildInfo.dotnetDir }, "Pre-restored dotnet packages");
       } catch (dotnetErr) {
         logger.warn({ taskId, dotnetDir: buildInfo.dotnetDir, err: dotnetErr }, "dotnet restore failed — agent will need to handle it");
+      }
+    }
+
+    // Run baseline verify on the unmodified branch so we can distinguish
+    // pre-existing failures from failures introduced by our changes.
+    // Only on first attempt — rework cycles already have a baseline.
+    let baselineFailures: Set<string> = new Set();
+    if ((task.reworkCount ?? 0) === 0 && !reusedWorktree) {
+      try {
+        const baseline = await quickVerify(worktree.path, buildSettings, { skipInstall: true });
+        if (!baseline.passed) {
+          baselineFailures = new Set(baseline.failures);
+          logger.info({ taskId, count: baselineFailures.size }, "Baseline verify found pre-existing failures");
+        }
+      } catch (baselineErr) {
+        logger.warn({ taskId, err: baselineErr }, "Baseline verify failed — will not filter pre-existing failures");
       }
     }
 
@@ -1013,7 +1029,22 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // Rework fixes or late-stage changes can introduce build errors that slip
     // through. Run quickVerify here to catch them before pushing.
     await addEvent(taskId, "final_verify_started", "worker", "Running final build/test verification");
-    const finalVerify = await quickVerify(worktree.path, buildSettings);
+    const finalVerify = await quickVerify(worktree.path, buildSettings, { skipInstall: true });
+
+    // Filter out pre-existing failures that were already broken on the base branch.
+    // This prevents rework loops caused by repo issues the agent didn't introduce.
+    if (!finalVerify.passed && baselineFailures.size > 0) {
+      const introduced = finalVerify.failures.filter(f => !baselineFailures.has(f));
+      const inherited = finalVerify.failures.length - introduced.length;
+      if (inherited > 0) {
+        logger.info({ taskId, inherited, introduced: introduced.length },
+          "Filtered out pre-existing failures from final verify");
+        await addEvent(taskId, "baseline_filter", "worker",
+          `Filtered ${inherited} pre-existing failure(s), ${introduced.length} introduced failure(s) remain`);
+        finalVerify.failures = introduced;
+        finalVerify.passed = introduced.length === 0;
+      }
+    }
 
     if (!finalVerify.passed) {
       logger.warn({ taskId, failures: finalVerify.failures }, "Final build/test verification failed after review pass");
