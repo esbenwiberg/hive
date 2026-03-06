@@ -34,6 +34,23 @@ interface ClaudeReviewResponse {
 const SHELL_TIMEOUT_MS = 120_000;
 const MAX_DIFF_CHARS = 50_000;
 
+// Lock / generated files excluded from milestone review diffs.
+const REVIEW_EXCLUDED_PATHSPECS = [
+  ":!**/package-lock.json",
+  ":!**/yarn.lock",
+  ":!**/pnpm-lock.yaml",
+  ":!**/Cargo.lock",
+  ":!**/Gemfile.lock",
+  ":!**/composer.lock",
+  ":!**/Pipfile.lock",
+  ":!**/poetry.lock",
+  ":!**/packages.lock.json",
+  ":!**/*.min.js",
+  ":!**/*.min.css",
+  ":!**/*.js.map",
+  ":!**/*.css.map",
+];
+
 function getReviewPrompt(): string {
   return loadPrompt("enrichers/milestone-review");
 }
@@ -163,7 +180,7 @@ async function getDiff(worktreePath: string): Promise<string> {
   // changes are still uncommitted. HEAD~1 would pull in the previous committed milestone,
   // causing the reviewer to see a growing compound diff and flag already-reviewed code.
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "HEAD"], {
+    const { stdout } = await execFileAsync("git", ["diff", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], {
       cwd: worktreePath,
       timeout: SHELL_TIMEOUT_MS,
       maxBuffer: 2 * 1024 * 1024,
@@ -181,7 +198,7 @@ async function getDiff(worktreePath: string): Promise<string> {
 async function getChangedFiles(worktreePath: string): Promise<string[]> {
   try {
     const [{ stdout: tracked }, { stdout: untracked }] = await Promise.all([
-      execFileAsync("git", ["diff", "--name-only", "HEAD"], { cwd: worktreePath, timeout: SHELL_TIMEOUT_MS }),
+      execFileAsync("git", ["diff", "--name-only", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: SHELL_TIMEOUT_MS }),
       execFileAsync("git", ["ls-files", "--others", "--exclude-standard"], { cwd: worktreePath, timeout: SHELL_TIMEOUT_MS }),
     ]);
     return [...tracked.trim().split("\n"), ...untracked.trim().split("\n")].filter(Boolean);

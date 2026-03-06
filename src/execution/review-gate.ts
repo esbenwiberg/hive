@@ -17,6 +17,25 @@ import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
 const execFileAsync = promisify(execFile);
 
+// Lock / generated files excluded from review diffs and changed-file lists.
+// These inflate diffs, aren't human-reviewable, and cause the worker to waste
+// context trying to revert them when flagged as "out-of-scope".
+const REVIEW_EXCLUDED_PATHSPECS = [
+  ":!**/package-lock.json",
+  ":!**/yarn.lock",
+  ":!**/pnpm-lock.yaml",
+  ":!**/Cargo.lock",
+  ":!**/Gemfile.lock",
+  ":!**/composer.lock",
+  ":!**/Pipfile.lock",
+  ":!**/poetry.lock",
+  ":!**/packages.lock.json",
+  ":!**/*.min.js",
+  ":!**/*.min.css",
+  ":!**/*.js.map",
+  ":!**/*.css.map",
+];
+
 function getReviewPrompt(): string {
   return loadPrompt("review-gate");
 }
@@ -55,8 +74,8 @@ export async function validateBaseSha(worktreePath: string, baseSha: string): Pr
 async function getGitDiff(worktreePath: string, baseSha: string): Promise<string> {
   try {
     // Diff from the base commit to the working tree — captures both committed and uncommitted changes
-    const { stdout } = await execFileAsync("git", ["diff", "--stat", baseSha], { cwd: worktreePath, timeout: 120_000 });
-    const { stdout: fullDiff } = await execFileAsync("git", ["diff", baseSha], { cwd: worktreePath, timeout: 120_000, maxBuffer: 1024 * 1024 });
+    const { stdout } = await execFileAsync("git", ["diff", "--stat", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000 });
+    const { stdout: fullDiff } = await execFileAsync("git", ["diff", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000, maxBuffer: 1024 * 1024 });
     return `${stdout}\n\n${fullDiff}`;
   } catch {
     return "(no diff available)";
@@ -68,7 +87,7 @@ async function getGitDiff(worktreePath: string, baseSha: string): Promise<string
  */
 async function getChangedFiles(worktreePath: string, baseSha: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", baseSha], { cwd: worktreePath, timeout: 120_000 });
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000 });
     return stdout.trim().split("\n").filter(Boolean);
   } catch {
     return [];

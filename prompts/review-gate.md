@@ -60,10 +60,13 @@ Respond with a JSON object:
 7. When changes affect APIs, architecture, configuration, or user-facing behavior,
    missing or outdated documentation updates in `docs/internal/` or `docs/external/`
    are grounds for "rework" (severity: minor or major depending on scope)
-8. When "Expected File Scope" is provided, apply extra scrutiny to changes
-   outside that scope. Necessary auxiliary changes (imports, type updates,
-   index re-exports) are acceptable. Substantive modifications to out-of-scope
-   files that introduce regressions or unnecessary changes are "major" findings.
+8. When "Expected File Scope" is provided, use it as a rough guide — not a
+   strict boundary. The architect cannot predict every file that needs changing.
+   Out-of-scope changes are fine when they are **related** to the task (e.g.
+   adjacent locale/translation files, shared types, config touched by the feature,
+   test files, barrel re-exports). Only flag out-of-scope changes as findings when
+   the file is **clearly unrelated** to the task purpose and the modification
+   introduces unnecessary risk or regression.
 9. **C#/.NET-specific concerns**: When reviewing C# code, check for SQL injection via `FromSqlRaw`/`FromSqlInterpolated`, insecure deserialization (e.g. `BinaryFormatter`, `JsonSerializer` without type validation), missing `[Authorize]` attributes on controller actions that modify state, and hardcoded connection strings or secrets. Use `type: "deserialization"` for deserialization findings.
 10. For security findings that are architectural or design-level observations
    (e.g. "consider rate limiting", "this endpoint could benefit from CSRF protection",

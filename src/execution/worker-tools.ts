@@ -16,6 +16,29 @@ export interface PrismConfig {
 const MAX_FILE_SIZE = 512 * 1024; // 512 KB
 const CMD_TIMEOUT_MS = 120_000;
 const CMD_MAX_BUFFER = 2 * 1024 * 1024;
+const MAX_CMD_OUTPUT_CHARS = 100_000; // ~25k tokens — prevents a single command from blowing the context
+
+// Generated / lock files that should never be read — they waste context and
+// can blow past API token limits (a single package-lock.json can be 200k+ tokens).
+const EXCLUDED_FILE_PATTERNS = [
+  /(?:^|\/)package-lock\.json$/,
+  /(?:^|\/)yarn\.lock$/,
+  /(?:^|\/)pnpm-lock\.yaml$/,
+  /(?:^|\/)Cargo\.lock$/,
+  /(?:^|\/)Gemfile\.lock$/,
+  /(?:^|\/)composer\.lock$/,
+  /(?:^|\/)Pipfile\.lock$/,
+  /(?:^|\/)poetry\.lock$/,
+  /(?:^|\/)packages\.lock\.json$/,
+  /\.min\.[jt]sx?$/,
+  /\.min\.css$/,
+  /\.(?:js|css)\.map$/,
+  /(?:^|\/)node_modules\//,
+];
+
+function isExcludedFile(filePath: string): boolean {
+  return EXCLUDED_FILE_PATTERNS.some(re => re.test(filePath));
+}
 
 // ── Path safety ─────────────────────────────────────────────────────────────
 
@@ -148,10 +171,17 @@ export function createWorktreeToolExecutor(
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
     switch (name) {
       case "read_file": {
-        const filePath = safePath(worktreePath, input.path as string);
+        const rawPath = input.path as string;
+        if (isExcludedFile(rawPath)) {
+          throw new Error(
+            `${rawPath} is a generated/lock file and should not be read — it would waste context. ` +
+            `Use package.json or similar source files instead.`,
+          );
+        }
+        const filePath = safePath(worktreePath, rawPath);
         const stats = await stat(filePath);
         if (stats.size > MAX_FILE_SIZE) {
-          throw new Error(`File too large (${stats.size} bytes, limit ${MAX_FILE_SIZE})`);
+          throw new Error(`File too large (${stats.size} bytes, limit ${MAX_FILE_SIZE}). Read a smaller portion or a different file.`);
         }
         return await readFile(filePath, "utf-8");
       }
@@ -232,6 +262,19 @@ export function createWorktreeToolExecutor(
           throw new Error(`Blocked: git state commands are not allowed (they could revert your changes)`);
         }
 
+        // Block reading excluded files via git (e.g. git show HEAD:package-lock.json)
+        if (/\bgit\b/.test(fullCmd)) {
+          for (const arg of args) {
+            const colonIdx = arg.indexOf(":");
+            if (colonIdx > 0) {
+              const blobPath = arg.slice(colonIdx + 1);
+              if (blobPath && isExcludedFile(blobPath)) {
+                throw new Error(`Blocked: ${blobPath} is a generated/lock file and should not be read`);
+              }
+            }
+          }
+        }
+
         // Auto-resolve cwd for npm/dotnet commands when package.json or .sln
         // lives in a subdirectory (mirrors quickVerify behaviour).
         let cwd = worktreePath;
@@ -263,7 +306,11 @@ export function createWorktreeToolExecutor(
           env: cleanEnv,
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
-        return output || "(no output)";
+        if (!output) return "(no output)";
+        if (output.length > MAX_CMD_OUTPUT_CHARS) {
+          return output.slice(0, MAX_CMD_OUTPUT_CHARS) + "\n\n... (output truncated — exceeded 100 KB)";
+        }
+        return output;
       }
 
       case "search_codebase": {
