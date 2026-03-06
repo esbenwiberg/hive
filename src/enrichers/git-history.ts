@@ -23,15 +23,32 @@ async function gitCmd(repoDir: string, args: string[]): Promise<string | null> {
   }
 }
 
+// ── Filters ─────────────────────────────────────────────────────────────────
+
+/** File extensions that are documentation/config noise for code tasks. */
+const DOC_EXTS = new Set([
+  ".md", ".rst", ".adoc", ".gitkeep", ".editorconfig",
+  ".prettierrc", ".eslintignore", ".gitignore", ".gitattributes",
+]);
+
+function isDocOrConfig(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  const lastDot = lower.lastIndexOf(".");
+  if (lastDot >= 0 && DOC_EXTS.has(lower.slice(lastDot))) return true;
+  // Common doc/meta directories
+  if (/^(\.|)(ai|documentation|memorybank|changes|githooks)\//i.test(filePath)) return true;
+  return false;
+}
+
 // ── Enricher ─────────────────────────────────────────────────────────────────
 
 export const gitHistoryEnricher: Enricher = {
   name: "git-history",
 
   async run(
-    _task: TaskRow,
+    task: TaskRow,
     repoDir: string,
-    _priorResults: Record<string, unknown>,
+    priorResults: Record<string, unknown>,
     _config: EnricherConfig,
   ): Promise<EnrichmentResult> {
     const startTime = Date.now();
@@ -91,18 +108,39 @@ export const gitHistoryEnricher: Enricher = {
       "--since=30 days ago",
     ]);
 
-    const hotspots: string[] = [];
+    // Collect file change counts, separating code from docs/config
+    const codeHotspots: string[] = [];
+    const docHotspots: string[] = [];
+    const taskRelevantHotspots: string[] = [];
+
     if (filesOutput) {
       const counts = new Map<string, number>();
       for (const file of filesOutput.split("\n")) {
         if (file.length === 0) continue;
         counts.set(file, (counts.get(file) ?? 0) + 1);
       }
-      const sorted = [...counts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 20);
+      const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+
+      // Extract task keywords from codebase enricher or task title
+      const codebaseData = priorResults.codebase as Record<string, unknown> | undefined;
+      const taskKeywords: string[] = Array.isArray(codebaseData?.keywordsUsed)
+        ? (codebaseData.keywordsUsed as string[])
+        : task.title.toLowerCase().split(/[\s\-_/\\.,;:!?()[\]{}'"<>|]+/).filter((w) => w.length >= 4);
+
       for (const [file, count] of sorted) {
-        hotspots.push(`${count} ${file}`);
+        const entry = `${count} ${file}`;
+        const lower = file.toLowerCase();
+
+        // Check task relevance
+        if (taskKeywords.some((kw) => lower.includes(kw))) {
+          if (taskRelevantHotspots.length < 20) taskRelevantHotspots.push(entry);
+        }
+
+        if (isDocOrConfig(file)) {
+          if (docHotspots.length < 10) docHotspots.push(entry);
+        } else {
+          if (codeHotspots.length < 20) codeHotspots.push(entry);
+        }
       }
     }
 
@@ -112,7 +150,9 @@ export const gitHistoryEnricher: Enricher = {
       data: {
         gitHistory: {
           recentCommits,
-          hotspots,
+          hotspots: codeHotspots,       // code-only hotspots (backward compat key)
+          docHotspots,                   // separated doc/config changes
+          taskRelevantHotspots,          // files matching task keywords
           contributors,
         },
       },

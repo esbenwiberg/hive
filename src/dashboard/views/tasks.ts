@@ -575,6 +575,31 @@ function docsEnrichmentContent(docs: Record<string, unknown>): string {
 }
 
 /**
+ * Dedicated renderer for the `hivemind` enricher result.
+ */
+function hivemindEnrichmentContent(hivemind: Record<string, unknown>): string {
+  const learnings = Array.isArray(hivemind.learnings) ? hivemind.learnings as Array<Record<string, unknown>> : [];
+  if (learnings.length === 0) return `<span class="text-slate-500">No relevant learnings found</span>`;
+
+  const rows = learnings.map((l) => {
+    const confidence = l.confidence ?? "?";
+    const scope = l.scope ?? "";
+    const category = l.category ?? "";
+    const content = typeof l.content === "string" ? l.content : String(l.content);
+    return `<div class="flex gap-3 py-1.5 border-b border-slate-800 last:border-0">
+      <div class="shrink-0 flex gap-1">
+        <span class="rounded bg-emerald-900/40 px-1.5 py-0.5 text-xs text-emerald-300">${escapeHtml(String(confidence))}</span>
+        ${scope ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">${escapeHtml(String(scope))}</span>` : ""}
+        ${category ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">${escapeHtml(String(category))}</span>` : ""}
+      </div>
+      <span class="text-slate-200">${escapeHtml(content)}</span>
+    </div>`;
+  }).join("");
+
+  return `<div>${rows}</div>`;
+}
+
+/**
  * Dedicated renderer for the `prism` enricher result.
  */
 function prismEnrichmentContent(prism: Record<string, unknown>): string {
@@ -671,6 +696,7 @@ function enricherSummary(key: string, value: unknown): string {
     const learnings = Array.isArray(obj.learnings) ? obj.learnings.length : null;
     return learnings !== null ? `${learnings} learnings` : "";
   }
+
   return "";
 }
 
@@ -697,12 +723,16 @@ function enrichmentSection(task: TaskRow): string {
     const dialogId = `enricher-dialog-${key}`;
 
     // Render content for the dialog
-    const isDocs = key === "docs" && typeof value === "object" && value !== null && !Array.isArray(value);
-    const isPrism = key === "prism" && typeof value === "object" && value !== null && !Array.isArray(value);
+    const isObj = typeof value === "object" && value !== null && !Array.isArray(value);
+    const isDocs = key === "docs" && isObj;
+    const isPrism = key === "prism" && isObj;
+    const isHivemind = key === "hivemind" && isObj;
     const content = isPrism
       ? prismEnrichmentContent(value as Record<string, unknown>)
       : isDocs
       ? docsEnrichmentContent(value as Record<string, unknown>)
+      : isHivemind
+      ? hivemindEnrichmentContent(value as Record<string, unknown>)
       : formatEnrichmentValue(value);
 
     cards.push(`<button type="button"

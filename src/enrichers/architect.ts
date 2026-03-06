@@ -267,6 +267,7 @@ export const architectEnricher: Enricher = {
 
     // Retrieve relevant learnings to inform the blueprint
     let learningsStr = "";
+    let hivemindData: { learnings: { confidence: string; scope: string; content: string; category: string }[]; count: number } | undefined;
     try {
       const scopes = ["universal"];
       const repo = await getRepoById(task.repoId);
@@ -287,6 +288,17 @@ export const architectEnricher: Enricher = {
           ),
           `</learnings>`,
         ].join("\n");
+
+        // Store for enrichment data so hivemind learnings are visible in the UI
+        hivemindData = {
+          learnings: relevant.map((l) => ({
+            confidence: String(l.confidence),
+            scope: l.scope,
+            content: l.content,
+            category: l.category,
+          })),
+          count: relevant.length,
+        };
       }
     } catch (err) {
       logger.warn({ taskId: task.id, err }, "Architect: failed to retrieve learnings (non-blocking)");
@@ -379,8 +391,13 @@ export const architectEnricher: Enricher = {
       "Architect enricher completed",
     );
 
+    const data: Record<string, unknown> = { architect: blueprint };
+    if (hivemindData) {
+      data.hivemind = hivemindData;
+    }
+
     return {
-      data: { architect: blueprint },
+      data,
       costUsd,
       durationMs,
     };

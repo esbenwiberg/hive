@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { callClaudeWithTools } from "../agents/sdk.js";
@@ -102,6 +102,43 @@ function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): strin
     lines.push(`Packages are pre-restored. Do NOT run \`dotnet restore\` — just run \`dotnet build\`, \`dotnet test\`, etc. directly.`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Reads project instruction files (CLAUDE.md, .cursorrules, etc.) from the
+ * worktree root. Returns the full contents as a prompt section, or empty
+ * string if none are found. Capped to prevent context overflow.
+ */
+const PROJECT_INSTRUCTION_FILES = ["CLAUDE.md", ".cursorrules"] as const;
+const MAX_INSTRUCTIONS_CHARS = 12_000;
+
+async function readProjectInstructions(worktreePath: string): Promise<string> {
+  const sections: string[] = [];
+  let totalChars = 0;
+
+  for (const fileName of PROJECT_INSTRUCTION_FILES) {
+    try {
+      const content = await readFile(`${worktreePath}/${fileName}`, "utf-8");
+      if (!content.trim()) continue;
+
+      const trimmed = content.slice(0, MAX_INSTRUCTIONS_CHARS - totalChars);
+      sections.push(`### ${fileName}\n\n${trimmed}`);
+      totalChars += trimmed.length;
+
+      if (totalChars >= MAX_INSTRUCTIONS_CHARS) break;
+    } catch {
+      // File doesn't exist — expected
+    }
+  }
+
+  if (sections.length === 0) return "";
+
+  return [
+    "\n## Project Instructions",
+    "These instructions come from the repository and MUST be followed:",
+    "",
+    ...sections,
+  ].join("\n");
 }
 
 // ── PR helpers ────────────────────────────────────────────────────────────────
@@ -257,6 +294,9 @@ async function executeMilestones(
   const priorSummaries: string[] = [];
   const reviewFixIssues: string[] = [];
 
+  // Read project instructions once for all milestones
+  const projectInstructions = await readProjectInstructions(worktreePath);
+
   // Pre-populate summaries for already-completed milestones so Claude has context
   for (let j = 0; j < startFrom; j++) {
     priorSummaries.push(`${milestones[j].title} — completed (prior run)`);
@@ -306,6 +346,10 @@ async function executeMilestones(
         `## Prior Milestones (already committed)`,
         priorSummaries.map((s, idx) => `${idx + 1}. ${s}`).join("\n"),
       );
+    }
+
+    if (projectInstructions) {
+      sections.push(projectInstructions);
     }
 
     if (learningsStr) {
@@ -666,6 +710,9 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       ? `\n## Retry Instructions (address this feedback)\n${task.retryInstructions}`
       : "";
 
+    // Read project-level instructions (CLAUDE.md, .cursorrules) from the worktree
+    const projectInstructions = await readProjectInstructions(worktree.path);
+
     // For small/trivial tasks, put structured plan BEFORE raw task body so the
     // agent sees exact file paths and actionable steps first, not discovery prose.
     const promptBody = (taskSize === "trivial" || taskSize === "small") && enrichmentStr
@@ -682,6 +729,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       `## Task: ${task.title}`,
       ``,
       ...promptBody,
+      projectInstructions,
       learningsStr,
       retryStr,
       ``,

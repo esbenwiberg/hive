@@ -14,7 +14,10 @@ const ROOT_DOC_FILES = [
   "CONTRIBUTING.md",
   "ARCHITECTURE.md",
   "CHANGELOG.md",
+  "CLAUDE.md",
+  ".cursorrules",
   ".hive.yaml",
+  ".github/copilot-instructions.md",
   "openapi.yaml",
   "openapi.json",
   "swagger.yaml",
@@ -28,6 +31,9 @@ const STRUCTURED_DOC_DIRS = ["docs/internal", "docs/external"] as const;
 
 /** Legacy/generic doc directories. */
 const LEGACY_DOC_DIRS = ["docs", "doc", "documentation"];
+
+/** AI/tooling doc directories to scan (one level of recursion). */
+const AI_DOC_DIRS = [".ai", ".documentation", ".memorybank", ".github"];
 
 /** Max chars to read from each doc for the summary. */
 const SUMMARY_LENGTH = 500;
@@ -157,6 +163,17 @@ export const docsEnricher: Enricher = {
       const dirPath = join(repoDir, dirName);
       if (await isDirectory(dirPath)) {
         const files = await scanDocDir(dirPath);
+        for (const filePath of files) {
+          await collectEntry(filePath, other);
+        }
+      }
+    }
+
+    // 4. Scan AI/tooling doc directories → other (recurse one level)
+    for (const dirName of AI_DOC_DIRS) {
+      const dirPath = join(repoDir, dirName);
+      if (await isDirectory(dirPath)) {
+        const files = await scanDocDir(dirPath, true);
         for (const filePath of files) {
           await collectEntry(filePath, other);
         }

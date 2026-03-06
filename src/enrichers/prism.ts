@@ -90,7 +90,12 @@ export const prismEnricher: Enricher = {
 
     const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
     const slug = (repoSettings.prismSlug as string) || repo.fullName;
-    const query = `${task.title} ${task.body ?? ""}`.trim();
+
+    // Use title + first ~200 chars of body for a focused query.
+    // The full body often contains UI copy, acceptance criteria, and other noise
+    // that degrades search relevance.
+    const bodySnippet = (task.body ?? "").slice(0, 200).replace(/\n/g, " ").trim();
+    const query = `${task.title} ${bodySnippet}`.trim();
 
     let result: { relevantCode: PrismRelevantCode[]; moduleSummaries: PrismModuleSummary[]; findings: PrismFinding[] };
 
