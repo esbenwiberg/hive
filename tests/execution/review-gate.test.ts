@@ -388,8 +388,8 @@ describe("reviewChanges", () => {
     const { task } = await seedReviewingTask();
 
     // Create a realistic diff that exceeds the 400k char review limit
-    const fileA = `diff --git a/big-file.ts b/big-file.ts\n` + "x".repeat(300_000);
-    const fileB = `diff --git a/other-file.ts b/other-file.ts\n` + "y".repeat(300_000);
+    const fileA = `diff --git a/big-file.ts b/big-file.ts\n` + "x".repeat(300_000) + "\n";
+    const fileB = `diff --git a/other-file.ts b/other-file.ts\n` + "y".repeat(300_000) + "\n";
     const largeDiff = fileA + fileB;
     setupExecFileMock("2 files changed", largeDiff, "big-file.ts\nother-file.ts");
 
