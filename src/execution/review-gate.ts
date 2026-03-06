@@ -239,6 +239,7 @@ export async function reviewChanges(
       result.securityFindings,
       result.verification,
       costUsd,
+      changedFiles,
     );
 
     await recordCost(taskId, task.createdBy, "review-gate", model, costUsd, 1, durationMs);

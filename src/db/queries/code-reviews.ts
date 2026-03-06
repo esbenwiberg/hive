@@ -13,6 +13,7 @@ export async function recordReview(
   securityFindings?: unknown,
   verification?: unknown,
   costUsd?: number,
+  changedFiles?: string[],
 ) {
   const [row] = await db
     .insert(codeReviews)
@@ -23,6 +24,7 @@ export async function recordReview(
       findings: findings ?? null,
       securityFindings: securityFindings ?? null,
       verification: verification ?? null,
+      changedFiles: changedFiles ?? null,
       costUsd: costUsd?.toFixed(4) ?? null,
     })
     .returning();

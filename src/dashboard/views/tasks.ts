@@ -920,12 +920,69 @@ function milestonesHtml(milestones: BlueprintData["milestones"], completedCount 
   return `<div class="mt-3 space-y-2">${items}</div>`;
 }
 
+/**
+ * Serializes architect blueprint data back to editable markdown.
+ */
+function blueprintToMarkdown(bp: BlueprintData): string {
+  const sections: string[] = [];
+  sections.push(`## Approach\n\n${bp.approach ?? ""}`);
+
+  if (bp.milestones && bp.milestones.length > 0) {
+    for (let i = 0; i < bp.milestones.length; i++) {
+      const m = bp.milestones[i];
+      sections.push(`---\n\n## Milestone ${i + 1}: ${m.title}`);
+      if (m.description) sections.push(`${m.description}`);
+      if (m.filesToModify?.length) {
+        sections.push(`### Files to Modify\n\n${m.filesToModify.map(f => `- \`${f}\``).join("\n")}`);
+      }
+      if (m.acceptanceCriteria?.length) {
+        sections.push(`### Acceptance Criteria\n\n${m.acceptanceCriteria.map(ac => `- ${ac}`).join("\n")}`);
+      }
+    }
+  } else {
+    // Small task format — include key files and checklist if present
+    if (bp.keyFiles?.length) {
+      sections.push(`### Key Files\n\n${bp.keyFiles.map(f => `- \`${f}\``).join("\n")}`);
+    }
+    if (bp.checklist?.length) {
+      sections.push(`### Checklist\n\n${bp.checklist.map(c => `- ${c}`).join("\n")}`);
+    }
+  }
+
+  return sections.join("\n\n");
+}
+
+function blueprintEditForm(task: TaskRow, bp: BlueprintData): string {
+  const md = blueprintToMarkdown(bp);
+  const taskId = escapeHtml(task.id);
+  return `<form id="blueprint-edit-${taskId}" class="hidden mt-3 rounded-lg border border-amber-500/30 bg-slate-900 px-4 py-3"
+    hx-post="/api/tasks/${taskId}/blueprint" hx-target="#detail-panel" hx-swap="innerHTML">
+    <textarea name="markdown" rows="16"
+      class="w-full rounded border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 font-mono placeholder-slate-500 focus:border-amber-500 focus:outline-none resize-y"
+      placeholder="Edit blueprint markdown…">${escapeHtml(md)}</textarea>
+    <div id="blueprint-errors-${taskId}"></div>
+    <div class="mt-2 flex gap-2">
+      ${button("Save Blueprint", {
+        variant: "primary",
+        attrs: `type="submit"`,
+      })}
+      ${button("Cancel", {
+        variant: "secondary",
+        attrs: `type="button" onclick="this.closest('form').classList.add('hidden')"`,
+      })}
+    </div>
+  </form>`;
+}
+
 function blueprintSection(task: TaskRow): string {
   const enrichment = task.enrichment as Record<string, unknown> | null;
   if (!enrichment?.architect) return "";
 
   const bp = enrichment.architect as BlueprintData;
   if (bp.skipped) return "";
+
+  const taskId = escapeHtml(task.id);
+  const canEdit = task.status === "ready";
 
   // ── Awaiting input (only show form when task is actually in ready status) ─
   if (bp.awaitingInput && bp.clarificationQuestions?.length && task.status === "ready") {
@@ -949,10 +1006,10 @@ function blueprintSection(task: TaskRow): string {
         <div class="flex items-center gap-2 mb-2">
           ${badge("Awaiting Input", "amber")}
         </div>
-        <form id="clarify-form-${escapeHtml(task.id)}" onsubmit="return false">
+        <form id="clarify-form-${taskId}" onsubmit="return false">
           <ul class="space-y-2">${questionFields}</ul>
           <div class="mt-3">
-            ${button("Submit Answers", { variant: "primary", attrs: `type="button" onclick="submitClarification('${escapeHtml(task.id)}', this)"` })}
+            ${button("Submit Answers", { variant: "primary", attrs: `type="button" onclick="submitClarification('${taskId}', this)"` })}
           </div>
         </form>
       </div>
@@ -966,27 +1023,41 @@ function blueprintSection(task: TaskRow): string {
     ? `<p class="mt-2 text-xs text-amber-400/80">Architect recommended skipping preview (no user-facing output)</p>`
     : "";
 
+  const editButton = canEdit
+    ? `<button type="button" class="text-xs text-amber-400 hover:text-amber-300 underline"
+        onclick="var el=document.getElementById('blueprint-edit-${taskId}');el.classList.toggle('hidden')">Edit</button>`
+    : "";
+
+  const editForm = canEdit ? blueprintEditForm(task, bp) : "";
+
+  const heading = `<div class="flex items-center justify-between mb-2">
+    <h4 class="text-sm font-medium text-slate-400">Blueprint</h4>
+    ${editButton}
+  </div>`;
+
   // ── Small task (no milestones) ─────────────────────────────────────────
   if (!bp.milestones || bp.milestones.length === 0) {
-    return `<div>
-      <h4 class="text-sm font-medium text-slate-400 mb-2">Blueprint</h4>
+    return `<div id="blueprint-section-${taskId}">
+      ${heading}
       <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
         <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(bp.approach)}</p>
         ${fileChips(bp.keyFiles ?? [])}
         ${checklistHtml(bp.checklist ?? [])}
         ${skipPreviewNote}
       </div>
+      ${editForm}
     </div>`;
   }
 
   // ── Medium/large task (milestones) ─────────────────────────────────────
-  return `<div>
-    <h4 class="text-sm font-medium text-slate-400 mb-2">Blueprint</h4>
+  return `<div id="blueprint-section-${taskId}">
+    ${heading}
     <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
       <p class="text-sm text-slate-300 whitespace-pre-wrap">${escapeHtml(bp.approach)}</p>
       ${milestonesHtml(bp.milestones, task.completedMilestones ?? 0)}
       ${skipPreviewNote}
     </div>
+    ${editForm}
   </div>`;
 }
 
@@ -1265,6 +1336,27 @@ function reviewFindingsSection(task: TaskRow): string {
   </div>`;
 }
 
+function changedFilesSection(files: string[]): string {
+  if (files.length === 0) return "";
+  const items = files
+    .map(
+      (f) =>
+        `<li class="flex items-center gap-2 py-0.5">
+          <svg class="h-3.5 w-3.5 shrink-0 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+          </svg>
+          <code class="text-xs text-slate-300">${escapeHtml(f)}</code>
+        </li>`,
+    )
+    .join("");
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Changed Files <span class="text-slate-500">(${files.length})</span></h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      <ul class="space-y-0.5">${items}</ul>
+    </div>
+  </div>`;
+}
+
 function latestReviewSection(review: CodeReviewRow): string {
   if (!review.verdict) return "";
 
@@ -1274,10 +1366,19 @@ function latestReviewSection(review: CodeReviewRow): string {
     fail: "red",
   };
 
-  return `<div class="flex items-center gap-2">
-    ${badge(review.verdict, verdictColors[review.verdict] ?? "slate")}
-    <span class="text-xs text-slate-400">Cycle ${review.reworkCycle ?? 0}</span>
-  </div>`;
+  const files = (review.changedFiles as string[] | null) ?? [];
+
+  return `<div>
+    <h4 class="text-sm font-medium text-slate-400 mb-2">Latest Review</h4>
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+      <div class="flex items-center gap-2">
+        ${badge(review.verdict, verdictColors[review.verdict] ?? "slate")}
+        <span class="text-xs text-slate-400">Cycle ${review.reworkCycle ?? 0}</span>
+        ${files.length > 0 ? `<span class="text-xs text-slate-500">&middot; ${files.length} file${files.length !== 1 ? "s" : ""} changed</span>` : ""}
+      </div>
+    </div>
+  </div>
+  ${changedFilesSection(files)}`;
 }
 
 // ── Preview section ─────────────────────────────────────────────────────

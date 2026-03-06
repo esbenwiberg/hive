@@ -179,6 +179,7 @@ export const codeReviews = pgTable("code_reviews", {
   findings: jsonb("findings"),
   securityFindings: jsonb("security_findings"),
   verification: jsonb("verification"),
+  changedFiles: jsonb("changed_files"),
   costUsd: numeric("cost_usd", { precision: 10, scale: 4 }),
   createdAt: timestamp("created_at", tz).defaultNow(),
 });

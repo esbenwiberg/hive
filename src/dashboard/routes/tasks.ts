@@ -18,6 +18,7 @@ import {
   activityEventList,
   taskDebugPanel,
 } from "../views/tasks.js";
+import { escapeHtml } from "../views/components.js";
 import { parseBlueprint } from "../../blueprints/parser.js";
 import { getEvents } from "../../db/queries/task-events.js";
 import { getLatestByTask as getLatestReview } from "../../db/queries/code-reviews.js";
@@ -647,6 +648,98 @@ router.post("/api/tasks/:id/clarify", requireAuth, async (req: Request, res: Res
       }),
     );
     res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, user.role === "admin"));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/tasks/:id/blueprint ─ Edit blueprint before approval ───────
+
+router.post("/api/tasks/:id/blueprint", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const user = req.session.user!;
+    const { markdown } = req.body;
+
+    if (!markdown || typeof markdown !== "string") {
+      res.status(400).send("markdown is required");
+      return;
+    }
+
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
+    }
+
+    if (task.status !== "ready") {
+      res.status(400).send(`Blueprint can only be edited when task is in 'ready' status (current: ${task.status})`);
+      return;
+    }
+
+    const result = parseBlueprint(markdown);
+    if (!result.ok) {
+      const errorHtml = result.errors
+        .map((e) => `<p class="text-xs text-red-400">${escapeHtml(e.field)}: ${escapeHtml(e.message)}</p>`)
+        .join("");
+      res.status(422).send(`<div class="rounded-lg border border-red-500/30 bg-red-950/20 p-3 mt-2 space-y-1">${errorHtml}</div>`);
+      return;
+    }
+
+    // Build updated architect enrichment from the parsed blueprint
+    const enrichment = (task.enrichment ?? {}) as Record<string, unknown>;
+    const existingArchitect = (enrichment.architect ?? {}) as Record<string, unknown>;
+    const bp = result.blueprint;
+
+    const updatedArchitect = {
+      ...existingArchitect,
+      approach: bp.approach,
+      milestones: bp.milestones,
+      keyFiles: undefined,
+      checklist: undefined,
+    };
+
+    const updatedEnrichment = { ...enrichment, architect: updatedArchitect };
+    await taskQueries.updateEnrichment(id, updatedEnrichment);
+
+    // Also store the raw markdown as the user blueprint
+    await db.update(tasksTable).set({
+      blueprintSource: "user",
+      userBlueprintMarkdown: markdown,
+      updatedAt: new Date(),
+    }).where(eq(tasksTable.id, id));
+
+    logger.info({ taskId: id }, "Blueprint edited by user before approval");
+
+    // Return the updated task detail panel
+    const [updatedTask, repos, events, latestReview, userNames] = await Promise.all([
+      taskQueries.getByIdWithCost(id),
+      repoQueries.listAll(),
+      getEvents(id, 50),
+      getLatestReview(id),
+      fetchUserNames(),
+    ]);
+    if (!updatedTask) {
+      res.status(404).send("Task not found");
+      return;
+    }
+
+    const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({
+        showToast: { message: "Blueprint updated", type: "success" },
+      }),
+    );
+    res.send(taskDetailPanel(updatedTask, repoNames, events, latestReview, userNames, user));
   } catch (err) {
     next(err);
   }
