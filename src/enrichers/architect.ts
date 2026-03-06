@@ -310,7 +310,7 @@ export const architectEnricher: Enricher = {
     let blueprintContext: BlueprintTaskContext | undefined;
 
     if (task.blueprintSource === "user" && task.userBlueprintMarkdown) {
-      const parseResult = parseBlueprintMarkdown(task.userBlueprintMarkdown);
+      const parseResult = parseBlueprintMarkdown(task.userBlueprintMarkdown, { requireMilestones: false });
 
       if (!parseResult.ok) {
         const errorLines = parseResult.errors

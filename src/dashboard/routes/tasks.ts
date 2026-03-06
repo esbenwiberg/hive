@@ -209,7 +209,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
         return;
       }
 
-      const parseResult = parseBlueprint(rawBlueprintMarkdown);
+      const parseResult = parseBlueprint(rawBlueprintMarkdown, { requireMilestones: false });
       if (!parseResult.ok) {
         const errorMessages = parseResult.errors.map((e: { message: string }) => e.message);
         const repos = await repoQueries.listAll();
