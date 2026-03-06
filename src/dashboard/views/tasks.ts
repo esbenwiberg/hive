@@ -617,17 +617,59 @@ function prismEnrichmentContent(prism: Record<string, unknown>): string {
   return parts.length > 0 ? parts.join("") : `<span class="text-slate-500 italic">no results</span>`;
 }
 
-/** Returns extra badge HTML for an enricher accordion header, or empty string. */
-function enrichmentHeaderExtra(key: string, value: unknown): string {
-  if (key === "prism" && typeof value === "object" && value !== null && !Array.isArray(value)) {
-    const prism = value as Record<string, unknown>;
-    const stats = prism.stats as Record<string, number> | undefined;
-    if (!stats) return "";
-    const parts: string[] = [];
-    if (stats.searchResults) parts.push(`${stats.searchResults} code`);
-    if (stats.summariesReturned) parts.push(`${stats.summariesReturned} summaries`);
-    if (parts.length === 0) return "";
-    return `<span class="rounded-full bg-violet-900/40 px-2 py-0.5 text-xs text-violet-300 font-normal">${parts.join(" · ")}</span>`;
+// ── Enricher icons (inline SVG) ──────────────────────────────────────────────
+
+const enricherIcons: Record<string, string> = {
+  codebase: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>`,
+  docs: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>`,
+  "git-history": `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>`,
+  dependencies: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>`,
+  prism: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>`,
+  hivemind: `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/></svg>`,
+};
+
+const defaultEnricherIcon = `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/></svg>`;
+
+const enricherColors: Record<string, { bg: string; border: string; text: string; iconBg: string }> = {
+  codebase:       { bg: "bg-blue-950/40",    border: "border-blue-800/50",    text: "text-blue-300",    iconBg: "bg-blue-900/60" },
+  docs:           { bg: "bg-emerald-950/40",  border: "border-emerald-800/50",  text: "text-emerald-300",  iconBg: "bg-emerald-900/60" },
+  "git-history":  { bg: "bg-orange-950/40",   border: "border-orange-800/50",   text: "text-orange-300",   iconBg: "bg-orange-900/60" },
+  dependencies:   { bg: "bg-cyan-950/40",     border: "border-cyan-800/50",     text: "text-cyan-300",     iconBg: "bg-cyan-900/60" },
+  prism:          { bg: "bg-violet-950/40",   border: "border-violet-800/50",   text: "text-violet-300",   iconBg: "bg-violet-900/60" },
+  hivemind:       { bg: "bg-amber-950/40",    border: "border-amber-800/50",    text: "text-amber-300",    iconBg: "bg-amber-900/60" },
+};
+
+const defaultEnricherColor = { bg: "bg-slate-900/60", border: "border-slate-700/50", text: "text-slate-300", iconBg: "bg-slate-800/60" };
+
+function enricherSummary(key: string, value: unknown): string {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return "";
+  const obj = value as Record<string, unknown>;
+
+  if (key === "prism") {
+    const stats = obj.stats as Record<string, number> | undefined;
+    if (stats?.searchResults) return `${stats.searchResults} results`;
+    const relevantCode = Array.isArray(obj.relevantCode) ? obj.relevantCode.length : 0;
+    return relevantCode > 0 ? `${relevantCode} symbols` : "";
+  }
+  if (key === "docs") {
+    const count = typeof obj.count === "number" ? obj.count : null;
+    return count !== null ? `${count} docs` : "";
+  }
+  if (key === "codebase") {
+    const fileCount = typeof obj.fileCount === "number" ? obj.fileCount : null;
+    return fileCount !== null ? `${fileCount} files` : "";
+  }
+  if (key === "git-history") {
+    const commits = Array.isArray(obj.recentCommits) ? obj.recentCommits.length : null;
+    return commits !== null ? `${commits} commits` : "";
+  }
+  if (key === "dependencies") {
+    const deps = typeof obj.count === "number" ? obj.count : null;
+    return deps !== null ? `${deps} deps` : "";
+  }
+  if (key === "hivemind") {
+    const learnings = Array.isArray(obj.learnings) ? obj.learnings.length : null;
+    return learnings !== null ? `${learnings} learnings` : "";
   }
   return "";
 }
@@ -639,34 +681,86 @@ function enrichmentSection(task: TaskRow): string {
     return "";
   }
 
-  const sections = Object.entries(enrichment)
-    .filter(([key]) => key !== "scorer" && key !== "architect")
-    .map(([key, value]) => {
-      const isDocs = key === "docs" && typeof value === "object" && value !== null && !Array.isArray(value);
-      const isPrism = key === "prism" && typeof value === "object" && value !== null && !Array.isArray(value);
-      const content = isPrism
-        ? prismEnrichmentContent(value as Record<string, unknown>)
-        : isDocs
-        ? docsEnrichmentContent(value as Record<string, unknown>)
-        : formatEnrichmentValue(value);
-      const headerExtra = enrichmentHeaderExtra(key, value);
-      return `<details class="group">
-        <summary class="flex cursor-pointer items-center justify-between rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800">
-          <span class="flex items-center gap-2">${escapeHtml(key)}${headerExtra}</span>
-          <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-          </svg>
-        </summary>
-        <div class="mt-1 rounded-lg bg-slate-900 px-4 py-3 text-xs text-slate-300">
-          ${content}
+  const entries = Object.entries(enrichment)
+    .filter(([key]) => key !== "scorer" && key !== "architect" && key !== "_enrichmentMeta");
+
+  if (entries.length === 0) return "";
+
+  // Build the card grid + dialog HTML for each enricher
+  const cards: string[] = [];
+  const dialogs: string[] = [];
+
+  for (const [key, value] of entries) {
+    const colors = enricherColors[key] ?? defaultEnricherColor;
+    const icon = enricherIcons[key] ?? defaultEnricherIcon;
+    const summary = enricherSummary(key, value);
+    const dialogId = `enricher-dialog-${key}`;
+
+    // Render content for the dialog
+    const isDocs = key === "docs" && typeof value === "object" && value !== null && !Array.isArray(value);
+    const isPrism = key === "prism" && typeof value === "object" && value !== null && !Array.isArray(value);
+    const content = isPrism
+      ? prismEnrichmentContent(value as Record<string, unknown>)
+      : isDocs
+      ? docsEnrichmentContent(value as Record<string, unknown>)
+      : formatEnrichmentValue(value);
+
+    cards.push(`<button type="button"
+      class="flex items-center gap-3 rounded-xl border ${colors.border} ${colors.bg} px-4 py-3 text-left transition-all hover:brightness-125 hover:scale-[1.02] active:scale-[0.98] w-full"
+      onclick="var d=document.getElementById('${dialogId}');document.body.appendChild(d);d.classList.remove('hidden')">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${colors.iconBg} ${colors.text}">
+        ${icon}
+      </div>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium ${colors.text}">${escapeHtml(key)}</p>
+        ${summary ? `<p class="text-xs text-slate-500 truncate">${escapeHtml(summary)}</p>` : ""}
+      </div>
+      <svg class="h-4 w-4 text-slate-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
+      </svg>
+    </button>`);
+
+    dialogs.push(`<div id="${dialogId}" class="fixed inset-0 z-50 hidden">
+      <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" onclick="document.getElementById('${dialogId}').classList.add('hidden')"></div>
+      <div class="fixed inset-0 flex items-center justify-center p-4">
+        <div class="relative w-full max-w-2xl max-h-[80vh] flex flex-col rounded-xl border ${colors.border} bg-slate-800 shadow-xl">
+          <div class="flex items-center justify-between border-b border-slate-700 px-6 py-4 shrink-0">
+            <div class="flex items-center gap-3">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg ${colors.iconBg} ${colors.text}">
+                ${icon}
+              </div>
+              <h3 class="text-lg font-semibold ${colors.text}">${escapeHtml(key)}</h3>
+              ${summary ? `<span class="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-400">${escapeHtml(summary)}</span>` : ""}
+            </div>
+            <button onclick="document.getElementById('${dialogId}').classList.add('hidden')"
+                    class="rounded-lg p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-50">
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          <div class="overflow-y-auto px-6 py-4 text-xs text-slate-300">
+            ${content}
+          </div>
+          <div class="flex justify-end border-t border-slate-700 px-6 py-3 shrink-0">
+            <button class="inline-flex items-center gap-1.5 rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-900/40"
+                    onclick="if(confirm('Remove ${escapeHtml(key)} enrichment data from this task?')){htmx.ajax('DELETE','/api/tasks/${escapeHtml(task.id)}/enrichment/${escapeHtml(encodeURIComponent(key))}',{target:'#detail-panel',swap:'innerHTML'}).then(function(){document.getElementById('${dialogId}').remove()})}"
+                    title="Remove this enrichment data">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
+              </svg>
+              Remove
+            </button>
+          </div>
         </div>
-      </details>`;
-    })
-    .join("");
+      </div>
+    </div>`);
+  }
 
   return `<div>
     <h4 class="text-sm font-medium text-slate-400 mb-2">Enrichment</h4>
-    <div class="space-y-2">${sections}</div>
+    <div class="grid grid-cols-2 gap-2">${cards.join("")}</div>
+    ${dialogs.join("")}
   </div>`;
 }
 
