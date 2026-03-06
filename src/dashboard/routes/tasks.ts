@@ -960,4 +960,78 @@ router.post("/api/tasks/:id/reset", requireAuth, async (req: Request, res: Respo
   }
 });
 
+// ── DELETE /api/tasks/:id/enrichment/:key ─ Remove a single enrichment entry ─
+
+router.delete("/api/tasks/:id/enrichment/:key", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.session.user!;
+    const id = req.params.id as string;
+    const key = req.params.key as string;
+
+    const task = await taskQueries.getById(id);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+
+    // Repo access check
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
+    }
+
+    const enrichment = (task.enrichment ?? {}) as Record<string, unknown>;
+    if (!(key in enrichment)) {
+      res.status(404).send("Enrichment key not found");
+      return;
+    }
+
+    delete enrichment[key];
+
+    await db
+      .update(tasksTable)
+      .set({ enrichment, updatedAt: new Date() })
+      .where(eq(tasksTable.id, id));
+
+    logger.info({ taskId: id, enricherKey: key, userId: user.id }, "Removed enrichment entry");
+
+    // Re-fetch and return updated detail panel
+    const [updatedTask, repos, events, latestReview, userNames] = await Promise.all([
+      taskQueries.getByIdWithCost(id),
+      repoQueries.listAll(),
+      getEvents(id, 50),
+      getLatestReview(id),
+      fetchUserNames(),
+    ]);
+
+    if (!updatedTask) {
+      res.status(404).send("Task not found");
+      return;
+    }
+
+    const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
+
+    let previewAvailable = false;
+    if (updatedTask.status === "done" && updatedTask.prUrl) {
+      const repo = repos.find((r) => r.id === updatedTask.repoId);
+      if (repo) {
+        const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+        const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
+        previewAvailable = (repoPreview.enabled as boolean | undefined) === true;
+      }
+    }
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: `Removed "${key}" enrichment`, type: "success" } }),
+    );
+    res.send(taskDetailPanel(updatedTask, repoNames, events, latestReview, userNames, user, previewAvailable));
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
