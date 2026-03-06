@@ -387,8 +387,8 @@ describe("reviewChanges", () => {
   it("truncates very large diffs", async () => {
     const { task } = await seedReviewingTask();
 
-    // Create a very large diff
-    const largeDiff = "x".repeat(60000);
+    // Create a diff that exceeds the 400k char review limit
+    const largeDiff = "x".repeat(500_000);
     setupExecFileMock("1 file changed", largeDiff, "big-file.ts");
 
     mockPassResponse();
@@ -397,7 +397,6 @@ describe("reviewChanges", () => {
 
     // The prompt should have been passed to callClaude with a truncated diff
     const call = mockCallClaude.mock.calls[0][0];
-    // The diff portion in the prompt should be truncated to 50000 characters
     expect(call.prompt.length).toBeLessThan(largeDiff.length);
   });
 });
