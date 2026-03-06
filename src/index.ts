@@ -5,6 +5,15 @@ import { pool } from "./db/connection.js";
 import logger from "./logger.js";
 import type { Daemon } from "./daemon/daemon.js";
 
+// ── Global error handlers ─ prevent unhandled errors from crashing the process ─
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "Unhandled promise rejection — process will continue");
+});
+
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "Uncaught exception — process will continue but may be unstable");
+});
+
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
 async function start(): Promise<void> {

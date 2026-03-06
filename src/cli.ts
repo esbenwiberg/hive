@@ -13,6 +13,15 @@ import { recordRun } from "./db/queries/producer-runs.js";
 import { getById } from "./db/queries/repos.js";
 import type { Producer } from "./producers/base.js";
 
+// ── Global error handlers ─ prevent unhandled errors from crashing the process ─
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "Unhandled promise rejection — process will continue");
+});
+
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "Uncaught exception — process will continue but may be unstable");
+});
+
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
 const PRODUCER_MAP: Record<string, Producer> = {
