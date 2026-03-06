@@ -1,5 +1,5 @@
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, extname } from "node:path";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
 
@@ -34,6 +34,13 @@ const LEGACY_DOC_DIRS = ["docs", "doc", "documentation"];
 
 /** AI/tooling doc directories to scan (one level of recursion). */
 const AI_DOC_DIRS = [".ai", ".documentation", ".memorybank", ".github"];
+
+/** File extensions considered text-based documentation. Files without these extensions are skipped during directory scans. */
+const DOC_EXTENSIONS = new Set([
+  ".md", ".mdx", ".txt", ".rst", ".adoc", ".asciidoc",
+  ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg",
+  ".html", ".htm", ".xml", ".csv",
+]);
 
 /** Max chars to read from each doc for the summary. */
 const SUMMARY_LENGTH = 500;
@@ -70,15 +77,22 @@ async function isDirectory(path: string): Promise<boolean> {
 async function readSummary(path: string): Promise<string> {
   try {
     const content = await readFile(path, "utf-8");
-    return content.slice(0, SUMMARY_LENGTH);
+    // Strip null bytes that PostgreSQL jsonb rejects (\u0000 is not allowed in jsonb strings)
+    return content.slice(0, SUMMARY_LENGTH).replace(/\0/g, "");
   } catch {
     return "";
   }
 }
 
+function isDocFile(name: string): boolean {
+  const ext = extname(name).toLowerCase();
+  // Files without an extension (e.g. README, LICENSE) are allowed; binary extensions are not
+  return ext === "" || DOC_EXTENSIONS.has(ext);
+}
+
 /**
  * Scans a directory for documentation files, optionally recursing one level
- * into subdirectories.
+ * into subdirectories. Only includes text-based files.
  */
 async function scanDocDir(dir: string, recurse = false): Promise<string[]> {
   const files: string[] = [];
@@ -86,14 +100,14 @@ async function scanDocDir(dir: string, recurse = false): Promise<string[]> {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const full = join(dir, entry.name);
-      if (entry.isFile()) {
+      if (entry.isFile() && isDocFile(entry.name)) {
         files.push(full);
       } else if (recurse && entry.isDirectory()) {
         // One level of recursion
         try {
           const subEntries = await readdir(full, { withFileTypes: true });
           for (const sub of subEntries) {
-            if (sub.isFile()) {
+            if (sub.isFile() && isDocFile(sub.name)) {
               files.push(join(full, sub.name));
             }
           }
