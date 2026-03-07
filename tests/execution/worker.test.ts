@@ -498,7 +498,7 @@ describe("executeTask", () => {
     const result = await executeTask(task.id);
 
     expect(result.success).toBe(true);
-    expect(result.previewUrl).toBe("http://localhost:4001");
+    expect(result.previewUrl).toBe(`http://localhost:3000/preview/${task.id}`);
     expect(mockStartPreview).toHaveBeenCalledWith(task.id, sampleWorktree.path, samplePreviewConfig);
   });
 
