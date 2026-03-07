@@ -440,14 +440,18 @@ export class PreviewManager {
 
     childProcess.stdout?.on("data", (data: Buffer) => {
       const line = data.toString().trim();
-      if (line) addPreviewLog(taskId, type, `stdout: ${line}`);
-      logger.debug({ taskId, type }, line);
+      if (line) {
+        addPreviewLog(taskId, type, `stdout: ${line}`);
+        logger.info({ taskId, type }, `preview stdout: ${line}`);
+      }
     });
 
     childProcess.stderr?.on("data", (data: Buffer) => {
       const line = data.toString().trim();
-      if (line) addPreviewLog(taskId, type, `stderr: ${line}`);
-      logger.debug({ taskId, type }, line);
+      if (line) {
+        addPreviewLog(taskId, type, `stderr: ${line}`);
+        logger.info({ taskId, type }, `preview stderr: ${line}`);
+      }
     });
 
     childProcess.on("error", (err) => {

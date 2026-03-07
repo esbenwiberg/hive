@@ -815,14 +815,19 @@ router.post("/api/tasks/:id/preview/start", requireAuth, async (req: Request, re
     }
 
     // Install deps if needed (worktree may have been recreated without node_modules)
-    if (existsSync(join(worktreePath, "package.json")) && !existsSync(join(worktreePath, "node_modules"))) {
+    const hasPkg = existsSync(join(worktreePath, "package.json"));
+    const hasMods = existsSync(join(worktreePath, "node_modules"));
+    logger.info({ taskId: id, worktreePath, hasPkg, hasMods }, "Preview: checking deps");
+    if (hasPkg && !hasMods) {
       const execFileAsync = promisify(execFile);
       const { NODE_ENV: _drop, ...cleanEnv } = process.env;
+      logger.info({ taskId: id }, "Preview: running npm install");
       await execFileAsync("npm", ["install", "--prefer-offline", "--include=dev"], {
         cwd: worktreePath,
         env: { ...cleanEnv, CI: "true" },
         timeout: 120_000,
       });
+      logger.info({ taskId: id }, "Preview: npm install complete");
     }
 
     // Start the preview
