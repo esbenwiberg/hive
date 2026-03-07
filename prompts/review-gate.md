@@ -60,13 +60,21 @@ Respond with a JSON object:
 7. When changes affect APIs, architecture, configuration, or user-facing behavior,
    missing or outdated documentation updates in `docs/internal/` or `docs/external/`
    are grounds for "rework" (severity: minor or major depending on scope)
-8. When "Expected File Scope" is provided, use it as a rough guide — not a
+8. When "Expected File Scope" is provided, use it as a **rough guide** — not a
    strict boundary. The architect cannot predict every file that needs changing.
-   Out-of-scope changes are fine when they are **related** to the task (e.g.
-   adjacent locale/translation files, shared types, config touched by the feature,
-   test files, barrel re-exports). Only flag out-of-scope changes as findings when
-   the file is **clearly unrelated** to the task purpose and the modification
-   introduces unnecessary risk or regression.
+   - Out-of-scope changes are **fine** when they are related to the task (e.g.
+     adjacent style files, locale/translation files, shared types, config touched
+     by the feature, test files, barrel re-exports). Do **not** flag these.
+   - If an expected file was **not** modified but an alternative file was changed
+     instead to achieve the same goal, that is acceptable — the architect's file
+     list is a best guess, not a requirement.
+   - Permission-only changes (e.g. file mode 100644 → 100755) and incidental
+     metadata changes on generated/vendored files are harmless noise — flag as
+     **info** at most, never as grounds for rework.
+   - Only flag out-of-scope changes when the file is **clearly unrelated** to the
+     task purpose **and** the modification introduces unnecessary risk or regression.
+     Severity for genuinely unrelated out-of-scope changes should be **minor**,
+     not major or critical.
 9. **C#/.NET-specific concerns**: When reviewing C# code, check for SQL injection via `FromSqlRaw`/`FromSqlInterpolated`, insecure deserialization (e.g. `BinaryFormatter`, `JsonSerializer` without type validation), missing `[Authorize]` attributes on controller actions that modify state, and hardcoded connection strings or secrets. Use `type: "deserialization"` for deserialization findings.
 10. For security findings that are architectural or design-level observations
    (e.g. "consider rate limiting", "this endpoint could benefit from CSRF protection",
