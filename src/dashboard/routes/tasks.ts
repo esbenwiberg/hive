@@ -16,6 +16,7 @@ import {
   taskListPage,
   taskListPartial,
   taskCreateForm,
+  taskDetailPage,
   taskDetailPanel,
   previewSection,
   previewMetaRow,
@@ -113,6 +114,48 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
     } else {
       res.send(taskListPage(tasks, filters, counts, user, filteredRepos, userNames, HIVE_SELF_REPO, accessibleRepoIds, budgetRemaining));
     }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /tasks/:id ─ Full task detail page ─────────────────────────────────
+
+router.get("/tasks/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const user = req.session.user!;
+    const [task, repos, events, latestReview, userNames] = await Promise.all([
+      taskQueries.getByIdWithCost(id),
+      repoQueries.listAll(),
+      getEvents(id, 50),
+      getLatestReview(id),
+      fetchUserNames(),
+    ]);
+    if (!task) {
+      res.status(404).send("Task not found");
+      return;
+    }
+    if (user.role !== "admin") {
+      const canAccess = await repoAccessQueries.hasAccess(user.id, task.repoId);
+      if (!canAccess) {
+        res.status(404).send("Task not found");
+        return;
+      }
+    }
+    const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
+
+    let previewAvailable = false;
+    if (task.status === "done" && task.prUrl) {
+      const repo = repos.find((r) => r.id === task.repoId);
+      if (repo) {
+        const repoSettings = (repo.settings ?? {}) as Record<string, unknown>;
+        const repoPreview = (repoSettings.preview ?? {}) as Record<string, unknown>;
+        previewAvailable = (repoPreview.enabled as boolean | undefined) === true;
+      }
+    }
+
+    res.send(taskDetailPage(task, repoNames, events, latestReview, userNames, user, previewAvailable));
   } catch (err) {
     next(err);
   }

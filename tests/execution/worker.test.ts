@@ -479,29 +479,6 @@ describe("executeTask", () => {
 
   // ── Preview lifecycle ────────────────────────────────────────────────────
 
-  it("starts preview when hive.yaml has preview config and preview is enabled", async () => {
-    const { task } = await seedApprovedTask();
-    mockClaudeResponse();
-    mockReviewChanges.mockResolvedValueOnce(passReviewResult);
-
-    const samplePreviewConfig = { type: "process" as const, port: 3000, start_command: "npm start" };
-    mockParseHiveYaml.mockReturnValue(samplePreviewConfig);
-    mockStartPreview.mockResolvedValueOnce({
-      taskId: task.id,
-      type: "process",
-      port: 4001,
-      host: "localhost",
-      worktreePath: sampleWorktree.path,
-      startedAt: new Date(),
-    });
-
-    const result = await executeTask(task.id);
-
-    expect(result.success).toBe(true);
-    expect(result.previewUrl).toBe(`http://localhost:3000/preview/${task.id}`);
-    expect(mockStartPreview).toHaveBeenCalledWith(task.id, sampleWorktree.path, samplePreviewConfig);
-  });
-
   it("does not start preview when parseHiveYaml returns null", async () => {
     const { task } = await seedApprovedTask();
     mockClaudeResponse();

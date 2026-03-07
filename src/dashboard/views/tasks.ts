@@ -459,10 +459,12 @@ function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNa
     const updated = ts
       ? `<span class="text-xs text-slate-400">${escapeHtml(relativeTime(new Date(ts)))}</span>`
       : "-";
-    const viewBtn = `<button class="text-xs text-amber-400 hover:text-amber-300"
+    const viewBtn = `<a href="/tasks/${escapeHtml(t.id)}" class="text-xs text-amber-400 hover:text-amber-300"
       hx-get="/api/tasks/${escapeHtml(t.id)}"
       hx-target="#detail-panel"
-      hx-swap="innerHTML">View</button>`;
+      hx-swap="innerHTML"
+      onclick="event.preventDefault()"
+      title="Click to preview, middle-click to open full page">View</a>`;
 
     return [...checkbox, id, title, status, score, estCost, actualCost, repo, creator, updated, viewBtn];
   });
@@ -1928,6 +1930,214 @@ export function taskListPage(
 ${taskCreateForm(repos, user, selfRepoFullName)}`;
 
   return layout("Tasks", content, user);
+}
+
+/**
+ * Full dedicated task detail page at /tasks/:id.
+ */
+export function taskDetailPage(
+  task: TaskWithCost,
+  repoNames: Map<number, string> = new Map(),
+  events: TaskEventRow[] = [],
+  latestReview?: CodeReviewRow,
+  userNames: Map<number, string> = new Map(),
+  user?: SessionUser,
+  previewAvailable = false,
+): string {
+  const allActions = getAvailableActions(task.status);
+  const isMaxCyclesFailed = task.failureReason?.includes("Max rework cycles")
+    || task.failureReason?.includes("Browser validation failed after max");
+  const isBrowserValidationFailed = task.failureReason?.includes("Browser validation failed") ?? false;
+  const actions = allActions.filter((a) => {
+    if (a.action === "continue") return (task.completedMilestones ?? 0) > 0;
+    if (a.action === "more_cycles") return isMaxCyclesFailed;
+    if (a.action === "accept_browser_validation") return isBrowserValidationFailed;
+    if (a.action === "force_pr") return isMaxCyclesFailed && !isBrowserValidationFailed;
+    return true;
+  });
+
+  const actionButtons = actions
+    .map((a) => {
+      const variant =
+        a.action === "cancel" || a.action === "reject" || a.action === "fail"
+          ? "danger"
+          : a.action === "approve" || a.action === "complete" || a.action === "merge" || a.action === "continue" || a.action === "more_cycles" || a.action === "accept_browser_validation"
+            ? "primary"
+            : "secondary";
+      const hxVals = escapeHtml(JSON.stringify({ action: a.action, targetStatus: a.targetStatus }));
+      return button(a.label, {
+        variant: variant as "primary" | "secondary" | "danger",
+        attrs: `data-action="${escapeHtml(a.action)}" hx-post="/api/tasks/${escapeHtml(task.id)}/transition" hx-vals='${hxVals}' hx-swap="none" hx-on::after-request="if(event.detail.successful) window.location.reload()"`,
+      });
+    })
+    .join("\n          ");
+
+  const architectEnr = (task.enrichment as Record<string, unknown> | null)?.architect as BlueprintData | undefined;
+  const totalMilestones = architectEnr?.milestones?.length ?? 0;
+  const completedMs = task.completedMilestones ?? 0;
+
+  const metaRows: [string, string][] = [
+    ["Status", statusBadge(task.status)],
+    ["Type", task.type ? escapeHtml(task.type) : `<span class="text-slate-500">-</span>`],
+    ["Size", task.size ? escapeHtml(task.size) : `<span class="text-slate-500">-</span>`],
+    ["Workflow", task.workflow ? escapeHtml(task.workflow) : `<span class="text-slate-500">-</span>`],
+  ];
+
+  if (totalMilestones > 0) {
+    metaRows.push(["Milestones", `<div class="flex items-center gap-2">
+      <span class="text-sm text-slate-200">${completedMs}/${totalMilestones}</span>
+      <div class="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden" style="min-width:60px">
+        <div class="h-full ${completedMs === totalMilestones ? "bg-emerald-400" : "bg-amber-400"} rounded-full" style="width: ${Math.round((completedMs / totalMilestones) * 100)}%"></div>
+      </div>
+    </div>`]);
+  }
+
+  metaRows.push(
+    ["Repo", escapeHtml(repoNames.get(task.repoId) ?? `#${task.repoId}`)],
+    ["Created By", escapeHtml(creatorLabel(task, userNames))],
+    ["Total Cost", formatCost(task.totalCost)],
+    ["Visibility", task.visibility === "private" ? badge("private", "amber") : badge("public", "slate")],
+    ["Created", task.createdAt ? escapeHtml(new Date(task.createdAt).toLocaleString()) : "-"],
+    ["Updated", task.updatedAt ? escapeHtml(new Date(task.updatedAt).toLocaleString()) : "-"],
+  );
+
+  if (task.prUrl) {
+    metaRows.push(["PR", `<a href="${escapeHtml(task.prUrl)}" target="_blank" rel="noopener" class="text-amber-400 hover:text-amber-300 underline truncate block max-w-[200px]">${escapeHtml(task.prUrl.replace(/^https?:\/\/[^/]+\//, ""))}</a>`]);
+  }
+
+  if (events.length > 0 && events[0].createdAt) {
+    metaRows.push(["Last Activity", escapeHtml(relativeTime(new Date(events[0].createdAt)))]);
+  }
+
+  const metaHtml = metaRows
+    .map(([label, value]) =>
+      `<div class="flex justify-between py-2">
+        <span class="text-sm text-slate-400">${label}</span>
+        <span class="text-sm text-slate-200">${value}</span>
+      </div>`)
+    .join("");
+
+  const bodyHtml = task.body
+    ? `<div class="rounded-lg bg-slate-900 p-4 text-sm text-slate-300 space-y-2">${parseTaskDescription(task.body)}</div>`
+    : "";
+
+  const failureHtml = task.failureReason
+    ? `<div class="mb-6 rounded-xl border border-red-500/30 bg-red-950/30 px-5 py-4">
+        <h4 class="text-sm font-medium text-red-400 mb-1">Failure Reason</h4>
+        <p class="text-sm text-red-300">${escapeHtml(task.failureReason)}</p>
+      </div>`
+    : "";
+
+  const moveToDropdown = (() => {
+    const extraTargets = getAllowedTargets(task.status);
+    if (extraTargets.length === 0) return "";
+    const opts = extraTargets
+      .map((t) => `<option value="${escapeHtml(t.status)}">${escapeHtml(t.label)}</option>`)
+      .join("");
+    return `<div class="mt-3">
+      <select
+        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-400 focus:border-amber-400 focus:outline-none"
+        onchange="if(this.value){htmx.ajax('POST','/api/tasks/${escapeHtml(task.id)}/transition',{values:{targetStatus:this.value},swap:'none'}).then(()=>window.location.reload());this.selectedIndex=0}">
+        <option value="">Move to...</option>
+        ${opts}
+      </select>
+    </div>`;
+  })();
+
+  const resetBtn = user?.role === "admin"
+    ? `<div class="pt-3 border-t border-slate-700">
+        ${button("Reset Task", {
+          variant: "danger",
+          attrs: `onclick="if(confirm('Reset this task to pending? All enrichment, gate, and execution state will be cleared.')){htmx.ajax('POST','/api/tasks/${escapeHtml(task.id)}/reset',{swap:'none'}).then(()=>window.location.reload())}"`,
+        })}
+      </div>`
+    : "";
+
+  // Helper to wrap non-empty sections in a card
+  const sect = (html: string) => {
+    if (!html.trim()) return "";
+    return `<div class="rounded-xl border border-slate-700 bg-slate-800 p-5">${html}</div>`;
+  };
+
+  const content = `<div class="max-w-6xl mx-auto">
+  <!-- Breadcrumb -->
+  <div class="mb-6">
+    <a href="/tasks" class="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+      </svg>
+      Back to Tasks
+    </a>
+  </div>
+
+  <!-- Header -->
+  <div class="mb-6 flex items-start justify-between gap-4">
+    <div class="min-w-0 flex-1">
+      <p class="font-mono text-sm text-slate-400 mb-1">${escapeHtml(task.id)}</p>
+      <h2 class="text-2xl font-semibold text-slate-50">${escapeHtml(task.title)}</h2>
+    </div>
+    <div class="shrink-0 mt-1">${statusBadge(task.status)}</div>
+  </div>
+
+  <!-- Pipeline -->
+  <div class="mb-8 rounded-xl border border-slate-700 bg-slate-800 p-5">
+    <div class="cursor-pointer group" onclick="var d=document.getElementById('pipeline-dialog');document.body.appendChild(d);d.classList.remove('hidden')" title="Click to view full pipeline">
+      ${pipelineSteps(task.status)}
+      <p class="mt-2 text-center text-xs text-slate-600 group-hover:text-slate-400 transition-colors">Click to view full pipeline</p>
+    </div>
+    ${pipelineDialog(task.status)}
+  </div>
+
+  ${failureHtml}
+
+  <!-- Two-column layout -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Main content -->
+    <div class="lg:col-span-2 space-y-6">
+      ${bodyHtml ? `<div class="rounded-xl border border-slate-700 bg-slate-800 p-5">
+        <h3 class="text-sm font-medium text-slate-400 mb-3">Description</h3>
+        ${bodyHtml}
+      </div>` : ""}
+      ${sect(scorerSection(task))}
+      ${sect(blueprintSection(task))}
+      ${sect(enrichmentSection(task))}
+      ${sect(gateDecisionSection(task))}
+      ${sect(latestReview ? latestReviewSection(latestReview) : "")}
+      ${sect(reviewFindingsSection(task))}
+      ${task.previewStatus || task.previewUrl || previewAvailable ? sect(`<div id="preview-section">${previewSection(task, previewAvailable)}</div>`) : ""}
+      ${sect(activitySection(task, events))}
+    </div>
+
+    <!-- Sidebar -->
+    <div class="space-y-6">
+      <div class="rounded-xl border border-slate-700 bg-slate-800 p-5">
+        <h3 class="text-sm font-medium text-slate-400 mb-3">Details</h3>
+        <div class="divide-y divide-slate-700">
+          ${metaHtml}
+        </div>
+      </div>
+
+      ${actions.length > 0 || moveToDropdown || resetBtn ? `<div class="rounded-xl border border-slate-700 bg-slate-800 p-5">
+        <h3 class="text-sm font-medium text-slate-400 mb-3">Actions</h3>
+        ${actions.length > 0 ? `<div class="flex flex-wrap gap-2">${actionButtons}</div>` : ""}
+        ${moveToDropdown}
+        ${resetBtn}
+      </div>` : ""}
+
+      <div class="rounded-xl border border-slate-700 bg-slate-800 p-5">
+        <h3 class="text-sm font-medium text-slate-400 mb-2">Debug</h3>
+        <div id="debug-panel">
+          ${button("Load Debug Info", {
+            variant: "secondary",
+            attrs: `hx-get="/api/tasks/${escapeHtml(task.id)}/debug" hx-target="#debug-panel" hx-swap="innerHTML"`,
+          })}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+  return layout(`Task ${task.id}`, content, user);
 }
 
 /**
