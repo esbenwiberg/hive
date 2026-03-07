@@ -957,6 +957,32 @@ router.post("/api/tasks/:id/preview/extend", requireAuth, async (req: Request, r
   }
 });
 
+// ── GET /api/tasks/:id/preview/logs ─ Fetch preview logs from DB ─────────
+
+router.get("/api/tasks/:id/preview/logs", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const { getPreviewLogs } = await import("../../db/queries/preview-logs.js");
+    const logs = await getPreviewLogs(id, 100);
+
+    if (logs.length === 0) {
+      res.send(`<span class="text-slate-600">No preview logs yet.</span>`);
+      return;
+    }
+
+    const lines = logs.reverse().map((l) => {
+      const ts = l.createdAt ? new Date(l.createdAt).toLocaleTimeString("en-GB", { hour12: false }) : "";
+      const src = escapeHtml(l.source);
+      const msg = escapeHtml(l.message);
+      return `<div><span class="text-slate-600">${ts}</span> <span class="text-cyan-600">[${src}]</span> ${msg}</div>`;
+    }).join("");
+
+    res.send(lines);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── POST /api/tasks/:id/preview/toggle ─ Toggle skipPreview flag ─────────
 
 const PRE_EXECUTION_STATES: Set<string> = new Set(["pending", "queued", "enriching", "ready"]);

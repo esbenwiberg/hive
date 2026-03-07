@@ -1496,9 +1496,20 @@ export function previewSection(task: TaskRow, previewAvailable = false): string 
       </div>`;
   }
 
+  const logsToggle = task.previewStatus
+    ? `<details class="mt-2">
+        <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-400">Preview Logs</summary>
+        <div hx-get="/api/tasks/${escapeHtml(task.id)}/preview/logs" hx-trigger="toggle from:closest details" hx-swap="innerHTML"
+             class="mt-1 max-h-48 overflow-y-auto rounded bg-slate-950 p-2 text-xs font-mono text-slate-400">
+          Loading...
+        </div>
+      </details>`
+    : "";
+
   return `<h4 class="text-sm font-medium text-slate-400 mb-2">Preview</h4>
     <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
       ${content}
+      ${logsToggle}
     </div>`;
 }
 
