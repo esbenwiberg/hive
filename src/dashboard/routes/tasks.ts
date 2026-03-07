@@ -1,4 +1,7 @@
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { join } from "node:path";
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth } from "../../auth/middleware.js";
@@ -809,6 +812,17 @@ router.post("/api/tasks/:id/preview/start", requireAuth, async (req: Request, re
         worktreePath,
         updatedAt: new Date(),
       }).where(eq(tasksTable.id, id));
+    }
+
+    // Install deps if needed (worktree may have been recreated without node_modules)
+    if (existsSync(join(worktreePath, "package.json")) && !existsSync(join(worktreePath, "node_modules"))) {
+      const execFileAsync = promisify(execFile);
+      const { NODE_ENV: _drop, ...cleanEnv } = process.env;
+      await execFileAsync("npm", ["install", "--prefer-offline", "--include=dev"], {
+        cwd: worktreePath,
+        env: { ...cleanEnv, CI: "true" },
+        timeout: 120_000,
+      });
     }
 
     // Start the preview
