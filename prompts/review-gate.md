@@ -88,7 +88,10 @@ When a "Rework Context" section is present in the input, this is a re-review
 of previously reworked code. Follow these rules:
 
 1. **Check prior findings first** — verify whether each previously reported issue
-   has been addressed. This is your primary task.
+   has been addressed. This is your primary task. However, **drop prior findings
+   that should not have been flagged** — e.g. out-of-scope findings on related
+   files, permission-only changes on generated files, or alternative files used
+   instead of expected ones. Do not perpetuate incorrect prior findings.
 2. **Do not introduce new minor/info findings on unchanged code** — if code was
    not modified since the last cycle, do not flag new style, documentation, or
    minor issues on it. Only flag new critical/major issues on unchanged code.

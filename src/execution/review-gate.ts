@@ -260,12 +260,12 @@ export async function reviewChanges(
     if (expectedFiles.length > 0) {
       const outOfScope = changedFiles.filter(f => !expectedFiles.includes(f));
       promptSections.push(
-        `## Expected File Scope`,
-        `Expected: ${expectedFiles.map(f => `\`${f}\``).join(", ")}`,
+        `## Expected File Scope (rough guide — not a strict boundary)`,
+        `Architect suggested: ${expectedFiles.map(f => `\`${f}\``).join(", ")}`,
         `Actually changed: ${changedFiles.map(f => `\`${f}\``).join(", ")}`,
         ...(outOfScope.length > 0
-          ? [`Out-of-scope changes: ${outOfScope.map(f => `\`${f}\``).join(", ")}`]
-          : [`All changes are within expected scope.`]),
+          ? [`Additional files not in architect's list: ${outOfScope.map(f => `\`${f}\``).join(", ")} — these may be valid related changes.`]
+          : [`All changes are within the suggested scope.`]),
         ``,
       );
     }
