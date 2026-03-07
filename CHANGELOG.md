@@ -1,14 +1,74 @@
 # Changelog
 
+## 2026-03-06
+- fix: exclude lock/generated files from worker reads and review diffs
+- fix: improve worker execution reliability (CI=true, shell args, baseline verify)
+- fix: add global unhandledRejection/uncaughtException handlers
+- fix: docs enricher failing with unsupported Unicode escape sequence
+- fix: allow blueprint editing for small/trivial tasks without milestones
+- feat: add blueprint editing and changed files display on task panel
+- fix: improve enricher relevance and inject repo CLAUDE.md into worker prompt
+- Merge pull request #32 from esbenwiberg/hive/2026-03-06T06-21-36
+- feat: add interactive task lifecycle diagram to dashboard
+- docs: add complete task lifecycle diagram
+- Merge pull request #31 from esbenwiberg/feature/itfhzpvh
+- feat: visual enrichment cards with dialog view and removal support
+
+## 2026-03-05
+- fix: stronger system prompt to prevent agent running npm ci/install
+- fix: set --min-replicas 1 to prevent ACA scaling to zero
+- fix: downgrade expected fetchBranch failure from error to debug
+- fix: correct suspend/abort ordering + update daemon test expectations
+- fix: abort in-flight tasks on shutdown + cooldown to prevent suspend/resume thrashing
+- fix: pre-install deps in worktree + handle JSON-encoded string args
+- fix: handle string args, cd builtin, and misleading npm cwd prompt in worker
+- fix: strip NODE_ENV=production from worktree child processes
+- fix: worker build/auth/prism issues + debug copy buttons
+- fix: Azure DevOps npm auth (email + dual-path), cascading dotnet test, Prism content-type
+
+## 2026-03-04
+- feat: add .NET 10 SDK to container for dotnet+npm repo support
+- fix: skip quickVerify steps when build tool is not installed (ENOENT)
+- fix: auto-detect npm subdirs for .npmrc placement
+- fix: make build system prompt more assertive for non-root npm dirs
+- fix: write .npmrc into npm subdirectory + Azure DevOps base64 auth
+- feat: inject build system info into agent prompt + settings UI
+- feat: per-repo private package registry support (npm + NuGet)
+- fix: log full command args, block git restore/checkout in worker
+- feat: add Tool Calls section to task debug panel
+- fix: log tool calls and Claude output to container logs for debugging
+- fix: add tool call event logging to worker for debugging empty changesets
+- fix: only count successful tool calls for write-nudge tracking
+- fix: remove Prism findings from task view, show empty state for code
+- fix: prevent worker exploration spiral with escalating nudges and hard termination
+- feat: add per-repo Prism slug setting
+- fix: URL-encode Azure DevOps path segments in clone URL
+- Merge pull request #30 from esbenwiberg/feature/dotnet-devops
+- Merge origin/main into feature/dotnet-devops
+- docs: add agent documentation, changelog updates, and prism config
+- fix: replace \Z with JS-compatible end-of-string anchors in blueprint parser
+
 ## 2026-03-03
+- feat: add .NET/Azure DevOps multi-language pipeline support
+- fix: mock domain/config in pr-close-cleanup test to avoid DATABASE_URL requirement
+- Merge pull request #29 from esbenwiberg/hive/HIVE-20260225-a2233309
+- fix: update worker test to match stop-auto-force-PR behavior
+- fix: update test mocks for getWorkerTools, getAutonomousConfig, and force_pr action
 - feat: .NET/ADO multi-language pipeline support
 - docs: add .NET and Azure DevOps multi-language support plan
 
 ## 2026-02-25
 - fix: skip db tests gracefully when no postgres is available
+- Blueprints
 - feat: stop auto-forcing PR at max rework cycles; add Force PR button
 - feat: reduce review-fix cost and feed issues into hivemind
+- Blueprints
+- feat: End-to-end wiring and documentation
+- feat: Dashboard UI — blueprint input in task creation form
 - feat: expose prism index to worker and architect
+- feat: Architect enricher — blueprint validation mode
+- feat: Database and domain changes for blueprint-sourced tasks
+- feat: Blueprint schema definition and parser
 - fix: increase scorer cost estimates to account for max review turns and PR follow-up
 - Merge pull request #27 from esbenwiberg/hive/HIVE-20260222-116ce634
 - Broken references in docs/internal/modules/dashboard.md
