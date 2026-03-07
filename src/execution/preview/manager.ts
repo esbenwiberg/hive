@@ -422,6 +422,9 @@ export class PreviewManager {
     host: string,
     type: "testcontainers" | "process",
   ): Promise<PreviewInfo> {
+    logger.info({ taskId, type, command, port, cwd: worktreePath }, "Spawning preview process");
+    addPreviewLog(taskId, type, `Running: ${command} (PORT=${port}, cwd=${worktreePath})`);
+
     const childProcess = spawn("sh", ["-c", command], {
       cwd: worktreePath,
       env: {
@@ -433,15 +436,25 @@ export class PreviewManager {
     });
 
     childProcess.stdout?.on("data", (data: Buffer) => {
-      logger.debug({ taskId, type }, data.toString().trim());
+      const line = data.toString().trim();
+      if (line) addPreviewLog(taskId, type, `stdout: ${line}`);
+      logger.debug({ taskId, type }, line);
     });
 
     childProcess.stderr?.on("data", (data: Buffer) => {
-      logger.debug({ taskId, type }, data.toString().trim());
+      const line = data.toString().trim();
+      if (line) addPreviewLog(taskId, type, `stderr: ${line}`);
+      logger.debug({ taskId, type }, line);
     });
 
     childProcess.on("error", (err) => {
       logger.error({ taskId, type, err: err.message }, "Preview process error");
+      addPreviewLog(taskId, type, `Process error: ${err.message}`);
+    });
+
+    childProcess.on("exit", (code, signal) => {
+      logger.warn({ taskId, type, code, signal }, "Preview process exited");
+      addPreviewLog(taskId, type, `Process exited (code=${code}, signal=${signal})`);
     });
 
     return Promise.resolve({
