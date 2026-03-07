@@ -54,8 +54,10 @@ export class PreviewManager {
 
     const port = this.allocatePort();
     const dockerIp = this.settings.docker_host.ip;
-    // Compose containers run on the Docker host; process/testcontainers run locally via spawn.
-    const host = config.type === "compose" && dockerIp ? dockerIp : "localhost";
+    // External host used in PR URLs / dashboard links.
+    const host = dockerIp ? dockerIp : "localhost";
+    // Process/testcontainers run locally via spawn; health-check must target localhost.
+    const healthHost = config.type === "compose" ? host : "localhost";
 
     await addPreviewLog(taskId, "manager", `Starting ${config.type} preview on port ${port}`);
 
@@ -108,7 +110,7 @@ export class PreviewManager {
 
     const checkPath = healthPath ?? "/";
     const strict = !!healthPath;
-    const reachable = await this.waitForHealthCheck(host, port, checkPath, timeoutMs, strict);
+    const reachable = await this.waitForHealthCheck(healthHost, port, checkPath, timeoutMs, strict);
 
     if (!reachable) {
       const kind = strict ? "Health check" : "Reachability check";
