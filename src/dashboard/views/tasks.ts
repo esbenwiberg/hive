@@ -442,10 +442,8 @@ function taskTable(tasks: TaskWithCost[], repoNames: Map<number, string>, userNa
       ? [`<input type="checkbox" class="bulk-select h-4 w-4 rounded border-slate-600 bg-slate-800 text-amber-400 focus:ring-amber-400" value="${escapeHtml(t.id)}" onclick="event.stopPropagation(); updateBulkCount()">`]
       : [];
 
-    const id = `<span class="font-mono text-xs text-slate-400 cursor-pointer"
-      hx-get="/api/tasks/${escapeHtml(t.id)}"
-      hx-target="#detail-panel"
-      hx-swap="innerHTML">${escapeHtml(t.id)}</span>`;
+    const id = `<a href="/tasks/${escapeHtml(t.id)}" class="font-mono text-xs text-amber-400 hover:text-amber-300 underline decoration-slate-600 hover:decoration-amber-400"
+      onclick="event.stopPropagation()">${escapeHtml(t.id)}</a>`;
 
     const title = `<span class="text-slate-50 font-medium">${escapeHtml(t.title)}</span>`;
     const status = statusBadge(t.status);
