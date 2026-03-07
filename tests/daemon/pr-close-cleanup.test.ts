@@ -60,6 +60,29 @@ vi.mock("../../src/db/queries/preview-logs.js", () => ({
   addPreviewLog: (...args: unknown[]) => mockAddPreviewLog(...args),
 }));
 
+// Mock db/connection (imported for worktree path cleanup)
+const mockDbUpdateSet = vi.fn();
+const mockDbUpdateWhere = vi.fn();
+
+vi.mock("../../src/db/connection.js", () => ({
+  db: {
+    update: vi.fn(() => ({
+      set: (...args: unknown[]) => {
+        mockDbUpdateSet(...args);
+        return { where: (...wArgs: unknown[]) => { mockDbUpdateWhere(...wArgs); return Promise.resolve(); } };
+      },
+    })),
+  },
+}));
+
+vi.mock("../../src/db/schema.js", () => ({
+  tasks: { id: "id", worktreePath: "worktree_path", worktreeBaseSha: "worktree_base_sha" },
+}));
+
+vi.mock("drizzle-orm", () => ({
+  eq: (...args: unknown[]) => args,
+}));
+
 // Mock domain/config to prevent transitive import of db/connection
 vi.mock("../../src/domain/config.js", () => ({
   getConfig: vi.fn().mockResolvedValue(undefined),
