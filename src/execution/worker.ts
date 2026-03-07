@@ -22,7 +22,7 @@ import type { BuildSystemInfo } from "./build-system.js";
 import { refineTask } from "../agents/refiner.js";
 import { parseHiveYaml } from "../hive-yaml.js";
 import type { PreviewConfig, BasePreviewConfig, ComposePreviewConfig, TestcontainersPreviewConfig, ProcessPreviewConfig } from "../hive-yaml.js";
-import { previewManager } from "./preview/manager.js";
+import { previewManager, getExternalPreviewUrl, getLocalPreviewUrl } from "./preview/manager.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { loadPrompt } from "../prompt-cache.js";
@@ -1110,7 +1110,8 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     if (previewConfig && previewEnabled) {
       try {
         const previewInfo = await previewManager.startPreview(taskId, worktree.path, previewConfig);
-        previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
+        previewUrl = getExternalPreviewUrl(previewInfo);
+        const localPreviewUrl = getLocalPreviewUrl(previewInfo);
         logger.info({ taskId, previewUrl }, "Preview environment started");
 
         // Persist previewUrl on the task
@@ -1119,10 +1120,10 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
           .set({ previewUrl, updatedAt: new Date() })
           .where(eq(tasks.id, taskId));
 
-        // Run browser validation
+        // Run browser validation (use container-local URL)
         try {
           const { validateWithBrowser } = await import("../agents/browser-validator.js");
-          const validation = await validateWithBrowser(taskId, previewUrl);
+          const validation = await validateWithBrowser(taskId, localPreviewUrl);
 
           if (validation.verdict === "fail") {
             // Stop preview to free resources

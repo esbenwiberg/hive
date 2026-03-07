@@ -593,3 +593,27 @@ export class PreviewManager {
 
 /** Singleton instance for application-wide preview management. */
 export const previewManager = new PreviewManager();
+
+/**
+ * Returns the externally-accessible preview URL.
+ * - Compose: direct to Docker host IP + port (port is exposed on the host).
+ * - Process/testcontainers: through Hive's reverse proxy (port isn't exposed externally).
+ */
+export function getExternalPreviewUrl(info: PreviewInfo): string {
+  if (info.type === "compose") {
+    return `http://${info.host}:${info.port}`;
+  }
+  const base = process.env.REDIRECT_URI?.replace(/\/auth\/callback$/, "")
+    ?? `http://localhost:${process.env.PORT ?? "3000"}`;
+  return `${base}/preview/${info.taskId}`;
+}
+
+/**
+ * Returns the URL reachable from inside the Hive container (for browser validation).
+ */
+export function getLocalPreviewUrl(info: PreviewInfo): string {
+  if (info.type === "compose") {
+    return `http://${info.host}:${info.port}`;
+  }
+  return `http://localhost:${info.port}`;
+}

@@ -29,7 +29,7 @@ import { getLatestByTask as getLatestReview } from "../../db/queries/code-review
 import * as activeAgentQueries from "../../db/queries/active-agents.js";
 import * as enrichmentRunQueries from "../../db/queries/enrichment-runs.js";
 import * as costQueries from "../../db/queries/costs.js";
-import { previewManager } from "../../execution/preview/manager.js";
+import { previewManager, getExternalPreviewUrl } from "../../execution/preview/manager.js";
 import { createWorktree, cleanupWorktree, resolveGitCredentials } from "../../execution/worktree.js";
 import { getGitProvider } from "../../execution/git-provider.js";
 import { buildPreviewConfigFromSettings } from "../../execution/worker.js";
@@ -827,7 +827,7 @@ router.post("/api/tasks/:id/preview/start", requireAuth, async (req: Request, re
 
     // Start the preview
     const previewInfo = await previewManager.startPreview(id, worktreePath, previewConfig);
-    const previewUrl = `http://${previewInfo.host}:${previewInfo.port}`;
+    const previewUrl = getExternalPreviewUrl(previewInfo);
 
     // Persist previewUrl on the task
     await db.update(tasksTable).set({

@@ -50,8 +50,9 @@ router.use(
       return;
     }
 
-    // Store target for the proxy middleware to pick up
-    targetMap.set(taskId, `http://${info.host}:${info.port}`);
+    // Process/testcontainers run locally; compose runs on the Docker host.
+    const proxyHost = info.type === "compose" ? info.host : "localhost";
+    targetMap.set(taskId, `http://${proxyHost}:${info.port}`);
 
     next();
   },
