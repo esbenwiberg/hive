@@ -54,7 +54,8 @@ export class PreviewManager {
 
     const port = this.allocatePort();
     const dockerIp = this.settings.docker_host.ip;
-    const host = dockerIp ? dockerIp : "localhost";
+    // Compose containers run on the Docker host; process/testcontainers run locally via spawn.
+    const host = config.type === "compose" && dockerIp ? dockerIp : "localhost";
 
     await addPreviewLog(taskId, "manager", `Starting ${config.type} preview on port ${port}`);
 
