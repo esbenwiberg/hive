@@ -92,6 +92,7 @@ async function runStep(
     // Set CI=true so tools like vitest/jest disable interactive/watch mode.
     const { NODE_ENV: _drop, ...cleanEnv } = process.env;
     cleanEnv.CI = "true";
+    cleanEnv.NODE_OPTIONS = [cleanEnv.NODE_OPTIONS, "--max-old-space-size=4096"].filter(Boolean).join(" ");
 
     await execFileAsync(bin, args, {
       cwd,
