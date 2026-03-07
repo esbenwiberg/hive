@@ -6,6 +6,9 @@ import { cleanupWorktree } from "../execution/worktree.js";
 import { getById as getTask, updateStatus, getDoneTasksWithPR } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
 import { addPreviewLog } from "../db/queries/preview-logs.js";
+import { db } from "../db/connection.js";
+import { tasks } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 
 /**
@@ -93,6 +96,10 @@ export async function cleanupClosedPRPreviews(): Promise<void> {
             createdAt: new Date(),
             baseSha: "",
           });
+          await db
+            .update(tasks)
+            .set({ worktreePath: null, worktreeBaseSha: null, updatedAt: new Date() })
+            .where(eq(tasks.id, taskId));
           await addPreviewLog(taskId, "pr-close", `Worktree cleaned up at ${info.worktreePath}`);
         } catch (wtErr) {
           logger.error({ taskId, err: wtErr }, "PR-close cleanup: failed to clean up worktree");

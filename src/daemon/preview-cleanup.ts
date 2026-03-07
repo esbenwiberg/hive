@@ -68,6 +68,11 @@ export async function cleanupExpiredPreviews(): Promise<void> {
           createdAt: new Date(),
           baseSha: "",
         });
+        // Clear stale worktree path so the dashboard can recreate it if needed
+        await db
+          .update(tasks)
+          .set({ worktreePath: null, worktreeBaseSha: null, updatedAt: new Date() })
+          .where(sql`${tasks.id} = ${taskId}`);
         await addPreviewLog(taskId, "cleanup", `Worktree cleaned up at ${worktreePath}`);
       } catch (err) {
         logger.error({ taskId, worktreePath, err }, "Preview cleanup: failed to clean up worktree");

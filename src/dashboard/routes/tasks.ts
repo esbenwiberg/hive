@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth } from "../../auth/middleware.js";
@@ -792,9 +793,9 @@ router.post("/api/tasks/:id/preview/start", requireAuth, async (req: Request, re
       return;
     }
 
-    // Create worktree if needed (from the hive/{taskId} branch)
+    // Create worktree if needed, or recreate if the directory was cleaned up
     let worktreePath = task.worktreePath;
-    if (!worktreePath) {
+    if (!worktreePath || !existsSync(worktreePath)) {
       const branchName = `hive/${id}`;
       const worktree = await createWorktree(
         repo.fullName,
