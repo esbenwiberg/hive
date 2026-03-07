@@ -97,6 +97,7 @@ async function runStep(
     await execFileAsync(bin, args, {
       cwd,
       timeout: SHELL_TIMEOUT_MS,
+      killSignal: "SIGKILL",
       maxBuffer: 2 * 1024 * 1024,
       env: cleanEnv,
     });
