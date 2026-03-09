@@ -120,6 +120,11 @@ vi.mock("../../src/agents/decomposer.js", () => ({
   decomposeEpic: vi.fn(),
 }));
 
+// Mock exec-group so quickVerify steps succeed without real spawn
+vi.mock("../../src/execution/exec-group.js", () => ({
+  execInGroup: vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
+}));
+
 // Mock worker-tools so we don't need real filesystem/exec
 vi.mock("../../src/execution/worker-tools.js", () => ({
   WORKER_TOOLS: [],

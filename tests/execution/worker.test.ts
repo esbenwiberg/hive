@@ -73,6 +73,11 @@ vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn(),
 }));
 
+// Mock exec-group so quickVerify steps succeed without real spawn
+vi.mock("../../src/execution/exec-group.js", () => ({
+  execInGroup: vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
+}));
+
 // Mock node:child_process for git diff in empty-diff detection
 const mockExecFile = vi.fn();
 vi.mock("node:child_process", () => ({
