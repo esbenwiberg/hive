@@ -184,15 +184,24 @@ export async function createWorktree(
     const nuget = s.nuget as Record<string, unknown> | undefined;
     if (nuget?.url && nuget.tokenVaultId) {
       const token = await getSecret(nuget.tokenVaultId as string);
-      if (token) {
-        // Only write if no existing nuget.config
-        let exists = false;
-        try { await access(`${worktreePath}/nuget.config`); exists = true; } catch { /* does not exist */ }
-        if (!exists) {
+      if (!token) {
+        logger.error({ repoFullName, vaultId: nuget.tokenVaultId }, "NuGet token missing from Key Vault — dotnet restore will likely fail for private feeds");
+      } else {
+        // Check for existing nuget.config (case-insensitive — Windows repos often use NuGet.Config)
+        let existingName: string | null = null;
+        try {
+          const entries = await readdir(worktreePath);
+          existingName = entries.find(e => e.toLowerCase() === "nuget.config") ?? null;
+        } catch { /* readdir failed — assume not exists */ }
+
+        if (existingName) {
+          logger.warn({ repoFullName, existingName }, "Existing nuget.config found in repo — skipping injection (private feed credentials may be missing)");
+        } else {
           const xml = [
             '<?xml version="1.0" encoding="utf-8"?>',
             "<configuration>",
             "  <packageSources>",
+            `    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />`,
             `    <add key="private" value="${nuget.url as string}" />`,
             "  </packageSources>",
             "  <packageSourceCredentials>",

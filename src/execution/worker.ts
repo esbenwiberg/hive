@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access, readFile } from "node:fs/promises";
+import { execInGroup } from "./exec-group.js";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { callClaudeWithTools } from "../agents/sdk.js";
@@ -605,23 +606,28 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     checkAbort();
     const { NODE_ENV: _dropEnv, ...cleanInstallEnv } = process.env;
     cleanInstallEnv.NODE_OPTIONS = [cleanInstallEnv.NODE_OPTIONS, "--max-old-space-size=4096"].filter(Boolean).join(" ");
-    const installOpts = { timeout: 120_000, killSignal: "SIGKILL" as const, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
+    // Use execInGroup so the timeout kills the entire process group (NuGet sub-processes, etc.)
+    const installOpts = { timeout: 120_000, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
     if (buildInfo.npmDir && (buildInfo.type === "npm" || buildInfo.type === "dotnet+npm")) {
       try {
         await addEvent(taskId, "dep_install", "worker", "Installing npm dependencies");
-        await execFileAsync("npm", ["install", "--prefer-offline", "--include=dev"], { ...installOpts, cwd: buildInfo.npmDir });
+        await execInGroup("npm", ["install", "--prefer-offline", "--include=dev"], { ...installOpts, cwd: buildInfo.npmDir });
         logger.info({ taskId, npmDir: buildInfo.npmDir }, "Pre-installed npm dependencies");
       } catch (npmErr) {
+        const reason = npmErr instanceof Error ? npmErr.message : String(npmErr);
         logger.warn({ taskId, npmDir: buildInfo.npmDir, err: npmErr }, "npm install failed — agent will need to handle it");
+        await addEvent(taskId, "dep_install_failed", "worker", `npm install failed: ${reason.slice(0, 200)}`);
       }
     }
     if (buildInfo.dotnetDir && (buildInfo.type === "dotnet" || buildInfo.type === "dotnet+npm")) {
       try {
         await addEvent(taskId, "dep_install", "worker", "Restoring dotnet packages");
-        await execFileAsync("dotnet", ["restore"], { ...installOpts, cwd: buildInfo.dotnetDir });
+        await execInGroup("dotnet", ["restore"], { ...installOpts, cwd: buildInfo.dotnetDir });
         logger.info({ taskId, dotnetDir: buildInfo.dotnetDir }, "Pre-restored dotnet packages");
       } catch (dotnetErr) {
+        const reason = dotnetErr instanceof Error ? dotnetErr.message : String(dotnetErr);
         logger.warn({ taskId, dotnetDir: buildInfo.dotnetDir, err: dotnetErr }, "dotnet restore failed — agent will need to handle it");
+        await addEvent(taskId, "dep_install_failed", "worker", `dotnet restore failed: ${reason.slice(0, 200)}`);
       }
     }
 

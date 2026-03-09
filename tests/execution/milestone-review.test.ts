@@ -7,6 +7,11 @@ vi.mock("node:child_process", () => ({
   execFile: vi.fn(),
 }));
 
+// Mock exec-group so runStep (which now uses execInGroup) delegates to our execFile mock
+vi.mock("../../src/execution/exec-group.js", () => ({
+  execInGroup: vi.fn(),
+}));
+
 // Mock the SDK so we never call the real Anthropic API
 vi.mock("../../src/agents/sdk.js", () => ({
   callClaude: vi.fn(),
@@ -46,8 +51,10 @@ vi.mock("../../src/logger.js", () => ({
 import { execFile } from "node:child_process";
 import { callClaude, callClaudeWithTools } from "../../src/agents/sdk.js";
 import { quickVerify, reviewFix } from "../../src/execution/milestone-review.js";
+import { execInGroup } from "../../src/execution/exec-group.js";
 
 const mockExecFile = execFile as unknown as ReturnType<typeof vi.fn>;
+const mockExecInGroup = execInGroup as unknown as ReturnType<typeof vi.fn>;
 const mockCallClaude = callClaude as ReturnType<typeof vi.fn>;
 const mockCallClaudeWithTools = callClaudeWithTools as ReturnType<typeof vi.fn>;
 
@@ -75,6 +82,8 @@ function setupAllPass() {
       cb(null, { stdout: "", stderr: "" });
     },
   );
+  // execInGroup is promise-based (used by runStep for npm/dotnet commands)
+  mockExecInGroup.mockResolvedValue({ stdout: "", stderr: "" });
 }
 
 /**
@@ -111,6 +120,25 @@ function setupSelectiveFail(
       } else {
         cb(null, { stdout: "", stderr: "" });
       }
+    },
+  );
+  // execInGroup is promise-based (used by runStep for npm/dotnet commands)
+  mockExecInGroup.mockImplementation(
+    (cmd: string, args: string[]) => {
+      const step =
+        cmd === "npm" && args[0] === "run" ? args[1] : undefined;
+
+      if (step && failOn.has(step)) {
+        const details = errorDetails?.[step];
+        const err = new Error(`${step} failed`) as Error & {
+          stdout?: string;
+          stderr?: string;
+        };
+        err.stdout = details?.stdout ?? `${step} stdout`;
+        err.stderr = details?.stderr ?? `${step} stderr`;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
     },
   );
 }
@@ -167,8 +195,8 @@ describe("quickVerify", () => {
     expect(result.passed).toBe(true);
     expect(result.failures).toHaveLength(0);
 
-    // Verify all four npm commands were invoked (install + lint + build + test)
-    const npmCalls = mockExecFile.mock.calls.filter(
+    // Verify all four npm commands were invoked via execInGroup (install + lint + build + test)
+    const npmCalls = mockExecInGroup.mock.calls.filter(
       (call: unknown[]) => call[0] === "npm",
     );
     expect(npmCalls).toHaveLength(4);
@@ -222,11 +250,10 @@ describe("reviewFix", () => {
   });
 
   it("passes on first try when clean (shell + Claude review find no issues)", async () => {
-    // Shell commands all pass
+    // Shell commands all pass (execInGroup handles npm/dotnet in runStep)
     setupAllPass();
 
-    // The reviewFix code will also call getDiff via git after shell passes
-    // We need to handle both npm and git commands
+    // Git commands go through execFile (getDiff, getChangedFiles)
     mockExecFile.mockImplementation(
       (
         cmd: string,
@@ -244,7 +271,6 @@ describe("reviewFix", () => {
             cb(null, { stdout: "", stderr: "" });
           }
         } else {
-          // npm commands all succeed
           cb(null, { stdout: "", stderr: "" });
         }
       },
@@ -269,8 +295,9 @@ describe("reviewFix", () => {
 
   it("calls Claude fix + re-verifies on failure", async () => {
     // Track call count to vary behavior between iterations
-    let npmCallCount = 0;
+    let groupCallCount = 0;
 
+    // Git commands go through execFile
     mockExecFile.mockImplementation(
       (
         cmd: string,
@@ -292,9 +319,15 @@ describe("reviewFix", () => {
           return;
         }
 
-        // npm commands
-        npmCallCount++;
-        if (npmCallCount <= 3) {
+        cb(null, { stdout: "", stderr: "" });
+      },
+    );
+
+    // npm/dotnet commands go through execInGroup (runStep)
+    mockExecInGroup.mockImplementation(
+      (_cmd: string, args: string[]) => {
+        groupCallCount++;
+        if (groupCallCount <= 3) {
           // First quickVerify: lint fails
           if (args[1] === "lint") {
             const err = new Error("lint failed") as Error & {
@@ -303,14 +336,12 @@ describe("reviewFix", () => {
             };
             err.stdout = "lint error output";
             err.stderr = "";
-            cb(err);
-          } else {
-            cb(null, { stdout: "", stderr: "" });
+            return Promise.reject(err);
           }
-        } else {
-          // Second quickVerify (after fix): all pass
-          cb(null, { stdout: "", stderr: "" });
+          return Promise.resolve({ stdout: "", stderr: "" });
         }
+        // Second quickVerify (after fix): all pass
+        return Promise.resolve({ stdout: "", stderr: "" });
       },
     );
 
@@ -344,7 +375,7 @@ describe("reviewFix", () => {
   });
 
   it("stops after maxIterations", async () => {
-    // All npm lint calls fail every time
+    // Git commands go through execFile
     mockExecFile.mockImplementation(
       (
         cmd: string,
@@ -366,7 +397,13 @@ describe("reviewFix", () => {
           return;
         }
 
-        // npm: lint always fails
+        cb(null, { stdout: "", stderr: "" });
+      },
+    );
+
+    // npm: lint always fails (execInGroup handles runStep)
+    mockExecInGroup.mockImplementation(
+      (_cmd: string, args: string[]) => {
         if (args[1] === "lint") {
           const err = new Error("lint failed") as Error & {
             stdout?: string;
@@ -374,10 +411,9 @@ describe("reviewFix", () => {
           };
           err.stdout = "persistent lint error";
           err.stderr = "";
-          cb(err);
-        } else {
-          cb(null, { stdout: "", stderr: "" });
+          return Promise.reject(err);
         }
+        return Promise.resolve({ stdout: "", stderr: "" });
       },
     );
 
@@ -405,7 +441,10 @@ describe("reviewFix", () => {
   });
 
   it("includes Claude code review when shell passes", async () => {
-    // All shell commands pass
+    // npm/dotnet commands all pass (execInGroup handles runStep)
+    mockExecInGroup.mockResolvedValue({ stdout: "", stderr: "" });
+
+    // Git commands go through execFile
     mockExecFile.mockImplementation(
       (
         cmd: string,
@@ -427,7 +466,6 @@ describe("reviewFix", () => {
           return;
         }
 
-        // npm: all pass
         cb(null, { stdout: "", stderr: "" });
       },
     );
@@ -470,6 +508,9 @@ describe("reviewFix", () => {
   });
 
   it("uses incremental review with prior issues on iteration 2+", async () => {
+    // npm/dotnet commands all pass (execInGroup handles runStep)
+    mockExecInGroup.mockResolvedValue({ stdout: "", stderr: "" });
+
     // Shell passes every time, but Claude review finds issues on first iteration
     mockExecFile.mockImplementation(
       (
@@ -492,7 +533,6 @@ describe("reviewFix", () => {
           return;
         }
 
-        // npm: all pass
         cb(null, { stdout: "", stderr: "" });
       },
     );

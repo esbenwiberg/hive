@@ -1,11 +1,8 @@
 import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { resolve, relative } from "node:path";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages/messages.js";
 import type { BuildSystemInfo } from "./build-system.js";
-
-const execFileAsync = promisify(execFile);
+import { execInGroup } from "./exec-group.js";
 
 export interface PrismConfig {
   apiUrl: string;
@@ -300,7 +297,7 @@ export function createWorktreeToolExecutor(
         cleanEnv.CI = "true";
         cleanEnv.NODE_OPTIONS = [cleanEnv.NODE_OPTIONS, "--max-old-space-size=4096"].filter(Boolean).join(" ");
 
-        const { stdout, stderr } = await execFileAsync(command, args, {
+        const { stdout, stderr } = await execInGroup(command, args, {
           cwd,
           timeout: CMD_TIMEOUT_MS,
           maxBuffer: CMD_MAX_BUFFER,

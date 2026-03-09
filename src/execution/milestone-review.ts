@@ -8,6 +8,7 @@ import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import { loadPrompt } from "../prompt-cache.js";
 import { detectBuildSystem } from "./build-system.js";
 import type { BuildSystemInfo } from "./build-system.js";
+import { execInGroup } from "./exec-group.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -94,10 +95,10 @@ async function runStep(
     cleanEnv.CI = "true";
     cleanEnv.NODE_OPTIONS = [cleanEnv.NODE_OPTIONS, "--max-old-space-size=4096"].filter(Boolean).join(" ");
 
-    await execFileAsync(bin, args, {
+    // Use process-group-aware exec so timeout kills all descendant processes
+    await execInGroup(bin, args, {
       cwd,
       timeout: SHELL_TIMEOUT_MS,
-      killSignal: "SIGKILL",
       maxBuffer: 2 * 1024 * 1024,
       env: cleanEnv,
     });
