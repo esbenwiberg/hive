@@ -615,8 +615,10 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         logger.info({ taskId, npmDir: buildInfo.npmDir }, "Pre-installed npm dependencies");
       } catch (npmErr) {
         const reason = npmErr instanceof Error ? npmErr.message : String(npmErr);
+        const output = (npmErr as { stderr?: string }).stderr || (npmErr as { stdout?: string }).stdout || "";
+        const detail = output ? `\n${output.slice(-500).trim()}` : "";
         logger.warn({ taskId, npmDir: buildInfo.npmDir, err: npmErr }, "npm install failed — agent will need to handle it");
-        await addEvent(taskId, "dep_install_failed", "worker", `npm install failed: ${reason.slice(0, 200)}`);
+        await addEvent(taskId, "dep_install_failed", "worker", `npm install failed: ${reason.slice(0, 200)}${detail}`);
       }
     }
     if (buildInfo.dotnetDir && (buildInfo.type === "dotnet" || buildInfo.type === "dotnet+npm")) {
@@ -626,8 +628,10 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         logger.info({ taskId, dotnetDir: buildInfo.dotnetDir }, "Pre-restored dotnet packages");
       } catch (dotnetErr) {
         const reason = dotnetErr instanceof Error ? dotnetErr.message : String(dotnetErr);
+        const output = (dotnetErr as { stderr?: string }).stderr || (dotnetErr as { stdout?: string }).stdout || "";
+        const detail = output ? `\n${output.slice(-500).trim()}` : "";
         logger.warn({ taskId, dotnetDir: buildInfo.dotnetDir, err: dotnetErr }, "dotnet restore failed — agent will need to handle it");
-        await addEvent(taskId, "dep_install_failed", "worker", `dotnet restore failed: ${reason.slice(0, 200)}`);
+        await addEvent(taskId, "dep_install_failed", "worker", `dotnet restore failed: ${reason.slice(0, 200)}${detail}`);
       }
     }
 
