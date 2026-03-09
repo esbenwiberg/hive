@@ -276,52 +276,55 @@ async function mergeNugetCredentials(
   try {
     let content = await readFile(configPath, "utf-8");
 
-    // Find the source key whose value matches our feed URL
-    const escapedUrl = feedUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const sourceKeyMatch = content.match(
-      new RegExp(`<add\\s+key="([^"]+)"\\s+value="${escapedUrl}"`, "i"),
-    );
+    // Collect all non-nuget.org package source keys — we'll inject credentials
+    // for every private feed (same PAT typically covers all feeds in one org).
+    const sourceKeys: string[] = [];
+    const sourcesSection = content.match(/<packageSources>([\s\S]*?)<\/packageSources>/i)?.[1] ?? "";
+    const sourceRegex = /<add\s+key="([^"]+)"\s+[^>]*value="([^"]+)"/gi;
+    let m: RegExpExecArray | null;
+    while ((m = sourceRegex.exec(sourcesSection)) !== null) {
+      const [, key, url] = m;
+      if (!/nuget\.org/i.test(url)) sourceKeys.push(key);
+    }
 
-    let sourceKey: string;
-    if (sourceKeyMatch) {
-      sourceKey = sourceKeyMatch[1];
-    } else {
-      // Feed URL not listed — add it to <packageSources>
-      sourceKey = "hive-private";
-      const sourceEntry = `    <add key="${sourceKey}" value="${escapeXml(feedUrl)}" />\n  `;
+    if (sourceKeys.length === 0) {
+      // No private feeds found — add one for our configured URL
+      sourceKeys.push("hive-private");
+      const sourceEntry = `    <add key="hive-private" value="${escapeXml(feedUrl)}" />\n  `;
       if (/<\/packageSources>/i.test(content)) {
         content = content.replace(/<\/packageSources>/i, `${sourceEntry}</packageSources>`);
       } else {
-        // No <packageSources> section at all — bail out, config is too weird
         return false;
       }
     }
 
-    // Encode characters that are invalid in XML element names (dots, hyphens,
-    // underscores and alphanumerics are all valid — only encode the rest).
-    const credElementName = sourceKey.replace(/[^a-zA-Z0-9._-]/g, (ch) => {
-      const hex = ch.charCodeAt(0).toString(16).padStart(4, "0");
-      return `_x${hex}_`;
-    });
-
-    const credBlock = [
-      `    <${credElementName}>`,
-      `      <add key="Username" value="hive" />`,
-      `      <add key="ClearTextPassword" value="${escapeXml(token)}" />`,
-      `    </${credElementName}>`,
-    ].join("\n");
+    // Build credential blocks for all private feeds
+    const credBlocks = sourceKeys.map((key) => {
+      // Encode characters invalid in XML element names (dots, hyphens,
+      // underscores and alphanumerics are all valid — only encode the rest).
+      const elName = key.replace(/[^a-zA-Z0-9._-]/g, (ch) => {
+        const hex = ch.charCodeAt(0).toString(16).padStart(4, "0");
+        return `_x${hex}_`;
+      });
+      return [
+        `    <${elName}>`,
+        `      <add key="Username" value="hive" />`,
+        `      <add key="ClearTextPassword" value="${escapeXml(token)}" />`,
+        `    </${elName}>`,
+      ].join("\n");
+    }).join("\n");
 
     if (/<packageSourceCredentials>/i.test(content)) {
       // Append our credential block inside the existing section
       content = content.replace(
         /<\/packageSourceCredentials>/i,
-        `${credBlock}\n  </packageSourceCredentials>`,
+        `${credBlocks}\n  </packageSourceCredentials>`,
       );
     } else {
       // No credentials section yet — add one before </configuration>
       const credSection = [
         "  <packageSourceCredentials>",
-        credBlock,
+        credBlocks,
         "  </packageSourceCredentials>",
       ].join("\n");
       content = content.replace(/<\/configuration>/i, `${credSection}\n</configuration>`);
