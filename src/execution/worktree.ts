@@ -1,4 +1,4 @@
-import { rm, mkdir, appendFile, writeFile, readdir, access } from "node:fs/promises";
+import { rm, mkdir, appendFile, writeFile, readFile, readdir, access } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -195,7 +195,17 @@ export async function createWorktree(
         } catch { /* readdir failed — assume not exists */ }
 
         if (existingName) {
-          logger.warn({ repoFullName, existingName }, "Existing nuget.config found in repo — skipping injection (private feed credentials may be missing)");
+          // Merge credentials into the repo's existing nuget.config
+          const merged = await mergeNugetCredentials(
+            join(worktreePath, existingName),
+            nuget.url as string,
+            token,
+          );
+          if (merged) {
+            logger.info({ repoFullName, existingName }, "Merged credentials into existing nuget.config for private NuGet feed");
+          } else {
+            logger.warn({ repoFullName, existingName }, "Failed to merge credentials into existing nuget.config — dotnet restore may fail for private feeds");
+          }
         } else {
           const xml = [
             '<?xml version="1.0" encoding="utf-8"?>',
@@ -244,5 +254,74 @@ export async function cleanupWorktree(worktree: WorktreeInfo): Promise<void> {
     logger.info({ path: worktree.path }, "Worktree cleaned up");
   } catch (err) {
     logger.error({ path: worktree.path, err }, "Failed to clean up worktree");
+  }
+}
+
+/**
+ * Merges private feed credentials into an existing nuget.config file.
+ * Finds the package source matching `feedUrl` (or adds it), then injects
+ * `<packageSourceCredentials>` with the provided token.
+ * Returns true on success, false if the XML couldn't be patched.
+ */
+async function mergeNugetCredentials(
+  configPath: string,
+  feedUrl: string,
+  token: string,
+): Promise<boolean> {
+  try {
+    let content = await readFile(configPath, "utf-8");
+
+    // Find the source key whose value matches our feed URL
+    const escapedUrl = feedUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const sourceKeyMatch = content.match(
+      new RegExp(`<add\\s+key="([^"]+)"\\s+value="${escapedUrl}"`, "i"),
+    );
+
+    let sourceKey: string;
+    if (sourceKeyMatch) {
+      sourceKey = sourceKeyMatch[1];
+    } else {
+      // Feed URL not listed — add it to <packageSources>
+      sourceKey = "hive-private";
+      const sourceEntry = `    <add key="${sourceKey}" value="${feedUrl}" />\n  `;
+      if (/<\/packageSources>/i.test(content)) {
+        content = content.replace(/<\/packageSources>/i, `${sourceEntry}</packageSources>`);
+      } else {
+        // No <packageSources> section at all — bail out, config is too weird
+        return false;
+      }
+    }
+
+    // NuGet requires dots in source keys to be encoded as %2e in credential element names
+    const credElementName = sourceKey.replace(/\./g, "%2e");
+
+    const credBlock = [
+      `    <${credElementName}>`,
+      `      <add key="Username" value="hive" />`,
+      `      <add key="ClearTextPassword" value="${token}" />`,
+      `    </${credElementName}>`,
+    ].join("\n");
+
+    if (/<packageSourceCredentials>/i.test(content)) {
+      // Append our credential block inside the existing section
+      content = content.replace(
+        /<\/packageSourceCredentials>/i,
+        `${credBlock}\n  </packageSourceCredentials>`,
+      );
+    } else {
+      // No credentials section yet — add one before </configuration>
+      const credSection = [
+        "  <packageSourceCredentials>",
+        credBlock,
+        "  </packageSourceCredentials>",
+      ].join("\n");
+      content = content.replace(/<\/configuration>/i, `${credSection}\n</configuration>`);
+    }
+
+    await writeFile(configPath, content);
+    return true;
+  } catch (err) {
+    logger.error({ configPath, err }, "Failed to merge NuGet credentials into existing config");
+    return false;
   }
 }
