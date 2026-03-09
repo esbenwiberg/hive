@@ -10,6 +10,11 @@ import type { GitCredentials, WorktreeInfo } from "../domain/types.js";
 
 const execFileAsync = promisify(execFile);
 
+/** Escape special characters for safe interpolation into XML attribute values. */
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 export const WORKTREE_BASE = "/tmp/hive-worktrees";
 
 /**
@@ -212,12 +217,12 @@ export async function createWorktree(
             "<configuration>",
             "  <packageSources>",
             `    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />`,
-            `    <add key="private" value="${nuget.url as string}" />`,
+            `    <add key="private" value="${escapeXml(nuget.url as string)}" />`,
             "  </packageSources>",
             "  <packageSourceCredentials>",
             "    <private>",
             '      <add key="Username" value="hive" />',
-            `      <add key="ClearTextPassword" value="${token}" />`,
+            `      <add key="ClearTextPassword" value="${escapeXml(token)}" />`,
             "    </private>",
             "  </packageSourceCredentials>",
             "</configuration>",
@@ -283,7 +288,7 @@ async function mergeNugetCredentials(
     } else {
       // Feed URL not listed — add it to <packageSources>
       sourceKey = "hive-private";
-      const sourceEntry = `    <add key="${sourceKey}" value="${feedUrl}" />\n  `;
+      const sourceEntry = `    <add key="${sourceKey}" value="${escapeXml(feedUrl)}" />\n  `;
       if (/<\/packageSources>/i.test(content)) {
         content = content.replace(/<\/packageSources>/i, `${sourceEntry}</packageSources>`);
       } else {
@@ -292,13 +297,17 @@ async function mergeNugetCredentials(
       }
     }
 
-    // NuGet requires dots in source keys to be encoded as %2e in credential element names
-    const credElementName = sourceKey.replace(/\./g, "%2e");
+    // Encode characters that are invalid in XML element names (dots, hyphens,
+    // underscores and alphanumerics are all valid — only encode the rest).
+    const credElementName = sourceKey.replace(/[^a-zA-Z0-9._-]/g, (ch) => {
+      const hex = ch.charCodeAt(0).toString(16).padStart(4, "0");
+      return `_x${hex}_`;
+    });
 
     const credBlock = [
       `    <${credElementName}>`,
       `      <add key="Username" value="hive" />`,
-      `      <add key="ClearTextPassword" value="${token}" />`,
+      `      <add key="ClearTextPassword" value="${escapeXml(token)}" />`,
       `    </${credElementName}>`,
     ].join("\n");
 
