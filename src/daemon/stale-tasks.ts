@@ -24,7 +24,7 @@ export async function findStaleTasks(thresholdMs: number) {
     .leftJoin(activeAgents, sql`${tasks.id} = ${activeAgents.taskId}`)
     .where(
       // Note: 'suspended' is intentionally excluded — those are handled by the resume logic on boot
-      sql`${tasks.status} IN ('queued','enriching','executing','reviewing')
+      sql`${tasks.status} IN ('queued','enriching','executing','reviewing','rework')
         AND (
           ${activeAgents.taskId} IS NULL
           OR ${activeAgents.lastHeartbeatAt} < ${cutoff}

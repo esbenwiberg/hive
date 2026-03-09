@@ -605,7 +605,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // Mirrors quickVerify's install steps. Failures are non-fatal — the agent can retry.
     checkAbort();
     const { NODE_ENV: _dropEnv, ...cleanInstallEnv } = process.env;
-    cleanInstallEnv.NODE_OPTIONS = [cleanInstallEnv.NODE_OPTIONS, "--max-old-space-size=2048"].filter(Boolean).join(" ");
+    cleanInstallEnv.NODE_OPTIONS = [cleanInstallEnv.NODE_OPTIONS, "--max-old-space-size=1536"].filter(Boolean).join(" ");
     // Use execInGroup so the timeout kills the entire process group (NuGet sub-processes, etc.)
     const installOpts = { timeout: 120_000, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
     if (buildInfo.npmDir && (buildInfo.type === "npm" || buildInfo.type === "dotnet+npm")) {
