@@ -165,7 +165,7 @@ export async function quickVerify(
 
     if (!skipInstall) {
       const restored = await runStep(
-        "dotnet", ["restore"],
+        "dotnet", ["restore", "/p:NuGetAudit=false"],
         dotnetDir, "dotnet restore", failures,
       );
 

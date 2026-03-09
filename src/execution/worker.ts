@@ -624,7 +624,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     if (buildInfo.dotnetDir && (buildInfo.type === "dotnet" || buildInfo.type === "dotnet+npm")) {
       try {
         await addEvent(taskId, "dep_install", "worker", "Restoring dotnet packages");
-        await execInGroup("dotnet", ["restore"], { ...installOpts, cwd: buildInfo.dotnetDir });
+        await execInGroup("dotnet", ["restore", "/p:NuGetAudit=false"], { ...installOpts, cwd: buildInfo.dotnetDir });
         logger.info({ taskId, dotnetDir: buildInfo.dotnetDir }, "Pre-restored dotnet packages");
       } catch (dotnetErr) {
         const reason = dotnetErr instanceof Error ? dotnetErr.message : String(dotnetErr);
