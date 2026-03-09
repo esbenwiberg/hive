@@ -102,8 +102,8 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'hive'
           image: '${acrLoginServer}/hive:${containerImageTag}'
           resources: {
-            cpu: json('1.0')
-            memory: '2Gi'
+            cpu: json('2.0')
+            memory: '4Gi'
           }
           env: [
             {

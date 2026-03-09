@@ -605,7 +605,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // Mirrors quickVerify's install steps. Failures are non-fatal — the agent can retry.
     checkAbort();
     const { NODE_ENV: _dropEnv, ...cleanInstallEnv } = process.env;
-    cleanInstallEnv.NODE_OPTIONS = [cleanInstallEnv.NODE_OPTIONS, "--max-old-space-size=4096"].filter(Boolean).join(" ");
+    cleanInstallEnv.NODE_OPTIONS = [cleanInstallEnv.NODE_OPTIONS, "--max-old-space-size=2048"].filter(Boolean).join(" ");
     // Use execInGroup so the timeout kills the entire process group (NuGet sub-processes, etc.)
     const installOpts = { timeout: 120_000, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
     if (buildInfo.npmDir && (buildInfo.type === "npm" || buildInfo.type === "dotnet+npm")) {
@@ -635,21 +635,10 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       }
     }
 
-    // Run baseline verify on the unmodified branch so we can distinguish
-    // pre-existing failures from failures introduced by our changes.
-    // Only on first attempt — rework cycles already have a baseline.
-    let baselineFailures: Set<string> = new Set();
-    if ((task.reworkCount ?? 0) === 0 && !reusedWorktree) {
-      try {
-        const baseline = await quickVerify(worktree.path, buildSettings, { skipInstall: true });
-        if (!baseline.passed) {
-          baselineFailures = new Set(baseline.failures);
-          logger.info({ taskId, count: baselineFailures.size }, "Baseline verify found pre-existing failures");
-        }
-      } catch (baselineErr) {
-        logger.warn({ taskId, err: baselineErr }, "Baseline verify failed — will not filter pre-existing failures");
-      }
-    }
+    // Baseline verify removed — we assume main builds and tests pass.
+    // The pre-existing failure filter (baselineFailures) is kept as an empty
+    // set so the downstream filter at final verify is a no-op.
+    const baselineFailures: Set<string> = new Set();
 
     // Retrieve relevant learnings for this task (non-blocking — failures degrade gracefully)
     let learningIds: number[] = [];
