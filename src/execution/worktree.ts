@@ -207,6 +207,10 @@ export async function createWorktree(
             token,
           );
           if (merged) {
+            // The file is already tracked by git, so .git/info/exclude won't
+            // help. Use --assume-unchanged to prevent `git add -A` from staging
+            // the credential-injected version.
+            await execFileAsync("git", ["update-index", "--assume-unchanged", existingName], { cwd: worktreePath });
             logger.info({ repoFullName, existingName }, "Merged credentials into existing nuget.config for private NuGet feed");
           } else {
             logger.warn({ repoFullName, existingName }, "Failed to merge credentials into existing nuget.config — dotnet restore may fail for private feeds");
