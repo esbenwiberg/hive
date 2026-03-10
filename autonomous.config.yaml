@@ -1,6 +1,12 @@
 # Autonomous pipeline configuration
 # Controls routing, gating, budgets, and enrichment behaviour.
 
+provider:
+  # API provider: "anthropic" (direct SaaS) or "azure" (Azure AI Foundry)
+  active: anthropic
+  azure:
+    endpointUrl: ""
+
 classification:
   # Default task type when the router cannot determine one
   defaultType: improvement

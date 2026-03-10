@@ -2,7 +2,7 @@
 
 import type { SessionUser } from "../../domain/types.js";
 import type { RepoRow } from "../../db/schema.js";
-import type { AutonomousConfig, ModelConfig } from "../../domain/autonomous-config.js";
+import type { AutonomousConfig, ModelConfig, ApiProvider } from "../../domain/autonomous-config.js";
 import type { ConfigOverrides } from "../../domain/autonomous-config.js";
 import {
   escapeHtml,
@@ -338,6 +338,13 @@ function previewTestDialog(): string {
 </script>`;
 }
 
+// ── Provider Status ──────────────────────────────────────────────────────────
+
+export interface ProviderStatus {
+  anthropicKeySet: boolean;
+  azureKeySet: boolean;
+}
+
 // ── Global Settings Partial ─────────────────────────────────────────────────
 
 /**
@@ -347,7 +354,56 @@ function previewTestDialog(): string {
 export function globalSettingsPartial(
   config: AutonomousConfig,
   _overrides?: ConfigOverrides,
+  providerStatus?: ProviderStatus,
 ): string {
+  // Provider card
+  const ps = providerStatus ?? { anthropicKeySet: !!process.env.ANTHROPIC_API_KEY, azureKeySet: !!process.env.AZURE_AI_FOUNDRY_API_KEY };
+  const isAzure = config.provider.active === "azure";
+  const showAzure = isAzure ? "block" : "none";
+
+  const anthropicBadge = ps.anthropicKeySet
+    ? badge("Configured", "emerald")
+    : badge("Not Set", "red");
+  const azureBadge = ps.azureKeySet
+    ? badge("Configured", "emerald")
+    : badge("Not Set", "red");
+
+  const providerFields = [
+    select("activeProvider", "API Provider", [
+      { value: "anthropic", label: "Anthropic (Direct)" },
+      { value: "azure", label: "Azure AI Foundry" },
+    ], config.provider.active,
+    `onchange="(function(s){var az=s.value==='azure';document.getElementById('azure-provider-fields').style.display=az?'block':'none';})(this)"`),
+    `<div class="flex items-center justify-between py-1">
+      <span class="text-xs text-slate-500">Anthropic API Key</span>
+      ${anthropicBadge}
+    </div>`,
+    input("anthropicApiKey", "Anthropic API Key", {
+      type: "password",
+      placeholder: ps.anthropicKeySet ? "Saved — leave blank to keep" : "sk-ant-...",
+    }),
+    `<div id="azure-provider-fields" style="display:${showAzure}">
+      <div class="flex items-center justify-between py-1">
+        <span class="text-xs text-slate-500">Azure AI Foundry API Key</span>
+        ${azureBadge}
+      </div>
+      ${input("azureApiKey", "Azure API Key", {
+        type: "password",
+        placeholder: ps.azureKeySet ? "Saved — leave blank to keep" : "API key",
+      })}
+      ${input("azureEndpointUrl", "Azure Endpoint URL", {
+        value: config.provider.azure.endpointUrl,
+        placeholder: "https://your-resource.services.ai.azure.com/...",
+      })}
+      <p class="mt-1 text-xs text-slate-500">Azure may require dated model names — update the Models section below.</p>
+    </div>`,
+  ].join("");
+
+  const providerCard = card(providerFields, {
+    title: "Provider",
+    padding: "compact",
+  });
+
   // Classification card
   const classificationFields = [
     select("defaultType", "Default Type", [
@@ -519,6 +575,7 @@ export function globalSettingsPartial(
   <div class="space-y-4">
     <p class="text-sm text-slate-400">Overrides saved to database. <code class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">autonomous.config.yaml</code> provides defaults.</p>
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      ${providerCard}
       ${classificationCard}
       ${gateCard}
       ${budgetCard}
@@ -844,10 +901,11 @@ export function settingsPage(
   user: SessionUser,
   activeTab: SettingsTab = "global",
   overrides?: ConfigOverrides,
+  providerStatus?: ProviderStatus,
 ): string {
   const tabContent =
     activeTab === "global"
-      ? globalSettingsPartial(config, overrides)
+      ? globalSettingsPartial(config, overrides, providerStatus)
       : repoSettingsPartial(repos);
 
   const content = `<div class="space-y-8">

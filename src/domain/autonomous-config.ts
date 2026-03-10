@@ -10,6 +10,15 @@ export interface ClassificationConfig {
   defaultSize: string;
 }
 
+export type ApiProvider = "anthropic" | "azure";
+
+export interface ProviderConfig {
+  active: ApiProvider;
+  azure: {
+    endpointUrl: string;
+  };
+}
+
 export type GateMode = "ai" | "human" | "auto";
 
 export interface GateConfig {
@@ -81,6 +90,7 @@ export interface ReviewFixConfig {
 }
 
 export interface AutonomousConfig {
+  provider: ProviderConfig;
   classification: ClassificationConfig;
   gate: GateConfig;
   budget: BudgetConfig;
@@ -96,6 +106,7 @@ export interface AutonomousConfig {
 // ── Defaults ─────────────────────────────────────────────────────────────────
 
 const DEFAULTS: AutonomousConfig = {
+  provider: { active: "anthropic", azure: { endpointUrl: "" } },
   classification: { defaultType: "improvement", defaultSize: "medium" },
   gate: { mode: "human" },
   budget: { dailyDefault: 100, perTaskMax: 25 },
@@ -190,8 +201,17 @@ export function loadConfig(
   }
 
   const rawPreview = raw.preview as Partial<PreviewSettings> | undefined;
+  const rawProvider = raw.provider as Partial<ProviderConfig> | undefined;
 
   const config: AutonomousConfig = {
+    provider: {
+      ...DEFAULTS.provider,
+      ...rawProvider,
+      azure: {
+        ...DEFAULTS.provider.azure,
+        ...(rawProvider?.azure as Partial<ProviderConfig["azure"]> | undefined),
+      },
+    },
     classification: {
       ...DEFAULTS.classification,
       ...(raw.classification as Partial<ClassificationConfig> | undefined),
@@ -244,6 +264,7 @@ export function loadConfig(
 
 /** Partial overrides that can be stored in the DB. */
 export interface ConfigOverrides {
+  provider?: { active?: ApiProvider; azure?: { endpointUrl?: string } };
   classification?: Partial<ClassificationConfig>;
   gate?: Partial<GateConfig>;
   budget?: Partial<BudgetConfig>;
@@ -292,6 +313,13 @@ function mergeOverrides(
 ): AutonomousConfig {
   return {
     ...base,
+    provider: overrides.provider
+      ? {
+          ...base.provider,
+          ...overrides.provider,
+          azure: { ...base.provider.azure, ...overrides.provider.azure },
+        }
+      : base.provider,
     classification: { ...base.classification, ...overrides.classification },
     gate: { ...base.gate, ...overrides.gate },
     budget: { ...base.budget, ...overrides.budget },

@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Tool, ToolResultBlockParam, ToolUseBlock, MessageParam, TextBlockParam, ImageBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.js";
 import logger from "../logger.js";
+import { getAutonomousConfig } from "../domain/autonomous-config.js";
+import { getSecret } from "../vault/keyvault.js";
 
 /** Rich tool result content — text blocks and/or image blocks (e.g. screenshots). */
 export type ToolResultContent = Array<TextBlockParam | ImageBlockParam>;
@@ -213,9 +215,55 @@ let client: Anthropic | undefined;
 
 function getClient(): Anthropic {
   if (!client) {
-    client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+    const { provider } = getAutonomousConfig();
+    if (provider.active === "azure") {
+      const apiKey = process.env.AZURE_AI_FOUNDRY_API_KEY;
+      if (!apiKey) {
+        throw new Error("AZURE_AI_FOUNDRY_API_KEY env var is required when Azure AI Foundry provider is active");
+      }
+      client = new Anthropic({ baseURL: provider.azure.endpointUrl, apiKey });
+    } else {
+      client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+    }
   }
   return client;
+}
+
+/** Resets the cached SDK client so the next call to getClient() re-creates it. */
+export function resetClient(): void {
+  client = undefined;
+}
+
+/** Returns true if prompt caching is supported by the active provider. */
+export function isCachingSupported(): boolean {
+  const { provider } = getAutonomousConfig();
+  return provider.active !== "azure";
+}
+
+/**
+ * Loads API keys from Key Vault into process.env at startup.
+ * Keys saved via the settings UI are persisted in Key Vault; this ensures
+ * they're available after a container restart even if Bicep doesn't map them.
+ * Existing env vars (from Bicep/deployment) take precedence.
+ */
+export async function hydrateApiKeysFromVault(): Promise<void> {
+  const pairs: [string, string][] = [
+    ["ANTHROPIC_API_KEY", "anthropic-api-key"],
+    ["AZURE_AI_FOUNDRY_API_KEY", "azure-ai-foundry-api-key"],
+  ];
+
+  for (const [envVar, secretName] of pairs) {
+    if (process.env[envVar]) continue; // already set via deployment
+    try {
+      const value = await getSecret(secretName);
+      if (value) {
+        process.env[envVar] = value;
+        logger.info({ secretName }, "Hydrated API key from Key Vault");
+      }
+    } catch (err) {
+      logger.warn({ secretName, err }, "Failed to hydrate API key from Key Vault — skipping");
+    }
+  }
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -238,8 +286,9 @@ export async function callClaude(req: SdkRequest): Promise<SdkResponse> {
     };
   }
 
+  const caching = isCachingSupported();
   const system = req.systemPrompt
-    ? [{ type: "text" as const, text: req.systemPrompt, cache_control: { type: "ephemeral" as const } }]
+    ? [{ type: "text" as const, text: req.systemPrompt, ...(caching ? { cache_control: { type: "ephemeral" as const } } : {}) }]
     : undefined;
 
   const createParams = {
@@ -297,16 +346,19 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
   let nudgesUsed = 0;
   const maxNudges = req.maxNudges ?? 1;
 
+  const caching = isCachingSupported();
   const system = req.systemPrompt
-    ? [{ type: "text" as const, text: req.systemPrompt, cache_control: { type: "ephemeral" as const } }]
+    ? [{ type: "text" as const, text: req.systemPrompt, ...(caching ? { cache_control: { type: "ephemeral" as const } } : {}) }]
     : undefined;
 
   // Mark the last tool with cache_control so the entire system+tools prefix is cached
-  const tools = req.tools.map((t, i) =>
-    i === req.tools.length - 1
-      ? { ...t, cache_control: { type: "ephemeral" as const } }
-      : t,
-  );
+  const tools = caching
+    ? req.tools.map((t, i) =>
+        i === req.tools.length - 1
+          ? { ...t, cache_control: { type: "ephemeral" as const } }
+          : t,
+      )
+    : req.tools;
 
   const messages: MessageParam[] = [{ role: "user", content: req.prompt }];
 

@@ -80,6 +80,11 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           identity: managedIdentityId
         }
         {
+          name: 'azure-ai-foundry-api-key'
+          keyVaultUrl: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets/azure-ai-foundry-api-key'
+          identity: managedIdentityId
+        }
+        {
           name: 'session-secret'
           keyVaultUrl: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets/session-secret'
           identity: managedIdentityId
@@ -113,6 +118,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'ANTHROPIC_API_KEY'
               secretRef: 'anthropic-api-key'
+            }
+            {
+              name: 'AZURE_AI_FOUNDRY_API_KEY'
+              secretRef: 'azure-ai-foundry-api-key'
             }
             {
               name: 'SESSION_SECRET'

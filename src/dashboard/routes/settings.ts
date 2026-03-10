@@ -7,13 +7,15 @@ import {
   saveConfigOverrides,
   type ConfigOverrides,
   type GateMode,
+  type ApiProvider,
   type ClarificationConfig,
 } from "../../domain/autonomous-config.js";
+import { resetClient } from "../../agents/sdk.js";
 import * as repoQueries from "../../db/queries/repos.js";
 import { create } from "../../db/queries/tasks.js";
 import { repoSecretName, setSecret, deleteSecret } from "../../vault/keyvault.js";
 import { isDuplicate } from "../../producers/base.js";
-import type { SettingsTab } from "../views/settings.js";
+import type { SettingsTab, ProviderStatus } from "../views/settings.js";
 import {
   settingsPage,
   settingsPanel,
@@ -29,6 +31,14 @@ const router = Router();
 const VALID_TABS = new Set<SettingsTab>(["global", "repos"]);
 const VALID_GATE_MODES = new Set(["ai", "human", "auto"]);
 const VALID_CLARIFICATION_MODES = new Set(["human", "ai", "auto"]);
+const VALID_PROVIDERS = new Set<ApiProvider>(["anthropic", "azure"]);
+
+function getProviderStatus(): ProviderStatus {
+  return {
+    anthropicKeySet: !!process.env.ANTHROPIC_API_KEY,
+    azureKeySet: !!process.env.AZURE_AI_FOUNDRY_API_KEY,
+  };
+}
 
 function isValidTab(value: unknown): value is SettingsTab {
   return typeof value === "string" && VALID_TABS.has(value as SettingsTab);
@@ -44,7 +54,8 @@ router.get("/settings", requireAuth, async (req: Request, res: Response, next: N
     const tab: SettingsTab = isValidTab(req.query.tab) ? req.query.tab : "global";
     const overrides = tab === "global" ? await getConfigOverrides() : undefined;
 
-    res.send(settingsPage(config, repos, user, tab, overrides));
+    const ps = tab === "global" ? getProviderStatus() : undefined;
+    res.send(settingsPage(config, repos, user, tab, overrides, ps));
   } catch (err) {
     next(err);
   }
@@ -65,7 +76,7 @@ router.get("/settings/tab", requireAuth, async (req: Request, res: Response, nex
     if (tab === "global") {
       const config = getAutonomousConfig();
       const overrides = await getConfigOverrides();
-      tabContent = globalSettingsPartial(config, overrides);
+      tabContent = globalSettingsPartial(config, overrides, getProviderStatus());
     } else {
       const repos = await repoQueries.listAll();
       tabContent = repoSettingsPartial(repos);
@@ -84,6 +95,30 @@ const VALID_SIZES = new Set(["trivial", "small", "medium", "large"]);
 router.post("/settings/global", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = req.body as Record<string, string>;
+    const previousProvider = getAutonomousConfig().provider.active;
+
+    // Validate provider
+    const activeProvider = body.activeProvider?.trim() as ApiProvider | undefined;
+    if (activeProvider && !VALID_PROVIDERS.has(activeProvider)) {
+      res.status(400).send("Invalid provider. Must be one of: anthropic, azure");
+      return;
+    }
+
+    const anthropicApiKey = body.anthropicApiKey?.trim();
+    const azureApiKey = body.azureApiKey?.trim();
+
+    if (activeProvider === "azure") {
+      // Azure key must either already exist or be provided in this request
+      if (!process.env.AZURE_AI_FOUNDRY_API_KEY && !azureApiKey) {
+        res.status(400).send("Cannot switch to Azure AI Foundry: provide an Azure API key first");
+        return;
+      }
+      const azureEndpoint = body.azureEndpointUrl?.trim();
+      if (!azureEndpoint || !azureEndpoint.startsWith("https://")) {
+        res.status(400).send("Azure endpoint URL must start with https://");
+        return;
+      }
+    }
 
     // Validate classification
     const defaultType = body.defaultType?.trim();
@@ -133,6 +168,15 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
 
     // Build overrides object
     const overrides: ConfigOverrides = {};
+
+    // Provider
+    if (activeProvider) {
+      overrides.provider = { active: activeProvider };
+      if (activeProvider === "azure") {
+        const azureEndpoint = body.azureEndpointUrl?.trim();
+        overrides.provider.azure = { endpointUrl: azureEndpoint || "" };
+      }
+    }
 
     if (defaultType || defaultSize) {
       overrides.classification = {};
@@ -249,11 +293,29 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
 
     const updatedConfig = await saveConfigOverrides(overrides);
 
+    // Save API keys to Key Vault and update process.env for immediate effect
+    let clientNeedsReset = activeProvider !== undefined && activeProvider !== previousProvider;
+
+    if (anthropicApiKey) {
+      await setSecret("anthropic-api-key", anthropicApiKey);
+      process.env.ANTHROPIC_API_KEY = anthropicApiKey;
+      clientNeedsReset = true;
+    }
+    if (azureApiKey) {
+      await setSecret("azure-ai-foundry-api-key", azureApiKey);
+      process.env.AZURE_AI_FOUNDRY_API_KEY = azureApiKey;
+      clientNeedsReset = true;
+    }
+
+    if (clientNeedsReset) {
+      resetClient();
+    }
+
     res.setHeader(
       "HX-Trigger",
       JSON.stringify({ showToast: { message: "Global settings saved", type: "success" } }),
     );
-    res.send(globalSettingsPartial(updatedConfig, overrides));
+    res.send(globalSettingsPartial(updatedConfig, overrides, getProviderStatus()));
   } catch (err) {
     next(err);
   }

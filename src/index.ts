@@ -1,5 +1,6 @@
 import { migrate } from "./db/migrate.js";
 import { initConfig } from "./domain/autonomous-config.js";
+import { hydrateApiKeysFromVault } from "./agents/sdk.js";
 import app from "./dashboard/server.js";
 import { pool } from "./db/connection.js";
 import logger from "./logger.js";
@@ -19,6 +20,7 @@ const PORT = parseInt(process.env.PORT ?? "3000", 10);
 async function start(): Promise<void> {
   await migrate();
   await initConfig();
+  await hydrateApiKeysFromVault();
 
   const server = app.listen(PORT, () => {
     logger.info({ port: PORT }, "Hive listening");

@@ -21,6 +21,7 @@ const mockUser: SessionUser = {
 };
 
 const mockConfig: AutonomousConfig = {
+  provider: { active: "anthropic", azure: { endpointUrl: "" } },
   classification: { defaultType: "improvement", defaultSize: "medium" },
   gate: { mode: "human" },
   budget: { dailyDefault: 100, perTaskMax: 25 },
