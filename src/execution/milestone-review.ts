@@ -17,6 +17,8 @@ const execFileAsync = promisify(execFile);
 export interface QuickVerifyResult {
   passed: boolean;
   failures: string[];
+  /** Non-blocking issues (e.g. lint warnings) — reported but don't block `passed`. */
+  warnings: string[];
 }
 
 export interface ReviewFixResult {
@@ -133,6 +135,7 @@ export async function quickVerify(
   options?: { skipInstall?: boolean },
 ): Promise<QuickVerifyResult> {
   const failures: string[] = [];
+  const warnings: string[] = [];
   const skipInstall = options?.skipInstall ?? false;
 
   const info = await detectBuildSystem(worktreePath, undefined, buildSettings);
@@ -150,11 +153,13 @@ export async function quickVerify(
 
       if (!installed) {
         logger.warn({ npmDir }, "quickVerify: npm install failed — skipping npm build/test");
-        if (info.type === "npm") return { passed: false, failures };
+        if (info.type === "npm") return { passed: false, failures, warnings };
       }
     }
 
-    await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", failures);
+    // Lint is non-blocking — goes to warnings so it doesn't trigger rework
+    // for issues in vendor/dist files the agent can't control.
+    await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", warnings);
     await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures);
     await runStep("npm", ["run", "test", "--if-present"], npmDir, "npm test", failures);
   }
@@ -171,7 +176,7 @@ export async function quickVerify(
 
       if (!restored) {
         logger.warn({ dotnetDir }, "quickVerify: dotnet restore failed — skipping dotnet build/test");
-        if (info.type === "dotnet") return { passed: false, failures };
+        if (info.type === "dotnet") return { passed: false, failures, warnings };
       }
     }
 
@@ -186,6 +191,7 @@ export async function quickVerify(
   return {
     passed: failures.length === 0,
     failures,
+    warnings,
   };
 }
 
@@ -377,8 +383,10 @@ export async function reviewFix(
 
     // Step 1: Run shell verification
     const verify = await quickVerify(worktreePath, buildSettings, options);
-    const shellIssues = verify.failures;
-    logger.info({ iteration, passed: verify.passed, failureCount: shellIssues.length, worktreePath }, "review-fix quickVerify done");
+    // Include warnings (lint) in issues for Claude to attempt fixing,
+    // but they don't block verify.passed.
+    const shellIssues = [...verify.failures, ...verify.warnings];
+    logger.info({ iteration, passed: verify.passed, failureCount: verify.failures.length, warningCount: verify.warnings.length, worktreePath }, "review-fix quickVerify done");
 
     let reviewIssues: string[] = [];
 
@@ -392,17 +400,20 @@ export async function reviewFix(
       logger.info({ iteration, issueCount: reviewIssues.length, costUsd: review.costUsd, worktreePath }, "review-fix claudeReview done");
     }
 
-    // Combine all issues from this iteration
-    const iterationIssues = [...shellIssues, ...reviewIssues];
+    // Blocking issues = build/test failures + review findings.
+    // Lint warnings are non-blocking — attempted opportunistically during fix
+    // but won't keep the loop spinning on their own.
+    const blockingIssues = [...verify.failures, ...reviewIssues];
 
-    if (iterationIssues.length === 0) {
-      // Everything is clean
+    if (blockingIssues.length === 0) {
       passed = true;
-      logger.info({ iteration, worktreePath }, "review-fix passed — no issues found");
+      logger.info({ iteration, worktreePath }, "review-fix passed — no blocking issues found");
       break;
     }
 
-    // Record the issues found and thread them for incremental review
+    // Include ALL issues (blocking + lint warnings) in fix attempt so Claude
+    // fixes them opportunistically, but only blocking issues drive the loop.
+    const iterationIssues = [...shellIssues, ...reviewIssues];
     allIssues.push(...iterationIssues);
     priorIterationIssues = iterationIssues;
     logger.info(

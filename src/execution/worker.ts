@@ -1056,14 +1056,30 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         await updateStatus(taskId, "rework");
         const verifyReviewResult: ReviewGateResult = {
           verdict: "rework",
-          findings: finalVerify.failures.map(f => ({
-            severity: "critical" as const,
-            file: "",
-            message: f.substring(0, 500),
-            category: "verification",
-          })),
+          findings: [
+            ...finalVerify.failures.map(f => ({
+              severity: "critical" as const,
+              file: "",
+              message: f.substring(0, 500),
+              category: "verification",
+            })),
+            // Lint warnings are non-blocking — reported for visibility but
+            // "minor" severity won't trigger rework (soft-pass filter skips them).
+            ...finalVerify.warnings.map(f => ({
+              severity: "minor" as const,
+              file: "",
+              message: f.substring(0, 500),
+              category: "verification",
+            })),
+          ],
           securityFindings: [],
-          verification: { testsRun: true, testsPassed: false, lintClean: false, buildSucceeded: false, notes: finalVerify.failures },
+          verification: {
+            testsRun: true,
+            testsPassed: false,
+            lintClean: finalVerify.warnings.length === 0,
+            buildSucceeded: !finalVerify.failures.some(f => f.startsWith("npm build failed") || f.startsWith("dotnet build failed")),
+            notes: finalVerify.failures,
+          },
           costUsd: 0,
         };
         await refineTask(taskId, verifyReviewResult);

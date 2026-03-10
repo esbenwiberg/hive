@@ -222,11 +222,13 @@ describe("quickVerify", () => {
     const result = await quickVerify("/tmp/test-worktree");
 
     expect(result.passed).toBe(false);
-    expect(result.failures).toHaveLength(2);
-    expect(result.failures[0]).toContain("lint failed");
-    expect(result.failures[0]).toContain("Lint error: no-unused-vars");
-    expect(result.failures[1]).toContain("test failed");
-    expect(result.failures[1]).toContain("Error: test suite failed");
+    // test goes to failures (blocking), lint goes to warnings (non-blocking)
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toContain("test failed");
+    expect(result.failures[0]).toContain("Error: test suite failed");
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("lint failed");
+    expect(result.warnings[0]).toContain("Lint error: no-unused-vars");
   });
 
   it("handles missing scripts (--if-present) by collecting all failures", async () => {
@@ -236,11 +238,12 @@ describe("quickVerify", () => {
     const result = await quickVerify("/tmp/test-worktree");
 
     expect(result.passed).toBe(false);
-    // All three are collected (doesn't stop at first failure)
-    expect(result.failures).toHaveLength(3);
-    expect(result.failures[0]).toContain("lint failed");
-    expect(result.failures[1]).toContain("build failed");
-    expect(result.failures[2]).toContain("test failed");
+    // build + test are blocking failures, lint is a non-blocking warning
+    expect(result.failures).toHaveLength(2);
+    expect(result.failures[0]).toContain("build failed");
+    expect(result.failures[1]).toContain("test failed");
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("lint failed");
   });
 });
 
@@ -328,13 +331,13 @@ describe("reviewFix", () => {
       (_cmd: string, args: string[]) => {
         groupCallCount++;
         if (groupCallCount <= 3) {
-          // First quickVerify: lint fails
-          if (args[1] === "lint") {
-            const err = new Error("lint failed") as Error & {
+          // First quickVerify: build fails (blocking — triggers fix)
+          if (args[1] === "build") {
+            const err = new Error("build failed") as Error & {
               stdout?: string;
               stderr?: string;
             };
-            err.stdout = "lint error output";
+            err.stdout = "build error output";
             err.stderr = "";
             return Promise.reject(err);
           }
@@ -401,15 +404,15 @@ describe("reviewFix", () => {
       },
     );
 
-    // npm: lint always fails (execInGroup handles runStep)
+    // npm: build always fails (execInGroup handles runStep) — blocking failure
     mockExecInGroup.mockImplementation(
       (_cmd: string, args: string[]) => {
-        if (args[1] === "lint") {
-          const err = new Error("lint failed") as Error & {
+        if (args[1] === "build") {
+          const err = new Error("build failed") as Error & {
             stdout?: string;
             stderr?: string;
           };
-          err.stdout = "persistent lint error";
+          err.stdout = "persistent build error";
           err.stderr = "";
           return Promise.reject(err);
         }
