@@ -10,7 +10,7 @@ import { WORKER_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import { loadPrompt } from "../prompt-cache.js";
 import { detectBuildSystem } from "./build-system.js";
 import type { BuildSystemInfo } from "./build-system.js";
-import { execInGroup } from "./exec-group.js";
+import { execInGroup, getNodeHeapLimitMB } from "./exec-group.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -97,7 +97,7 @@ async function runStep(
     // Set CI=true so tools like vitest/jest disable interactive/watch mode.
     const { NODE_ENV: _drop, ...cleanEnv } = process.env;
     cleanEnv.CI = "true";
-    cleanEnv.NODE_OPTIONS = [cleanEnv.NODE_OPTIONS, "--max-old-space-size=1536"].filter(Boolean).join(" ");
+    cleanEnv.NODE_OPTIONS = [cleanEnv.NODE_OPTIONS, `--max-old-space-size=${getNodeHeapLimitMB()}`].filter(Boolean).join(" ");
 
     // Use process-group-aware exec so timeout kills all descendant processes
     await execInGroup(bin, args, {

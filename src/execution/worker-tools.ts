@@ -2,7 +2,7 @@ import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
 import { resolve, relative } from "node:path";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages/messages.js";
 import type { BuildSystemInfo } from "./build-system.js";
-import { execInGroup } from "./exec-group.js";
+import { execInGroup, getNodeHeapLimitMB } from "./exec-group.js";
 
 export interface PrismConfig {
   apiUrl: string;
@@ -295,7 +295,7 @@ export function createWorktreeToolExecutor(
         // Set CI=true so tools like vitest/jest disable interactive/watch mode.
         const { NODE_ENV: _drop, ...cleanEnv } = process.env;
         cleanEnv.CI = "true";
-        cleanEnv.NODE_OPTIONS = [cleanEnv.NODE_OPTIONS, "--max-old-space-size=1536"].filter(Boolean).join(" ");
+        cleanEnv.NODE_OPTIONS = [cleanEnv.NODE_OPTIONS, `--max-old-space-size=${getNodeHeapLimitMB()}`].filter(Boolean).join(" ");
 
         const { stdout, stderr } = await execInGroup(command, args, {
           cwd,

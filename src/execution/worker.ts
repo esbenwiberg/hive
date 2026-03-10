@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access, readFile } from "node:fs/promises";
-import { execInGroup } from "./exec-group.js";
+import { execInGroup, getNodeHeapLimitMB } from "./exec-group.js";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { callClaudeWithTools } from "../agents/sdk.js";
@@ -605,7 +605,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // Mirrors quickVerify's install steps. Failures are non-fatal — the agent can retry.
     checkAbort();
     const { NODE_ENV: _dropEnv, ...cleanInstallEnv } = process.env;
-    cleanInstallEnv.NODE_OPTIONS = [cleanInstallEnv.NODE_OPTIONS, "--max-old-space-size=1536"].filter(Boolean).join(" ");
+    cleanInstallEnv.NODE_OPTIONS = [cleanInstallEnv.NODE_OPTIONS, `--max-old-space-size=${getNodeHeapLimitMB()}`].filter(Boolean).join(" ");
     // Use execInGroup so the timeout kills the entire process group (NuGet sub-processes, etc.)
     const installOpts = { timeout: 120_000, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
     if (buildInfo.npmDir && (buildInfo.type === "npm" || buildInfo.type === "dotnet+npm")) {

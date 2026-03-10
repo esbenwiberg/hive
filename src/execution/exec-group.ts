@@ -7,6 +7,27 @@
  * the kill, leaving the `await` hanging indefinitely.
  */
 import { spawn } from "node:child_process";
+import { totalmem } from "node:os";
+import { getAutonomousConfig } from "../domain/autonomous-config.js";
+
+const HIVE_RESERVE_MB = 512;
+const MIN_HEAP_MB = 1536;
+const MAX_HEAP_MB = 4096;
+
+/**
+ * Computes --max-old-space-size for child Node processes (target-repo builds).
+ *
+ * Divides available memory (total minus Hive reserve) across maxConcurrent
+ * workers with a 1536 MB floor. In practice, concurrent builds are rare —
+ * most workers spend their time on Claude API calls, not builds — so the
+ * floor ensures large Vite/webpack builds don't OOM on modest containers.
+ */
+export function getNodeHeapLimitMB(): number {
+  const totalMB = Math.floor(totalmem() / (1024 * 1024));
+  const maxConcurrent = getAutonomousConfig().concurrency.maxConcurrent;
+  const perWorker = Math.floor((totalMB - HIVE_RESERVE_MB) / maxConcurrent);
+  return Math.max(MIN_HEAP_MB, Math.min(MAX_HEAP_MB, perWorker));
+}
 
 export interface ExecGroupOptions {
   cwd?: string;
