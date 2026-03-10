@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import logger from "../logger.js";
 import { callClaude, callClaudeWithTools } from "../agents/sdk.js";
@@ -101,7 +103,7 @@ async function runStep(
     await execInGroup(bin, args, {
       cwd,
       timeout: SHELL_TIMEOUT_MS,
-      maxBuffer: 2 * 1024 * 1024,
+      maxBuffer: 10 * 1024 * 1024,
       env: cleanEnv,
     });
     logger.debug({ step: label, cwd }, "quickVerify step passed");
@@ -161,7 +163,14 @@ export async function quickVerify(
     // for issues in vendor/dist files the agent can't control.
     await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", warnings);
     await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures);
-    await runStep("npm", ["run", "test", "--if-present"], npmDir, "npm test", failures);
+
+    // Vitest's explicit --watch flag overrides CI=true, so append --run to
+    // force one-shot mode.  The flag is harmless if the script doesn't use vitest.
+    const testArgs = ["run", "test", "--if-present"];
+    if (await testScriptUsesVitest(npmDir)) {
+      testArgs.push("--", "--run");
+    }
+    await runStep("npm", testArgs, npmDir, "npm test", failures);
   }
 
   // ── dotnet steps ─────────────────────────────────────────────────────────
@@ -196,6 +205,19 @@ export async function quickVerify(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Checks if the "test" script in package.json invokes vitest.
+ */
+async function testScriptUsesVitest(npmDir: string): Promise<boolean> {
+  try {
+    const raw = await readFile(join(npmDir, "package.json"), "utf-8");
+    const pkg = JSON.parse(raw) as { scripts?: Record<string, string> };
+    return /\bvitest\b/.test(pkg.scripts?.test ?? "");
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Gets the git diff for review. Falls back gracefully.
