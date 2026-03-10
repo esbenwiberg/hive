@@ -1060,7 +1060,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
             ...finalVerify.failures.map(f => ({
               severity: "critical" as const,
               file: "",
-              message: f.substring(0, 500),
+              message: f.substring(0, 1500),
               category: "verification",
             })),
             // Lint warnings are non-blocking — reported for visibility but
@@ -1068,7 +1068,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
             ...finalVerify.warnings.map(f => ({
               severity: "minor" as const,
               file: "",
-              message: f.substring(0, 500),
+              message: f.substring(0, 1500),
               category: "verification",
             })),
           ],

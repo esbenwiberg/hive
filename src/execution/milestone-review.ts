@@ -117,8 +117,15 @@ async function runStep(
       return true;
     }
 
-    const output = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
-    const detail = output || error.message || "unknown error";
+    const raw = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
+    // Strip ANSI escape codes so they don't eat the character budget,
+    // then keep the TAIL of the output — actual errors are at the end,
+    // not buried under progress/warning noise at the top.
+    const clean = raw.replace(/\x1b\[[0-9;]*m/g, "");
+    const MAX_DETAIL = 1500;
+    const detail = clean
+      ? (clean.length > MAX_DETAIL ? "…" + clean.slice(-MAX_DETAIL) : clean)
+      : (error.message || "unknown error");
     const message = `${label} failed: ${detail}`;
     failures.push(message);
     logger.warn({ step: label, cwd }, message);
