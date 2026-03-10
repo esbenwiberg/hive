@@ -424,7 +424,7 @@ export class AzureDevOpsProvider implements GitProvider {
     // Set the remote URL with embedded token to authenticate the push
     const remoteUrl = await execGit(["remote", "get-url", "origin"], repoDir);
     const [org, project, repo] = remoteUrl
-      .replace(/^https:\/\/[^@]*@dev\.azure\.com\//, "")
+      .replace(/^https:\/\/([^@]+@)?dev\.azure\.com\//, "")
       .replace(/\/_git\//, "/")
       .split("/");
     const authedUrl = `https://${creds.token}@dev.azure.com/${org}/${project}/_git/${repo}`;
@@ -502,11 +502,10 @@ export class AzureDevOpsProvider implements GitProvider {
     creds: GitCredentials,
   ): Promise<boolean> {
     const remoteUrl = await execGit(["remote", "get-url", "origin"], repoDir);
-    const parts = remoteUrl
-      .replace(/^https:\/\/[^@]*@dev\.azure\.com\//, "")
+    const [org, project, repo] = remoteUrl
+      .replace(/^https:\/\/([^@]+@)?dev\.azure\.com\//, "")
       .replace(/\/_git\//, "/")
       .split("/");
-    const [org, project, repo] = parts;
     const authedUrl = `https://${creds.token}@dev.azure.com/${org}/${project}/_git/${repo}`;
     await execGit(["remote", "set-url", "origin", authedUrl], repoDir);
     try {

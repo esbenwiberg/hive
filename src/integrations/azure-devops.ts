@@ -36,8 +36,8 @@ export async function createPullRequest(
   const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests?api-version=${API_VERSION}`;
 
   const body = {
-    sourceRefName: `refs/heads/${sourceBranch}`,
-    targetRefName: `refs/heads/${targetBranch}`,
+    sourceRefName: `refs/heads/${sourceBranch.replace(/^refs\/heads\//, "")}`,
+    targetRefName: `refs/heads/${targetBranch.replace(/^refs\/heads\//, "")}`,
     title,
     description,
   };
@@ -76,7 +76,7 @@ export async function listPullRequests(
   sourceBranch: string,
   pat: string,
 ): Promise<Array<{ id: number; url: string; status: string }>> {
-  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests?searchCriteria.sourceRefName=refs/heads/${encodeURIComponent(sourceBranch)}&searchCriteria.status=active&api-version=${API_VERSION}`;
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests?searchCriteria.sourceRefName=refs/heads/${encodeURIComponent(sourceBranch.replace(/^refs\/heads\//, ""))}&searchCriteria.status=active&api-version=${API_VERSION}`;
 
   const response = await fetch(url, {
     method: "GET",
