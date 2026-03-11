@@ -13,9 +13,24 @@ const targetMap = new Map<string, string>();
 const router = Router();
 
 /**
+ * Redirect /preview/:taskId to /preview/:taskId/ so that relative asset
+ * paths in HTML (e.g. href="styles.css") resolve correctly against the
+ * proxied directory rather than the parent /preview/ path.
+ */
+router.get("/preview/:taskId", (req: Request, res: Response, next: NextFunction) => {
+  const originalPath = req.originalUrl.split("?")[0];
+  if (!originalPath.endsWith("/")) {
+    const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
+    res.redirect(301, originalPath + "/" + qs);
+    return;
+  }
+  next();
+});
+
+/**
  * Reverse-proxy requests to running preview environments.
  *
- * GET /preview/:taskId       -> proxy to preview host:port
+ * GET /preview/:taskId/      -> proxy to preview host:port
  * GET /preview/:taskId/*     -> proxy to preview host:port/*
  */
 router.use(
