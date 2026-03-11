@@ -76,6 +76,7 @@ vi.mock("node:fs/promises", () => ({
 // Mock exec-group so quickVerify steps succeed without real spawn
 vi.mock("../../src/execution/exec-group.js", () => ({
   execInGroup: vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
+  getNodeHeapLimitMB: () => 2560,
 }));
 
 // Mock node:child_process for git diff in empty-diff detection

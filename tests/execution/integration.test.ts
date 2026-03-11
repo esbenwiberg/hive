@@ -123,6 +123,7 @@ vi.mock("../../src/agents/decomposer.js", () => ({
 // Mock exec-group so quickVerify steps succeed without real spawn
 vi.mock("../../src/execution/exec-group.js", () => ({
   execInGroup: vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
+  getNodeHeapLimitMB: () => 2560,
 }));
 
 // Mock worker-tools so we don't need real filesystem/exec

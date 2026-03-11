@@ -10,6 +10,7 @@ vi.mock("node:child_process", () => ({
 // Mock exec-group so runStep (which now uses execInGroup) delegates to our execFile mock
 vi.mock("../../src/execution/exec-group.js", () => ({
   execInGroup: vi.fn(),
+  getNodeHeapLimitMB: () => 2560,
 }));
 
 // Mock the SDK so we never call the real Anthropic API
