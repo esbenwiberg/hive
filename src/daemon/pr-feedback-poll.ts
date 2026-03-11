@@ -53,10 +53,17 @@ export async function pollPRFeedback(): Promise<void> {
         "PR feedback poll: new human comments found, triggering rework",
       );
 
-      // Build retry instructions from the comments
-      const retryInstructions = newComments
-        .map((c) => `**${c.author}**: ${c.body}`)
-        .join("\n\n");
+      // Build retry instructions from the comments with explicit fix guidance
+      const commentLines = newComments
+        .map((c) => `- **${c.author}**: ${c.body}`)
+        .join("\n");
+      const retryInstructions = [
+        `PR reviewer feedback that MUST be addressed:`,
+        ``,
+        commentLines,
+        ``,
+        `Instructions: Read the files related to the feedback above, make the specific changes requested, then run a build to verify. Keep changes minimal — only fix what the reviewer asked for.`,
+      ].join("\n");
 
       // Update rework state
       const currentHistory = (task.reworkHistory as Array<Record<string, unknown>>) ?? [];

@@ -173,10 +173,49 @@ function formatPRBody(taskId: string, taskBody: string, bp: ArchitectBlueprint |
   return sections.join("\n");
 }
 
+interface ReworkCommentContext {
+  cycle: number;
+  source: "pr_feedback" | "review_gate" | "browser_validation" | "build_failure";
+  feedbackComments?: string[];
+}
+
 /**
  * Formats the review gate result as a human-friendly PR comment.
+ * When reworkContext is provided, produces a scoped "feedback fix" summary
+ * instead of a full PR review summary.
  */
-function formatReviewComment(taskId: string, result: ReviewGateResult): string {
+function formatReviewComment(taskId: string, result: ReviewGateResult, reworkContext?: ReworkCommentContext): string {
+  // For PR feedback rework cycles, produce a scoped summary
+  if (reworkContext?.source === "pr_feedback") {
+    const sections: string[] = [`## Hive Feedback Fix (cycle ${reworkContext.cycle})\n`];
+
+    if (reworkContext.feedbackComments?.length) {
+      sections.push(
+        `### Addressed Feedback\n${reworkContext.feedbackComments.map(c => `> ${c}`).join("\n")}`
+      );
+    }
+
+    const v = result.verification;
+    const checks = [
+      `- Build: ${v.buildSucceeded ? "passed" : "not verified"}`,
+      `- Tests: ${v.testsRun ? (v.testsPassed ? "passed" : "**failed**") : "not run"}`,
+      `- Lint: ${v.lintClean ? "clean" : "not verified"}`,
+    ];
+    sections.push(`\n### Verification\n${checks.join("\n")}`);
+
+    const nonInfoFindings = result.findings.filter(f => f.severity !== "info");
+    if (nonInfoFindings.length > 0) {
+      sections.push(`\n### Findings\n${nonInfoFindings.map(f =>
+        `- **${f.severity}** ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ""}\`` : ""} — ${f.message}`
+      ).join("\n")}`);
+    } else {
+      sections.push("\nNo issues found.");
+    }
+
+    sections.push(`\n---\n_Automated fix by Hive - Task ${taskId}_`);
+    return sections.join("\n");
+  }
+
   const sections: string[] = [`## Hive Review Summary\n`];
 
   // Verification status
@@ -741,25 +780,54 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       ? ` Your FIRST tool call should be read_file on \`${firstFile}\`, then immediately edit it.`
       : "";
 
-    const userPrompt = [
-      `## Task: ${task.title}`,
-      ``,
-      ...promptBody,
-      projectInstructions,
-      learningsStr,
-      retryStr,
-      ``,
-      `## Working Directory`,
-      worktree.path,
-      ``,
-      `## Branch`,
-      branchName,
-      ``,
-      buildSystemSection,
-      ``,
-      `## Reminder`,
-      `You MUST call edit_file or write_file to implement changes. Do not just analyze or explain — write the code.${firstFileHint}`,
-    ].join("\n");
+    // Rework cycles: lead with retry instructions so Claude focuses on the fix,
+    // not on re-reading the full original task.  The original task body is included
+    // as collapsed context at the end.
+    const isReworkPrompt = (task.reworkCount ?? 0) > 0 && task.retryInstructions;
+    const userPrompt = isReworkPrompt
+      ? [
+          `## Targeted Fix — Rework Cycle ${task.reworkCount}`,
+          ``,
+          `This is a TARGETED FIX. The code in this worktree already has a full implementation.`,
+          `Your ONLY job is to address the specific feedback below. Do NOT redo or rewrite the existing work.`,
+          ``,
+          retryStr,
+          ``,
+          projectInstructions,
+          ``,
+          `## Working Directory`,
+          worktree.path,
+          ``,
+          `## Branch`,
+          branchName,
+          ``,
+          buildSystemSection,
+          ``,
+          `## Original Task (for context only — do NOT re-implement)`,
+          `Title: ${task.title}`,
+          ``,
+          `## Reminder`,
+          `Address ONLY the retry instructions above. Read the relevant files, make minimal targeted edits, and verify with a build.`,
+        ].join("\n")
+      : [
+          `## Task: ${task.title}`,
+          ``,
+          ...promptBody,
+          projectInstructions,
+          learningsStr,
+          retryStr,
+          ``,
+          `## Working Directory`,
+          worktree.path,
+          ``,
+          `## Branch`,
+          branchName,
+          ``,
+          buildSystemSection,
+          ``,
+          `## Reminder`,
+          `You MUST call edit_file or write_file to implement changes. Do not just analyze or explain — write the code.${firstFileHint}`,
+        ].join("\n");
 
     // Check for architect milestones
     const architectData = (task.enrichment as Record<string, unknown> | null)?.architect as ArchitectBlueprint | undefined;
@@ -1107,7 +1175,10 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // Milestone-based tasks commit per-milestone on the first run.
     // Rework cycles use the single-call path, so changes need a commit here too.
     if (!hasMilestones || isReworkCycle) {
-      await gitProvider.commitAll(worktree.path, `${task.title}\n\nTask: ${taskId}`);
+      const commitMsg = isReworkCycle
+        ? `fix: address review feedback (cycle ${task.reworkCount})\n\nTask: ${taskId}`
+        : `${task.title}\n\nTask: ${taskId}`;
+      await gitProvider.commitAll(worktree.path, commitMsg);
     }
     await gitProvider.push(worktree.path, branchName, creds);
 
@@ -1223,7 +1294,18 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
 
     // Post review summary as a PR comment
     try {
-      const reviewComment = formatReviewComment(taskId, reviewResult);
+      // Build rework context for scoped summaries on PR feedback fixes
+      let reworkCtx: ReworkCommentContext | undefined;
+      if (isReworkCycle) {
+        const history = (task.reworkHistory as Array<Record<string, unknown>>) ?? [];
+        const lastCycle = history[history.length - 1];
+        const source = (lastCycle?.source as ReworkCommentContext["source"]) ?? "review_gate";
+        const feedbackComments = source === "pr_feedback" && Array.isArray(lastCycle?.comments)
+          ? (lastCycle.comments as Array<{ author: string; body: string }>).map(c => `**${c.author}**: ${c.body}`)
+          : undefined;
+        reworkCtx = { cycle: task.reworkCount ?? 1, source, feedbackComments };
+      }
+      const reviewComment = formatReviewComment(taskId, reviewResult, reworkCtx);
       await gitProvider.commentOnPR(repo.fullName, prUrl, reviewComment, creds);
       logger.info({ taskId, prUrl }, "Review summary posted as PR comment");
     } catch (commentErr) {
