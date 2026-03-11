@@ -10,17 +10,17 @@ import { spawn } from "node:child_process";
 import { totalmem } from "node:os";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 
-const HIVE_RESERVE_MB = 512;
-const MIN_HEAP_MB = 1536;
+const HIVE_RESERVE_MB = 768;
+const MIN_HEAP_MB = 2560;
 const MAX_HEAP_MB = 4096;
 
 /**
  * Computes --max-old-space-size for child Node processes (target-repo builds).
  *
- * Divides available memory (total minus Hive reserve) across maxConcurrent
- * workers with a 1536 MB floor. In practice, concurrent builds are rare —
- * most workers spend their time on Claude API calls, not builds — so the
- * floor ensures large Vite/webpack builds don't OOM on modest containers.
+ * Workers spend 95%+ of their time waiting on Claude API calls (negligible
+ * memory), so simultaneous builds are rare. The 2560 MB floor prioritises
+ * build success for large Vite/webpack projects over theoretical worst-case
+ * concurrent memory pressure.
  */
 export function getNodeHeapLimitMB(): number {
   const totalMB = Math.floor(totalmem() / (1024 * 1024));
