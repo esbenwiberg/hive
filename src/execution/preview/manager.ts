@@ -427,12 +427,16 @@ export class PreviewManager {
     host: string,
     type: "testcontainers" | "process",
   ): Promise<PreviewInfo> {
-    // Substitute $PORT / ${PORT} directly into the command so we don't rely on
-    // shell variable expansion, which can fail when npx or other wrappers
-    // sanitise the child environment.
+    // Substitute $PORT / ${PORT} directly into the command string. This
+    // handles commands like `npx serve docs -l $PORT`.  For wrapped commands
+    // like `npm start` where $PORT lives inside package.json scripts, the
+    // regex can't reach it — so we also `export PORT=<port>` as a shell
+    // prefix to guarantee the variable is available at every level.
+    const portStr = String(port);
     const resolvedCommand = command
-      .replace(/\$\{PORT\}/g, String(port))
-      .replace(/\$PORT\b/g, String(port));
+      .replace(/\$\{PORT\}/g, portStr)
+      .replace(/\$PORT\b/g, portStr);
+    const shellCommand = `export PORT=${portStr}; ${resolvedCommand}`;
 
     // Build a clean env: strip NODE_ENV (production in the Hive container)
     // and container-specific NODE_OPTIONS to avoid polluting the preview process.
@@ -440,13 +444,13 @@ export class PreviewManager {
     const spawnEnv = {
       ...cleanEnv,
       ...env,
-      PORT: String(port),
+      PORT: portStr,
     };
 
     logger.info({ taskId, type, command: resolvedCommand, port, cwd: worktreePath }, "Spawning preview process");
     addPreviewLog(taskId, type, `Running: ${resolvedCommand} (PORT=${port}, cwd=${worktreePath})`);
 
-    const childProcess = spawn("sh", ["-c", resolvedCommand], {
+    const childProcess = spawn("sh", ["-c", shellCommand], {
       cwd: worktreePath,
       env: spawnEnv,
       stdio: ["ignore", "pipe", "pipe"],
