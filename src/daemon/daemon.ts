@@ -17,6 +17,7 @@ import { featureScout } from "../producers/feature-scout.js";
 import { selfMonitor } from "../producers/self-monitor.js";
 import { docAuditor } from "../producers/doc-auditor.js";
 import { maintenanceProducer } from "../producers/maintenance.js";
+import { githubIssuesProducer } from "../producers/github-issues.js";
 import { recordRun } from "../db/queries/producer-runs.js";
 import { notifyTasksCreated } from "../notifications.js";
 import { listAll } from "../db/queries/repos.js";
@@ -59,6 +60,7 @@ const ALL_PRODUCERS: Producer[] = [
   selfMonitor,
   docAuditor,
   maintenanceProducer,
+  githubIssuesProducer,
 ];
 
 export class Daemon {
@@ -185,15 +187,18 @@ export class Daemon {
 
     this.scheduler.start();
 
-    // Start a scheduler for each producer, staggered evenly across the interval
+    // Start a scheduler for each producer, staggered evenly across the interval.
+    // Producers may override the global interval via their own `intervalMs`.
     const staggerMs = ALL_PRODUCERS.length > 1
       ? Math.floor(this.producerIntervalMs / ALL_PRODUCERS.length)
       : 0;
     for (let i = 0; i < ALL_PRODUCERS.length; i++) {
       const producer = ALL_PRODUCERS[i];
-      const s = new Scheduler(this.producerIntervalMs, () =>
+      const effectiveInterval = producer.intervalMs ?? this.producerIntervalMs;
+      const initialDelay = Math.min(i * staggerMs, effectiveInterval);
+      const s = new Scheduler(effectiveInterval, () =>
         this._runProducer(producer),
-        { label: `producer:${producer.name}`, initialDelayMs: i * staggerMs },
+        { label: `producer:${producer.name}`, initialDelayMs: initialDelay },
       );
       this.producerSchedulers.push(s);
       s.start();
@@ -224,7 +229,7 @@ export class Daemon {
         pollIntervalMs: this.pollIntervalMs,
         maxPerUser: concurrency.maxPerUser,
         producerIntervalMs: this.producerIntervalMs,
-        producers: ALL_PRODUCERS.map((p) => p.name),
+        producers: ALL_PRODUCERS.map((p) => ({ name: p.name, intervalMs: p.intervalMs ?? this.producerIntervalMs })),
       },
       "Daemon started",
     );
@@ -471,6 +476,7 @@ export class Daemon {
         repoDir,
         createdBy,
         config: config ?? {},
+        provider: repo.provider,
       };
 
       const result = await producer.run(ctx);

@@ -27,10 +27,12 @@ const ALL_PRODUCER_NAMES = [
   "security-scanner",
   "feature-scout",
   "maintenance",
+  "github-issues",
 ] as const;
 
 const PRODUCER_CONFIG_PLACEHOLDERS: Record<string, string> = {
   "log-scanner": '{ "workspaceId": "...", "containerAppName": "..." }',
+  "github-issues": '{ "label": "hive", "maxPerRun": 10 }',
 };
 
 const ALL_COMPONENT_NAMES = [

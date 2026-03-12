@@ -16,6 +16,8 @@ export interface ProducerContext {
   createdBy: number;
   dryRun?: boolean;
   config?: Record<string, unknown>;
+  /** Git provider for this repo ("github" | "azure_devops"). */
+  provider?: string;
 }
 
 export interface ProducerResult {
@@ -31,6 +33,8 @@ export interface Producer {
   needsRepo?: boolean;
   /** When true, runs once per daemon tick against the self-repo (not per-repo). */
   global?: boolean;
+  /** Override the default producer polling interval (milliseconds). */
+  intervalMs?: number;
   run(ctx: ProducerContext): Promise<ProducerResult>;
 }
 
