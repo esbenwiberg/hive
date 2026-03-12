@@ -110,12 +110,14 @@ export class PreviewManager {
 
     const checkPath = healthPath ?? "/";
     const strict = !!healthPath;
-    const reachable = await this.waitForHealthCheck(healthHost, port, checkPath, timeoutMs, strict);
+    const healthResult = await this.waitForHealthCheck(healthHost, port, checkPath, timeoutMs, strict);
 
-    if (!reachable) {
+    if (!healthResult.reachable) {
       const kind = strict ? "Health check" : "Reachability check";
       const msg = `${kind} failed after ${timeoutMs}ms on port ${port}`;
       await addPreviewLog(taskId, "health", msg);
+      await addPreviewLog(taskId, "health", `Last error: ${healthResult.lastError ?? "unknown"} (strict=${strict}, path=${checkPath})`);
+      logger.warn({ taskId, lastError: healthResult.lastError, strict, checkPath, port }, "Preview health check failed — diagnostics");
 
       // Capture container logs before teardown for diagnosis
       if (config.type === "compose" && info.composeProject && this.settings.docker_host.ip) {
@@ -425,16 +427,32 @@ export class PreviewManager {
     host: string,
     type: "testcontainers" | "process",
   ): Promise<PreviewInfo> {
-    logger.info({ taskId, type, command, port, cwd: worktreePath }, "Spawning preview process");
-    addPreviewLog(taskId, type, `Running: ${command} (PORT=${port}, cwd=${worktreePath})`);
+    // Substitute $PORT / ${PORT} directly into the command string. This
+    // handles commands like `npx serve docs -l $PORT`.  For wrapped commands
+    // like `npm start` where $PORT lives inside package.json scripts, the
+    // regex can't reach it — so we also `export PORT=<port>` as a shell
+    // prefix to guarantee the variable is available at every level.
+    const portStr = String(port);
+    const resolvedCommand = command
+      .replace(/\$\{PORT\}/g, portStr)
+      .replace(/\$PORT\b/g, portStr);
+    const shellCommand = `export PORT=${portStr}; ${resolvedCommand}`;
 
-    const childProcess = spawn("sh", ["-c", command], {
+    // Build a clean env: strip NODE_ENV (production in the Hive container)
+    // and container-specific NODE_OPTIONS to avoid polluting the preview process.
+    const { NODE_ENV: _drop, NODE_OPTIONS: _dropOpts, ...cleanEnv } = process.env;
+    const spawnEnv = {
+      ...cleanEnv,
+      ...env,
+      PORT: portStr,
+    };
+
+    logger.info({ taskId, type, command: resolvedCommand, port, cwd: worktreePath }, "Spawning preview process");
+    addPreviewLog(taskId, type, `Running: ${resolvedCommand} (PORT=${port}, cwd=${worktreePath})`);
+
+    const childProcess = spawn("sh", ["-c", shellCommand], {
       cwd: worktreePath,
-      env: {
-        ...process.env,
-        ...env,
-        PORT: String(port),
-      },
+      env: spawnEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -536,7 +554,7 @@ export class PreviewManager {
     path: string,
     timeoutMs: number,
     strict = true,
-  ): Promise<boolean> {
+  ): Promise<{ reachable: boolean; lastError?: string }> {
     const url = `http://${host}:${port}${path}`;
     const pollIntervalMs = 2000;
     const deadline = Date.now() + timeoutMs;
@@ -554,7 +572,7 @@ export class PreviewManager {
         });
         if (!strict || response.ok) {
           logger.info({ url, attempts, status: response.status }, "Health check passed");
-          return true;
+          return { reachable: true };
         }
         lastError = `HTTP ${response.status}`;
       } catch (err) {
@@ -565,7 +583,7 @@ export class PreviewManager {
     }
 
     logger.warn({ url, attempts, lastError }, "Health check timed out");
-    return false;
+    return { reachable: false, lastError };
   }
 
   // ── Private: port management ───────────────────────────────────────────────
