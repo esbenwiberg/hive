@@ -241,6 +241,15 @@ export async function createWorktree(
 
   await appendFile(`${worktreePath}/.git/info/exclude`, excludes.join(""));
 
+  // Protect .hive.yaml from agent modifications — it's a tracked file so
+  // .git/info/exclude doesn't help; --assume-unchanged prevents `git add -A`
+  // from staging any changes the agent makes to it.
+  try {
+    await execFileAsync("git", ["update-index", "--assume-unchanged", ".hive.yaml"], { cwd: worktreePath });
+  } catch {
+    // File doesn't exist in the repo — that's fine, nothing to protect.
+  }
+
   logger.info({ repoFullName, branch, path: worktreePath, baseSha, recovered }, "Worktree created");
 
   return {
