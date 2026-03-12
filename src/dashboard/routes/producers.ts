@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import { requireAuth, requireRole } from "../../auth/middleware.js";
 import * as producerRunQueries from "../../db/queries/producer-runs.js";
 import { listAll as listAllRepos } from "../../db/queries/repos.js";
-import { setConfig } from "../../domain/config.js";
+import { getConfig, setConfig } from "../../domain/config.js";
 import type { ProducerData, ProducersPageData } from "../views/producers.js";
 import { producersPage } from "../views/producers.js";
 
@@ -54,7 +54,12 @@ router.get("/producers", requireAuth, async (req: Request, res: Response, next: 
     const producers: ProducerData[] = await Promise.all(
       PRODUCER_NAMES.map(async (name) => {
         const runs = await producerRunQueries.listRecent(name);
-        const effectiveInterval = PRODUCER_INTERVAL_OVERRIDES[name] ?? globalIntervalMs;
+
+        // Check for a config-stored interval override, then class-level, then global default
+        const configInterval = await getConfig(`producer.${name}.intervalMs`);
+        const effectiveInterval = (typeof configInterval === "number" && configInterval > 0)
+          ? configInterval
+          : PRODUCER_INTERVAL_OVERRIDES[name] ?? globalIntervalMs;
         const schedule = formatIntervalMs(effectiveInterval);
 
         // Collect repo names where this producer is enabled
@@ -67,7 +72,7 @@ router.get("/producers", requireAuth, async (req: Request, res: Response, next: 
           }
         }
 
-        return { name, runs, schedule, enabledRepos };
+        return { name, runs, schedule, enabledRepos, intervalMs: effectiveInterval };
       }),
     );
 
@@ -122,6 +127,39 @@ router.post("/api/producers/:name/config", requireRole("admin"), async (req: Req
     res.setHeader(
       "HX-Trigger",
       JSON.stringify({ showToast: { message: `Config saved for ${name}`, type: "success" } }),
+    );
+    res.send("");
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/producers/:name/interval ─ Save producer poll interval ────────
+
+const ALLOWED_INTERVALS = new Set([30_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000, 14_400_000]);
+
+router.post("/api/producers/:name/interval", requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const name = String(req.params.name);
+
+    if (!PRODUCER_NAMES.includes(name)) {
+      res.status(400).send("Unknown producer");
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const intervalMs = parseInt(String(body.intervalMs), 10);
+
+    if (!ALLOWED_INTERVALS.has(intervalMs)) {
+      res.status(400).send("Invalid interval value");
+      return;
+    }
+
+    await setConfig(`producer.${name}.intervalMs`, intervalMs);
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: `Poll interval for ${name} set to ${formatIntervalMs(intervalMs)}. Takes effect on next daemon restart.`, type: "success" } }),
     );
     res.send("");
   } catch (err) {
