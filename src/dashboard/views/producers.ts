@@ -30,6 +30,8 @@ export interface ProducerData {
   runs: ProducerRun[];
   schedule: string | null;
   enabledRepos: string[];
+  /** Current effective interval in ms (used to pre-select the dropdown). */
+  intervalMs: number;
 }
 
 export interface ProducersPageData {
@@ -98,6 +100,34 @@ export function producerCardPartial(producer: ProducerData): string {
       </div>`
     : `<div class="mb-4">${badge("No repos enabled", "slate")}</div>`;
 
+  // Interval selector options
+  const intervalOptions = [
+    { value: "30000", label: "30 seconds" },
+    { value: "60000", label: "1 minute" },
+    { value: "300000", label: "5 minutes" },
+    { value: "900000", label: "15 minutes" },
+    { value: "1800000", label: "30 minutes" },
+    { value: "3600000", label: "1 hour" },
+    { value: "14400000", label: "4 hours" },
+  ];
+  const currentInterval = String(producer.intervalMs);
+  const intervalOptionsHtml = intervalOptions
+    .map((o) => `<option value="${o.value}"${o.value === currentInterval ? " selected" : ""}>${escapeHtml(o.label)}</option>`)
+    .join("");
+
+  const intervalSelector = `
+    <form class="flex items-center gap-2 mb-4"
+      hx-post="/api/producers/${escapeHtml(producer.name)}/interval"
+      hx-swap="none">
+      <label class="text-xs text-slate-400 whitespace-nowrap">Poll interval</label>
+      <select name="intervalMs"
+        class="rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-50 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">
+        ${intervalOptionsHtml}
+      </select>
+      <button type="submit"
+        class="rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-medium text-slate-900 hover:bg-amber-400 transition-colors">Save</button>
+    </form>`;
+
   // Header with name and health badge
   const headerHtml = `
     <div class="flex items-center justify-between mb-4">
@@ -107,7 +137,8 @@ export function producerCardPartial(producer: ProducerData): string {
         ${producer.schedule ? badge(producer.schedule, "emerald") : badge("No schedule", "slate")}
       </div>
     </div>
-    ${repoBadgesHtml}`;
+    ${repoBadgesHtml}
+    ${intervalSelector}`;
 
   // Last run stats
   let statsHtml: string;

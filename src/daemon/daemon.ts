@@ -188,13 +188,28 @@ export class Daemon {
     this.scheduler.start();
 
     // Start a scheduler for each producer, staggered evenly across the interval.
-    // Producers may override the global interval via their own `intervalMs`.
+    // Producers may override the global interval via their own `intervalMs` class
+    // property, and the dashboard can further override via global_config DB entries.
+    const configIntervals = new Map<string, number>();
+    for (const producer of ALL_PRODUCERS) {
+      try {
+        const stored = await getConfig(`producer.${producer.name}.intervalMs`);
+        if (typeof stored === "number" && stored > 0) {
+          configIntervals.set(producer.name, stored);
+        }
+      } catch {
+        // Config read failed — fall through to defaults
+      }
+    }
+
     const staggerMs = ALL_PRODUCERS.length > 1
       ? Math.floor(this.producerIntervalMs / ALL_PRODUCERS.length)
       : 0;
     for (let i = 0; i < ALL_PRODUCERS.length; i++) {
       const producer = ALL_PRODUCERS[i];
-      const effectiveInterval = producer.intervalMs ?? this.producerIntervalMs;
+      const effectiveInterval = configIntervals.get(producer.name)
+        ?? producer.intervalMs
+        ?? this.producerIntervalMs;
       const initialDelay = Math.min(i * staggerMs, effectiveInterval);
       const s = new Scheduler(effectiveInterval, () =>
         this._runProducer(producer),
@@ -229,7 +244,7 @@ export class Daemon {
         pollIntervalMs: this.pollIntervalMs,
         maxPerUser: concurrency.maxPerUser,
         producerIntervalMs: this.producerIntervalMs,
-        producers: ALL_PRODUCERS.map((p) => ({ name: p.name, intervalMs: p.intervalMs ?? this.producerIntervalMs })),
+        producers: ALL_PRODUCERS.map((p) => ({ name: p.name, intervalMs: configIntervals.get(p.name) ?? p.intervalMs ?? this.producerIntervalMs })),
       },
       "Daemon started",
     );
