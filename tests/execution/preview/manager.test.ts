@@ -178,10 +178,10 @@ describe("PreviewManager", () => {
       expect(info.childProcess).toBe(fakeChild);
       expect(info.startedAt).toBeInstanceOf(Date);
 
-      // Verify spawn was called correctly (uses sh -c for proper command parsing)
+      // Verify spawn was called correctly (uses sh -c with export PORT prefix)
       expect(mockSpawn).toHaveBeenCalledWith(
         "sh",
-        ["-c", "npm start"],
+        ["-c", "export PORT=4001; npm start"],
         expect.objectContaining({
           cwd: "/tmp/worktree",
           env: expect.objectContaining({
@@ -221,7 +221,7 @@ describe("PreviewManager", () => {
 
       expect(mockSpawn).toHaveBeenCalledWith(
         "sh",
-        ["-c", "node server.js"],
+        ["-c", "export PORT=4001; node server.js"],
         expect.objectContaining({
           env: expect.objectContaining({
             PORT: "4001",
