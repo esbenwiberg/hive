@@ -110,12 +110,14 @@ export class PreviewManager {
 
     const checkPath = healthPath ?? "/";
     const strict = !!healthPath;
-    const reachable = await this.waitForHealthCheck(healthHost, port, checkPath, timeoutMs, strict);
+    const healthResult = await this.waitForHealthCheck(healthHost, port, checkPath, timeoutMs, strict);
 
-    if (!reachable) {
+    if (!healthResult.reachable) {
       const kind = strict ? "Health check" : "Reachability check";
       const msg = `${kind} failed after ${timeoutMs}ms on port ${port}`;
       await addPreviewLog(taskId, "health", msg);
+      await addPreviewLog(taskId, "health", `Last error: ${healthResult.lastError ?? "unknown"} (strict=${strict}, path=${checkPath})`);
+      logger.warn({ taskId, lastError: healthResult.lastError, strict, checkPath, port }, "Preview health check failed — diagnostics");
 
       // Capture container logs before teardown for diagnosis
       if (config.type === "compose" && info.composeProject && this.settings.docker_host.ip) {
@@ -425,16 +427,28 @@ export class PreviewManager {
     host: string,
     type: "testcontainers" | "process",
   ): Promise<PreviewInfo> {
-    logger.info({ taskId, type, command, port, cwd: worktreePath }, "Spawning preview process");
-    addPreviewLog(taskId, type, `Running: ${command} (PORT=${port}, cwd=${worktreePath})`);
+    // Substitute $PORT / ${PORT} directly into the command so we don't rely on
+    // shell variable expansion, which can fail when npx or other wrappers
+    // sanitise the child environment.
+    const resolvedCommand = command
+      .replace(/\$\{PORT\}/g, String(port))
+      .replace(/\$PORT\b/g, String(port));
 
-    const childProcess = spawn("sh", ["-c", command], {
+    // Build a clean env: strip NODE_ENV (production in the Hive container)
+    // and container-specific NODE_OPTIONS to avoid polluting the preview process.
+    const { NODE_ENV: _drop, NODE_OPTIONS: _dropOpts, ...cleanEnv } = process.env;
+    const spawnEnv = {
+      ...cleanEnv,
+      ...env,
+      PORT: String(port),
+    };
+
+    logger.info({ taskId, type, command: resolvedCommand, port, cwd: worktreePath }, "Spawning preview process");
+    addPreviewLog(taskId, type, `Running: ${resolvedCommand} (PORT=${port}, cwd=${worktreePath})`);
+
+    const childProcess = spawn("sh", ["-c", resolvedCommand], {
       cwd: worktreePath,
-      env: {
-        ...process.env,
-        ...env,
-        PORT: String(port),
-      },
+      env: spawnEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -536,7 +550,7 @@ export class PreviewManager {
     path: string,
     timeoutMs: number,
     strict = true,
-  ): Promise<boolean> {
+  ): Promise<{ reachable: boolean; lastError?: string }> {
     const url = `http://${host}:${port}${path}`;
     const pollIntervalMs = 2000;
     const deadline = Date.now() + timeoutMs;
@@ -554,7 +568,7 @@ export class PreviewManager {
         });
         if (!strict || response.ok) {
           logger.info({ url, attempts, status: response.status }, "Health check passed");
-          return true;
+          return { reachable: true };
         }
         lastError = `HTTP ${response.status}`;
       } catch (err) {
@@ -565,7 +579,7 @@ export class PreviewManager {
     }
 
     logger.warn({ url, attempts, lastError }, "Health check timed out");
-    return false;
+    return { reachable: false, lastError };
   }
 
   // ── Private: port management ───────────────────────────────────────────────
