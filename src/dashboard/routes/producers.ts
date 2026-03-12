@@ -13,9 +13,15 @@ const router = Router();
 
 const DEFAULT_PRODUCER_INTERVAL_MS = 15 * 60 * 1_000;
 
+/** Per-producer interval overrides (must match the `intervalMs` on the Producer class). */
+const PRODUCER_INTERVAL_OVERRIDES: Record<string, number> = {
+  "github-issues": 60_000,
+};
+
 const PRODUCER_NAMES = [
   "bug-hunter",
   "feature-scout",
+  "github-issues",
   "log-scanner",
   "maintenance",
   "security-scanner",
@@ -37,11 +43,10 @@ router.get("/producers", requireAuth, async (req: Request, res: Response, next: 
   try {
     const user = req.session.user!;
 
-    const intervalMs = parseInt(
+    const globalIntervalMs = parseInt(
       process.env.HIVE_PRODUCER_INTERVAL_MS ?? String(DEFAULT_PRODUCER_INTERVAL_MS),
       10,
     );
-    const schedule = formatIntervalMs(intervalMs);
 
     // Fetch repos to determine which repos have each producer enabled
     const allRepos = await listAllRepos();
@@ -49,6 +54,8 @@ router.get("/producers", requireAuth, async (req: Request, res: Response, next: 
     const producers: ProducerData[] = await Promise.all(
       PRODUCER_NAMES.map(async (name) => {
         const runs = await producerRunQueries.listRecent(name);
+        const effectiveInterval = PRODUCER_INTERVAL_OVERRIDES[name] ?? globalIntervalMs;
+        const schedule = formatIntervalMs(effectiveInterval);
 
         // Collect repo names where this producer is enabled
         const enabledRepos: string[] = [];

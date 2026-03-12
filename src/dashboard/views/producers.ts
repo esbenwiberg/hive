@@ -41,6 +41,7 @@ export interface ProducersPageData {
 const PRODUCER_NAMES = [
   "bug-hunter",
   "feature-scout",
+  "github-issues",
   "log-scanner",
   "maintenance",
   "security-scanner",
