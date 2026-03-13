@@ -132,10 +132,13 @@ export class GitHubIssuesProducer implements Producer {
           result.duplicatesSkipped++;
         } else {
           result.tasksCreated++;
-          // Swap label so the issue isn't re-fetched on future ticks
-          if (!ctx.dryRun) {
-            await this._swapLabel(owner, repo, issue.number, label, token);
-          }
+        }
+        // Swap label so the issue isn't re-fetched on future ticks.
+        // This must run for duplicates too — issues ingested before the
+        // label-swap code was deployed still carry the trigger label and
+        // would otherwise consume all maxPerRun slots forever.
+        if (!ctx.dryRun) {
+          await this._swapLabel(owner, repo, issue.number, label, token);
         }
       } catch (err) {
         result.errors.push(
