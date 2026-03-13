@@ -100,6 +100,17 @@ export class PreviewManager {
       throw err;
     }
 
+    // If the process bound to a different port than allocated (e.g. `serve`
+    // ignoring -l), update tracking so the health check and proxy hit the
+    // right address.
+    if (info.port !== port) {
+      this.freePort(port);
+      await db
+        .update(tasks)
+        .set({ previewPort: info.port, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+    }
+
     this.previews.set(taskId, info);
 
     // Wait for the preview to become reachable. When an explicit health_check
@@ -110,14 +121,14 @@ export class PreviewManager {
 
     const checkPath = healthPath ?? "/";
     const strict = !!healthPath;
-    const healthResult = await this.waitForHealthCheck(healthHost, port, checkPath, timeoutMs, strict);
+    const healthResult = await this.waitForHealthCheck(healthHost, info.port, checkPath, timeoutMs, strict);
 
     if (!healthResult.reachable) {
       const kind = strict ? "Health check" : "Reachability check";
-      const msg = `${kind} failed after ${timeoutMs}ms on port ${port}`;
+      const msg = `${kind} failed after ${timeoutMs}ms on port ${info.port}`;
       await addPreviewLog(taskId, "health", msg);
       await addPreviewLog(taskId, "health", `Last error: ${healthResult.lastError ?? "unknown"} (strict=${strict}, path=${checkPath})`);
-      logger.warn({ taskId, lastError: healthResult.lastError, strict, checkPath, port }, "Preview health check failed — diagnostics");
+      logger.warn({ taskId, lastError: healthResult.lastError, strict, checkPath, port: info.port }, "Preview health check failed — diagnostics");
 
       // Capture container logs before teardown for diagnosis
       if (config.type === "compose" && info.composeProject && this.settings.docker_host.ip) {
@@ -459,11 +470,32 @@ export class PreviewManager {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    // Detect the actual listening port from stdout/stderr.  Some tools
+    // (e.g. `serve` v14+) ignore the requested port and bind elsewhere;
+    // we parse their output to discover the real port so the health check
+    // targets the right address.
+    let resolvePort: (detectedPort: number | null) => void;
+    const portDetection = new Promise<number | null>((r) => { resolvePort = r; });
+    const portTimeout = setTimeout(() => resolvePort!(null), 5_000);
+    let portResolved = false;
+
+    const detectPort = (line: string) => {
+      if (portResolved) return;
+      // Match URLs like http://localhost:38415 or http://0.0.0.0:4001
+      const match = line.match(/https?:\/\/[^:\s]+:(\d+)/);
+      if (match) {
+        portResolved = true;
+        clearTimeout(portTimeout);
+        resolvePort!(parseInt(match[1], 10));
+      }
+    };
+
     childProcess.stdout?.on("data", (data: Buffer) => {
       const line = data.toString().trim();
       if (line) {
         addPreviewLog(taskId, type, `stdout: ${line}`);
         logger.info({ taskId, type }, `preview stdout: ${line}`);
+        detectPort(line);
       }
     });
 
@@ -472,6 +504,7 @@ export class PreviewManager {
       if (line) {
         addPreviewLog(taskId, type, `stderr: ${line}`);
         logger.info({ taskId, type }, `preview stderr: ${line}`);
+        detectPort(line);
       }
     });
 
@@ -483,16 +516,31 @@ export class PreviewManager {
     childProcess.on("exit", (code, signal) => {
       logger.warn({ taskId, type, code, signal }, "Preview process exited");
       addPreviewLog(taskId, type, `Process exited (code=${code}, signal=${signal})`);
+      // If the process exits before we detect a port, stop waiting.
+      if (!portResolved) {
+        portResolved = true;
+        clearTimeout(portTimeout);
+        resolvePort!(null);
+      }
     });
 
-    return Promise.resolve({
-      taskId,
-      type,
-      port,
-      host,
-      worktreePath,
-      startedAt: new Date(),
-      childProcess,
+    return portDetection.then((detectedPort) => {
+      const actualPort = detectedPort ?? port;
+
+      if (detectedPort && detectedPort !== port) {
+        logger.warn({ taskId, expected: port, actual: detectedPort }, "Process bound to different port than requested — using detected port");
+        addPreviewLog(taskId, type, `Port override: process listening on ${detectedPort} (requested ${port})`);
+      }
+
+      return {
+        taskId,
+        type,
+        port: actualPort,
+        host,
+        worktreePath,
+        startedAt: new Date(),
+        childProcess,
+      };
     });
   }
 
