@@ -132,6 +132,10 @@ export class GitHubIssuesProducer implements Producer {
           result.duplicatesSkipped++;
         } else {
           result.tasksCreated++;
+          // Swap label so the issue isn't re-fetched on future ticks
+          if (!ctx.dryRun) {
+            await this._swapLabel(owner, repo, issue.number, label, token);
+          }
         }
       } catch (err) {
         result.errors.push(
@@ -141,6 +145,41 @@ export class GitHubIssuesProducer implements Producer {
     }
 
     return result;
+  }
+
+  /** Remove the trigger label and add a "grabbed" label so the issue isn't polled again. */
+  private async _swapLabel(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    triggerLabel: string,
+    token: string,
+  ): Promise<void> {
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    };
+    const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${issueNumber}/labels`;
+
+    const [addRes, removeRes] = await Promise.allSettled([
+      fetch(base, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ labels: [`${triggerLabel}:grabbed`] }),
+      }),
+      fetch(`${base}/${encodeURIComponent(triggerLabel)}`, {
+        method: "DELETE",
+        headers,
+      }),
+    ]);
+
+    if (addRes.status === "rejected" || removeRes.status === "rejected") {
+      logger.warn(
+        { issueNumber, owner, repo },
+        "github-issues: failed to swap label on issue",
+      );
+    }
   }
 }
 

@@ -438,11 +438,14 @@ export class PreviewManager {
       .replace(/\$PORT\b/g, portStr);
     const shellCommand = `export PORT=${portStr}; ${resolvedCommand}`;
 
-    // Build a clean env: strip NODE_ENV (production in the Hive container)
-    // and container-specific NODE_OPTIONS to avoid polluting the preview process.
-    const { NODE_ENV: _drop, NODE_OPTIONS: _dropOpts, ...cleanEnv } = process.env;
+    // Build a clean env: strip container-specific NODE_OPTIONS to avoid
+    // polluting the preview process.  Keep NODE_ENV but default to
+    // "development" when the Hive container runs in production — preview
+    // tools like `serve` change port-binding behaviour based on this.
+    const { NODE_OPTIONS: _dropOpts, ...cleanEnv } = process.env;
     const spawnEnv = {
       ...cleanEnv,
+      NODE_ENV: "development",
       ...env,
       PORT: portStr,
     };
