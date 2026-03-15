@@ -24,11 +24,13 @@ export const ALL_PRODUCER_NAMES = [
   "feature-scout",
   "maintenance",
   "github-issues",
+  "ado-work-items",
 ] as const;
 
 export const PRODUCER_CONFIG_PLACEHOLDERS: Record<string, string> = {
   "log-scanner": '{ "workspaceId": "...", "containerAppName": "..." }',
   "github-issues": '{ "label": "hive", "maxPerRun": 10 }',
+  "ado-work-items": '{ "tag": "hive", "maxPerRun": 10 }',
 };
 
 export const ALL_ENRICHER_NAMES = [
@@ -379,6 +381,11 @@ export function repoDetailPanel(repo: RepoRow): string {
         ${input(`buildNpmDir_${repo.id}`, "npm Directory", {
           value: ((settings.build as Record<string, unknown> | undefined)?.npmDir as string) ?? "",
           placeholder: "./Client (relative path, optional)",
+        })}
+        ${input(`buildTimeout_${repo.id}`, "Command Timeout (seconds)", {
+          type: "number",
+          value: ((settings.build as Record<string, unknown> | undefined)?.timeout as number | undefined) != null ? String((settings.build as Record<string, unknown>).timeout) : "",
+          placeholder: "120 (default)",
         })}
       </div>
     </details>

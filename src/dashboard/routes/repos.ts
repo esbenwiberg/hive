@@ -132,7 +132,7 @@ router.post("/repos/:id", requireRole("admin"), async (req: Request, res: Respon
     }
 
     // Producer toggles & config
-    const PRODUCER_NAMES = ["log-scanner", "bug-hunter", "security-scanner", "feature-scout", "maintenance", "self-monitor", "github-issues"];
+    const PRODUCER_NAMES = ["log-scanner", "bug-hunter", "security-scanner", "feature-scout", "maintenance", "self-monitor", "github-issues", "ado-work-items"];
     const MAX_CONFIG_SIZE = 10 * 1024;
 
     const producers: Record<string, { enabled: boolean; config?: Record<string, unknown> }> = {};
@@ -184,17 +184,27 @@ router.post("/repos/:id", requireRole("admin"), async (req: Request, res: Respon
     const VALID_BUILD_SYSTEMS = new Set(["npm", "dotnet", "dotnet+npm"]);
     const buildSystemKey = `buildSystem_${repoId}`;
     const buildNpmDirKey = `buildNpmDir_${repoId}`;
+    const buildTimeoutKey = `buildTimeout_${repoId}`;
     const buildSystemVal = body[buildSystemKey]?.trim();
     const buildNpmDirVal = body[buildNpmDirKey]?.trim();
+    const buildTimeoutVal = body[buildTimeoutKey]?.trim();
 
-    if (buildSystemVal || buildNpmDirVal) {
+    if (buildSystemVal || buildNpmDirVal || buildTimeoutVal) {
       if (buildSystemVal && !VALID_BUILD_SYSTEMS.has(buildSystemVal)) {
         res.status(400).send("Invalid build system. Must be one of: npm, dotnet, dotnet+npm");
         return;
       }
-      const build: Record<string, string> = {};
+      const build: Record<string, unknown> = {};
       if (buildSystemVal) build.system = buildSystemVal;
       if (buildNpmDirVal) build.npmDir = buildNpmDirVal;
+      if (buildTimeoutVal) {
+        const parsed = Number(buildTimeoutVal);
+        if (!Number.isFinite(parsed) || parsed < 10 || parsed > 1800) {
+          res.status(400).send("Build timeout must be between 10 and 1800 seconds");
+          return;
+        }
+        build.timeout = parsed;
+      }
       settings.build = build;
     }
 

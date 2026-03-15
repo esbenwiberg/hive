@@ -12,6 +12,8 @@ export interface HiveBuildConfig {
   system?: BuildSystemType;
   /** Relative path from repo root to the dir containing package.json */
   npmDir?: string;
+  /** Per-command timeout in seconds (default: 120). Useful for large dotnet solutions. */
+  timeout?: number;
 }
 
 /**
@@ -50,6 +52,11 @@ export function parseHiveBuildConfig(worktreePath: string): HiveBuildConfig | nu
   const npmDir = raw.npm_dir as string | undefined;
   if (typeof npmDir === "string") {
     result.npmDir = npmDir;
+  }
+
+  const timeout = raw.timeout as number | undefined;
+  if (typeof timeout === "number" && timeout > 0) {
+    result.timeout = timeout;
   }
 
   return Object.keys(result).length > 0 ? result : null;

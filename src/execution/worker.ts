@@ -643,7 +643,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
 
     // Detect build system (using settings UI override if configured)
     const repoBuildCfg = (repo.settings ?? {}) as Record<string, unknown>;
-    const buildSettings = repoBuildCfg.build as { system?: string; npmDir?: string } | undefined;
+    const buildSettings = repoBuildCfg.build as { system?: string; npmDir?: string; timeout?: number } | undefined;
     const buildInfo = await detectBuildSystem(worktree.path, undefined, buildSettings);
     const buildSystemSection = buildSystemPromptSection(buildInfo, worktree.path);
     logger.info({ taskId, buildSystem: buildInfo.type, npmDir: buildInfo.npmDir, dotnetDir: buildInfo.dotnetDir }, "Detected build system for worker prompt");

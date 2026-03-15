@@ -36,7 +36,7 @@ interface ClaudeReviewResponse {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const SHELL_TIMEOUT_MS = 120_000;
+const DEFAULT_SHELL_TIMEOUT_MS = 120_000;
 const MAX_DIFF_CHARS = 200_000;
 
 // Lock / generated / vendored files excluded from milestone review diffs.
@@ -91,6 +91,7 @@ async function runStep(
   cwd: string,
   label: string,
   failures: string[],
+  timeoutMs: number = DEFAULT_SHELL_TIMEOUT_MS,
 ): Promise<boolean> {
   try {
     // Strip NODE_ENV=production so target-repo npm installs include devDependencies.
@@ -102,7 +103,7 @@ async function runStep(
     // Use process-group-aware exec so timeout kills all descendant processes
     await execInGroup(bin, args, {
       cwd,
-      timeout: SHELL_TIMEOUT_MS,
+      timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
       env: cleanEnv,
     });
@@ -140,15 +141,20 @@ async function runStep(
  */
 export async function quickVerify(
   worktreePath: string,
-  buildSettings?: { system?: string; npmDir?: string },
+  buildSettings?: { system?: string; npmDir?: string; timeout?: number },
   options?: { skipInstall?: boolean },
 ): Promise<QuickVerifyResult> {
   const failures: string[] = [];
   const warnings: string[] = [];
   const skipInstall = options?.skipInstall ?? false;
 
+  // Resolve per-command timeout: buildSettings.timeout is in seconds, convert to ms
+  const timeoutMs = buildSettings?.timeout
+    ? buildSettings.timeout * 1_000
+    : DEFAULT_SHELL_TIMEOUT_MS;
+
   const info = await detectBuildSystem(worktreePath, undefined, buildSettings);
-  logger.info({ worktreePath, buildSystem: info.type, skipInstall }, "quickVerify: detected build system");
+  logger.info({ worktreePath, buildSystem: info.type, skipInstall, timeoutMs }, "quickVerify: detected build system");
 
   // ── npm steps ────────────────────────────────────────────────────────────
   if (info.type === "npm" || info.type === "dotnet+npm") {
@@ -157,7 +163,7 @@ export async function quickVerify(
     if (!skipInstall) {
       const installed = await runStep(
         "npm", ["install", "--prefer-offline", "--include=dev"],
-        npmDir, "npm install", failures,
+        npmDir, "npm install", failures, timeoutMs,
       );
 
       if (!installed) {
@@ -168,8 +174,8 @@ export async function quickVerify(
 
     // Lint is non-blocking — goes to warnings so it doesn't trigger rework
     // for issues in vendor/dist files the agent can't control.
-    await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", warnings);
-    await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures);
+    await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", warnings, timeoutMs);
+    await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures, timeoutMs);
 
     // Vitest's explicit --watch flag overrides CI=true, so append --run to
     // force one-shot mode.  The flag is harmless if the script doesn't use vitest.
@@ -177,7 +183,7 @@ export async function quickVerify(
     if (await testScriptUsesVitest(npmDir)) {
       testArgs.push("--", "--run");
     }
-    await runStep("npm", testArgs, npmDir, "npm test", failures);
+    await runStep("npm", testArgs, npmDir, "npm test", failures, timeoutMs);
   }
 
   // ── dotnet steps ─────────────────────────────────────────────────────────
@@ -187,7 +193,7 @@ export async function quickVerify(
     if (!skipInstall) {
       const restored = await runStep(
         "dotnet", ["restore", "/p:NuGetAudit=false"],
-        dotnetDir, "dotnet restore", failures,
+        dotnetDir, "dotnet restore", failures, timeoutMs,
       );
 
       if (!restored) {
@@ -196,9 +202,9 @@ export async function quickVerify(
       }
     }
 
-    const built = await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures);
+    const built = await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures, timeoutMs);
     if (built) {
-      await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures);
+      await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures, timeoutMs);
     } else {
       logger.warn({ dotnetDir }, "quickVerify: dotnet build failed — skipping dotnet test");
     }
@@ -236,7 +242,7 @@ async function getDiff(worktreePath: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync("git", ["diff", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], {
       cwd: worktreePath,
-      timeout: SHELL_TIMEOUT_MS,
+      timeout: DEFAULT_SHELL_TIMEOUT_MS,
       maxBuffer: 2 * 1024 * 1024,
     });
     return stdout || "(no diff available)";
@@ -252,8 +258,8 @@ async function getDiff(worktreePath: string): Promise<string> {
 async function getChangedFiles(worktreePath: string): Promise<string[]> {
   try {
     const [{ stdout: tracked }, { stdout: untracked }] = await Promise.all([
-      execFileAsync("git", ["diff", "--name-only", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: SHELL_TIMEOUT_MS }),
-      execFileAsync("git", ["ls-files", "--others", "--exclude-standard"], { cwd: worktreePath, timeout: SHELL_TIMEOUT_MS }),
+      execFileAsync("git", ["diff", "--name-only", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: DEFAULT_SHELL_TIMEOUT_MS }),
+      execFileAsync("git", ["ls-files", "--others", "--exclude-standard"], { cwd: worktreePath, timeout: DEFAULT_SHELL_TIMEOUT_MS }),
     ]);
     return [...tracked.trim().split("\n"), ...untracked.trim().split("\n")].filter(Boolean);
   } catch {
@@ -392,7 +398,7 @@ export async function reviewFix(
   worktreePath: string,
   milestoneSummary: string,
   model: string,
-  buildSettings?: { system?: string; npmDir?: string },
+  buildSettings?: { system?: string; npmDir?: string; timeout?: number },
   buildInfo?: BuildSystemInfo,
   options?: { skipInstall?: boolean },
 ): Promise<ReviewFixResult> {

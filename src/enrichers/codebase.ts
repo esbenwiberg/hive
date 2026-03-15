@@ -2,6 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join, extname } from "node:path";
 import type { Enricher, EnricherConfig, EnrichmentResult } from "./base.js";
 import type { TaskRow } from "../db/schema.js";
+import logger from "../logger.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -126,11 +127,16 @@ const STOP_WORDS = new Set([
   "limited", "full", "dynamically", "outside", "inside", "within",
 ]);
 
+const MAX_SCAN_FILES = 10_000;
+
 /**
  * Recursively scans a directory, collecting file paths while skipping ignored dirs.
+ * Stops after MAX_SCAN_FILES to stay bounded on large monorepos.
  */
-async function scanDir(dir: string): Promise<string[]> {
+async function scanDir(dir: string, counter: { count: number; capped: boolean } = { count: 0, capped: false }): Promise<string[]> {
   const files: string[] = [];
+
+  if (counter.capped) return files;
 
   let entries;
   try {
@@ -140,15 +146,21 @@ async function scanDir(dir: string): Promise<string[]> {
   }
 
   for (const entry of entries) {
+    if (counter.capped) break;
     if (SKIP_DIRS.has(entry.name)) continue;
 
     const fullPath = join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      const nested = await scanDir(fullPath);
+      const nested = await scanDir(fullPath, counter);
       files.push(...nested);
     } else if (entry.isFile()) {
       files.push(fullPath);
+      counter.count++;
+      if (counter.count >= MAX_SCAN_FILES) {
+        counter.capped = true;
+        break;
+      }
     }
   }
 
@@ -168,7 +180,11 @@ export const codebaseEnricher: Enricher = {
   ): Promise<EnrichmentResult> {
     const startTime = Date.now();
 
-    const allFiles = await scanDir(repoDir);
+    const scanCounter = { count: 0, capped: false };
+    const allFiles = await scanDir(repoDir, scanCounter);
+    if (scanCounter.capped) {
+      logger.warn({ repoDir, scanned: scanCounter.count, limit: MAX_SCAN_FILES }, "codebase enricher: file scan capped — working with partial results");
+    }
     const keywords = extractKeywords(task);
     const allKw = [...keywords.title, ...keywords.body];
 
@@ -222,6 +238,7 @@ export const codebaseEnricher: Enricher = {
       data: {
         codebase: {
           totalFiles: allFiles.length,
+          scanCapped: scanCounter.capped,
           testFileCount,
           fileTypes,
           relatedFiles: relatedFiles.slice(0, 50), // cap at 50
