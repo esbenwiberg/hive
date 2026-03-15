@@ -149,7 +149,7 @@ export async function evaluateGate(taskId: string): Promise<void> {
       enrichment: task.enrichment,
     };
 
-    const userPrompt = [
+    const userPromptParts = [
       `Task ID: ${task.id}`,
       `Type: ${task.type ?? "unclassified"}`,
       `Size: ${task.size ?? "unknown"}`,
@@ -167,7 +167,28 @@ export async function evaluateGate(taskId: string): Promise<void> {
       "<enrichment_data>",
       JSON.stringify(task.enrichment ?? {}, null, 2),
       "</enrichment_data>",
-    ].join("\n");
+    ];
+
+    // Inject enrichment warning if critical enrichers failed
+    const enrichMeta = (task.enrichment as Record<string, unknown> | null)?._enrichmentMeta as
+      | { failedEnrichers?: string[] }
+      | undefined;
+    if (enrichMeta?.failedEnrichers?.length) {
+      const criticalMissing = enrichMeta.failedEnrichers.filter(
+        (e) => e === "architect" || e === "scorer",
+      );
+      if (criticalMissing.length > 0) {
+        userPromptParts.push(
+          "",
+          "<enrichment_warning>",
+          `The following critical enrichers FAILED and their data is missing: ${criticalMissing.join(", ")}.`,
+          "This means the enrichment data above is incomplete. Factor this into your confidence assessment — you may be missing important context about implementation complexity, file scope, or risk scoring.",
+          "</enrichment_warning>",
+        );
+      }
+    }
+
+    const userPrompt = userPromptParts.join("\n");
 
     const response = await callClaude({
       prompt: userPrompt,

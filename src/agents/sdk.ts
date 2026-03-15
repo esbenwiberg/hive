@@ -62,7 +62,7 @@ export interface AgenticRequest {
    * the loop breaks immediately and the string is set as terminationReason.
    * Use this as a hard kill switch (e.g. no writes by turn N).
    */
-  shouldTerminate?: (context: { toolsCalled: string[]; turns: number }) => string | null;
+  shouldTerminate?: (context: { toolsCalled: string[]; turns: number }) => string | null | Promise<string | null>;
 }
 
 export interface AgenticResponse {
@@ -367,7 +367,7 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
   for (turns = 1; turns <= maxTurns; turns++) {
     // Hard kill switch: check before spending tokens on the next API call
     if (req.shouldTerminate) {
-      const reason = req.shouldTerminate({ toolsCalled, turns });
+      const reason = await req.shouldTerminate({ toolsCalled, turns });
       if (reason) {
         terminationReason = reason;
         logger.warn({ turn: turns, reason }, "Loop terminated by shouldTerminate callback");
