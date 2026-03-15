@@ -166,6 +166,138 @@ export async function getPullRequest(
   return { id: data.pullRequestId, url: prUrl, status: data.status };
 }
 
+// ── Work Item APIs ──────────────────────────────────────────────────────────
+
+interface WiqlResult {
+  workItems: Array<{ id: number; url: string }>;
+}
+
+interface WorkItemFields {
+  "System.Id": number;
+  "System.Title": string;
+  "System.Description"?: string;
+  "System.WorkItemType": string;
+  "System.State": string;
+  "System.Tags"?: string;
+  [key: string]: unknown;
+}
+
+interface WorkItemResponse {
+  id: number;
+  fields: WorkItemFields;
+  url: string;
+}
+
+/**
+ * Queries work items using WIQL (Work Item Query Language).
+ * Returns an array of work item IDs matching the query.
+ */
+export async function queryWorkItems(
+  org: string,
+  project: string,
+  wiql: string,
+  pat: string,
+  top?: number,
+): Promise<Array<{ id: number }>> {
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/wiql?api-version=${API_VERSION}${top ? `&$top=${top}` : ""}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+    },
+    body: JSON.stringify({ query: wiql }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Azure DevOps WIQL query failed (${response.status}): ${text}`);
+  }
+
+  const data = await response.json() as WiqlResult;
+  return data.workItems.map((wi) => ({ id: wi.id }));
+}
+
+/**
+ * Gets a single work item by ID with all fields.
+ */
+export async function getWorkItem(
+  org: string,
+  project: string,
+  id: number,
+  pat: string,
+): Promise<WorkItemResponse> {
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/workitems/${id}?$expand=all&api-version=${API_VERSION}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Azure DevOps get work item failed (${response.status}): ${text}`);
+  }
+
+  return await response.json() as WorkItemResponse;
+}
+
+/**
+ * Updates tags on a work item using JSON Patch.
+ * Adds `addTags` and removes `removeTags` from the existing tag list.
+ */
+export async function updateWorkItemTags(
+  org: string,
+  project: string,
+  id: number,
+  addTags: string[],
+  removeTags: string[],
+  pat: string,
+): Promise<void> {
+  // First get current tags
+  const wi = await getWorkItem(org, project, id, pat);
+  const currentTags = (wi.fields["System.Tags"] ?? "")
+    .split(";")
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  // Remove specified tags, add new ones
+  const updatedTags = currentTags
+    .filter((t) => !removeTags.some((r) => r.toLowerCase() === t.toLowerCase()));
+  for (const tag of addTags) {
+    if (!updatedTags.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+      updatedTags.push(tag);
+    }
+  }
+
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/workitems/${id}?api-version=${API_VERSION}`;
+
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json-patch+json",
+      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+    },
+    body: JSON.stringify([
+      {
+        op: "replace",
+        path: "/fields/System.Tags",
+        value: updatedTags.join("; "),
+      },
+    ]),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Azure DevOps update work item tags failed (${response.status}): ${text}`);
+  }
+
+  logger.info({ org, project, id, addTags, removeTags }, "Azure DevOps work item tags updated");
+}
+
 /**
  * Gets all comments from PR threads in Azure DevOps.
  * Flattens thread comments into a flat list.

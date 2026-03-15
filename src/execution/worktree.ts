@@ -7,6 +7,7 @@ import { getByUserAndProvider } from "../db/queries/user-credentials.js";
 import { getSecret, repoSecretName } from "../vault/keyvault.js";
 import { getGitProvider } from "./git-provider.js";
 import type { GitCredentials, WorktreeInfo } from "../domain/types.js";
+import type { CloneOptions } from "./git-provider.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,6 +52,7 @@ export async function createWorktree(
   defaultBranch: string,
   userId: number,
   repoSettings?: { repoId?: number; settings?: Record<string, unknown> },
+  cloneOpts?: CloneOptions,
 ): Promise<WorktreeInfo> {
   const creds = await resolveGitCredentials(userId, provider);
   const dirName = `${branch.replace(/\//g, "-")}-${Date.now()}`;
@@ -60,7 +62,7 @@ export async function createWorktree(
   await mkdir(WORKTREE_BASE, { recursive: true });
 
   const gitProvider = getGitProvider(provider);
-  await gitProvider.clone(repoFullName, worktreePath, defaultBranch, creds);
+  await gitProvider.clone(repoFullName, worktreePath, defaultBranch, creds, cloneOpts);
 
   // Record the base SHA before creating the feature branch (used for diffing)
   const { stdout: defaultHeadRaw } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });

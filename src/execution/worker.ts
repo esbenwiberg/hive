@@ -8,7 +8,7 @@ import { callClaudeWithTools } from "../agents/sdk.js";
 import { getWorkerTools, createWorktreeToolExecutor, type PrismConfig } from "./worker-tools.js";
 import { getById as getTask, updateStatus } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
-import { recordCost, checkBudget } from "../db/queries/costs.js";
+import { recordCost, checkBudget, getTotalCostForTask } from "../db/queries/costs.js";
 import { register, unregister, heartbeat } from "../db/queries/active-agents.js";
 import { addEvent } from "../db/queries/task-events.js";
 import { getAutonomousConfig, getModelFor } from "../domain/autonomous-config.js";
@@ -443,12 +443,19 @@ async function executeMilestones(
         }
         return null;
       },
-      shouldTerminate: ({ toolsCalled, turns }) => {
+      shouldTerminate: async ({ toolsCalled, turns }) => {
         if (signal?.aborted) {
           return "Aborted: daemon shutdown";
         }
         if (turns >= 12 && !msHasWritten(toolsCalled)) {
           return `Terminated: ${turns} turns without any write — exploration spiral detected`;
+        }
+        if (turns % 5 === 0) {
+          const taskCost = await getTotalCostForTask(task.id);
+          const budgetLimit = getAutonomousConfig().budget.perTaskMax;
+          if (taskCost >= budgetLimit) {
+            return `Terminated: per-task budget exceeded ($${taskCost.toFixed(2)} >= $${budgetLimit} limit)`;
+          }
         }
         return null;
       },
@@ -610,6 +617,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         repo.defaultBranch ?? "main",
         task.createdBy,
         { repoId: repo.id, settings: (repo.settings ?? {}) as Record<string, unknown> },
+        { depth: 50 },
       );
       await addEvent(taskId, "worktree_created", "worker", "Git worktree created");
     }
@@ -754,10 +762,12 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         }
         enrichmentStr = `\n## Enrichment Context (trimmed)\n${JSON.stringify(slim)}`;
         logger.info({ taskId, chars: enrichmentStr.length }, "Trimmed enrichment to architect+scorer+prism only");
+        await addEvent(taskId, "enrichment_trimmed", "worker", `Enrichment trimmed to architect+scorer+prism (${enrichmentStr.length} chars) — full enrichment was too large for context window`);
       }
       if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
         enrichmentStr = "";
         logger.warn({ taskId }, "Dropped enrichment entirely — too large for context window");
+        await addEvent(taskId, "enrichment_dropped", "worker", "Enrichment dropped entirely — too large for context window. Worker is operating without enrichment context.");
       }
     }
 
@@ -929,12 +939,19 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
           }
           return null;
         },
-        shouldTerminate: ({ toolsCalled, turns }) => {
+        shouldTerminate: async ({ toolsCalled, turns }) => {
           if (signal?.aborted) {
             return "Aborted: daemon shutdown";
           }
           if (turns >= writeDeadline && !hasWritten(toolsCalled)) {
             return `Terminated: ${turns} turns without any write — exploration spiral detected (size: ${taskSize}, deadline: ${writeDeadline})`;
+          }
+          if (turns % 5 === 0) {
+            const taskCost = await getTotalCostForTask(taskId);
+            const budgetLimit = getAutonomousConfig().budget.perTaskMax;
+            if (taskCost >= budgetLimit) {
+              return `Terminated: per-task budget exceeded ($${taskCost.toFixed(2)} >= $${budgetLimit} limit)`;
+            }
           }
           return null;
         },

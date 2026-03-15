@@ -1,3 +1,4 @@
+import "./telemetry.js"; // Must be first — auto-instruments Express before it loads
 import { migrate } from "./db/migrate.js";
 import { initConfig } from "./domain/autonomous-config.js";
 import { hydrateApiKeysFromVault } from "./agents/sdk.js";

@@ -18,6 +18,7 @@ import { selfMonitor } from "../producers/self-monitor.js";
 import { docAuditor } from "../producers/doc-auditor.js";
 import { maintenanceProducer } from "../producers/maintenance.js";
 import { githubIssuesProducer } from "../producers/github-issues.js";
+import { adoWorkItemsProducer } from "../producers/ado-work-items.js";
 import { recordRun } from "../db/queries/producer-runs.js";
 import { notifyTasksCreated } from "../notifications.js";
 import { listAll } from "../db/queries/repos.js";
@@ -61,6 +62,7 @@ const ALL_PRODUCERS: Producer[] = [
   docAuditor,
   maintenanceProducer,
   githubIssuesProducer,
+  adoWorkItemsProducer,
 ];
 
 export class Daemon {

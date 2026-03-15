@@ -109,7 +109,7 @@ async function getFileStat(worktreePath: string, baseSha: string, files: string[
   }
 }
 
-const MAX_REVIEW_DIFF_CHARS = 400_000;
+const MAX_REVIEW_DIFF_CHARS = 600_000;
 
 /**
  * Truncates a diff at file boundaries. Files that don't fit get a stat-only
