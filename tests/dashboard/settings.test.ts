@@ -2,10 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   settingsPage,
   globalSettingsPartial,
-  repoSettingsPartial,
-  repoSettingsCard,
 } from "../../src/dashboard/views/settings.js";
-import type { SettingsTab } from "../../src/dashboard/views/settings.js";
+import {
+  reposPage,
+  repoSummaryCard,
+  repoDetailPanel,
+  repoCardGrid,
+} from "../../src/dashboard/views/repos.js";
 import type { AutonomousConfig } from "../../src/domain/autonomous-config.js";
 import type { RepoRow } from "../../src/db/schema.js";
 import type { SessionUser } from "../../src/domain/types.js";
@@ -78,49 +81,30 @@ const mockRepos: RepoRow[] = [
 
 describe("settingsPage", () => {
   it("returns valid HTML with doctype and closing tags", () => {
-    const html = settingsPage(mockConfig, mockRepos, mockUser);
+    const html = settingsPage(mockConfig, mockUser);
     expect(html).toContain("<!DOCTYPE html>");
     expect(html).toContain("</html>");
   });
 
   it("renders the page title", () => {
-    const html = settingsPage(mockConfig, mockRepos, mockUser);
+    const html = settingsPage(mockConfig, mockUser);
     expect(html).toContain("Settings");
   });
 
   it("renders the user display name in the layout", () => {
-    const html = settingsPage(mockConfig, mockRepos, mockUser);
+    const html = settingsPage(mockConfig, mockUser);
     expect(html).toContain("Alice Admin");
   });
 
-  it("renders tab buttons for Global Defaults and Repos", () => {
-    const html = settingsPage(mockConfig, mockRepos, mockUser);
-    expect(html).toContain("Global Defaults");
-    expect(html).toContain("Repos");
-  });
-
-  it("renders global tab content by default", () => {
-    const html = settingsPage(mockConfig, mockRepos, mockUser);
+  it("renders global settings content by default (no tabs)", () => {
+    const html = settingsPage(mockConfig, mockUser);
     expect(html).toContain("autonomous.config.yaml");
     expect(html).toContain("Classification");
   });
 
-  it("renders repos tab content when activeTab is repos", () => {
-    const html = settingsPage(mockConfig, mockRepos, mockUser, "repos");
-    expect(html).toContain("acme/frontend");
-    expect(html).toContain("acme/backend");
-  });
-
   it("renders the settings-content target div", () => {
-    const html = settingsPage(mockConfig, mockRepos, mockUser);
+    const html = settingsPage(mockConfig, mockUser);
     expect(html).toContain('id="settings-content"');
-  });
-
-  it("renders htmx tab switching attributes", () => {
-    const html = settingsPage(mockConfig, mockRepos, mockUser);
-    expect(html).toContain('hx-get="/settings/tab?tab=global"');
-    expect(html).toContain('hx-get="/settings/tab?tab=repos"');
-    expect(html).toContain('hx-target="#settings-content"');
   });
 });
 
@@ -192,97 +176,107 @@ describe("globalSettingsPartial", () => {
   });
 });
 
-// ── repoSettingsPartial ─────────────────────────────────────────────────────
+// ── reposPage ───────────────────────────────────────────────────────────────
 
-describe("repoSettingsPartial", () => {
-  it("renders repo cards for each repo", () => {
-    const html = repoSettingsPartial(mockRepos);
+describe("reposPage", () => {
+  it("renders full page with card grid", () => {
+    const html = reposPage(mockRepos, mockUser);
+    expect(html).toContain("<!DOCTYPE html>");
+    expect(html).toContain("Repos");
     expect(html).toContain("acme/frontend");
     expect(html).toContain("acme/backend");
   });
 
-  it("renders empty state when no repos", () => {
-    const html = repoSettingsPartial([]);
-    expect(html).toContain("No repos configured yet");
-  });
-
-  it("renders the add repo form", () => {
-    const html = repoSettingsPartial(mockRepos);
+  it("renders Add Repo button", () => {
+    const html = reposPage(mockRepos, mockUser);
     expect(html).toContain("Add Repo");
-    expect(html).toContain('hx-post="/settings/repos"');
-    expect(html).toContain('hx-target="#repo-list"');
-  });
-
-  it("renders repo-list container div", () => {
-    const html = repoSettingsPartial(mockRepos);
-    expect(html).toContain('id="repo-list"');
-  });
-
-  it("renders per-repo override values", () => {
-    const html = repoSettingsPartial(mockRepos);
-    // The first repo has gateMode and perTaskMax overrides
-    expect(html).toContain("gateMode");
-    expect(html).toContain("ai");
-    expect(html).toContain("perTaskMax");
-    expect(html).toContain("10");
-  });
-
-  it("renders repo card for repo without overrides", () => {
-    const html = repoSettingsPartial(mockRepos);
-    // All repos get a full card with forms even without overrides
-    expect(html).toContain("acme/backend");
-    expect(html).toContain("develop");
+    expect(html).toContain("add-repo-modal");
   });
 });
 
-// ── repoSettingsCard ────────────────────────────────────────────────────────
+// ── repoCardGrid ────────────────────────────────────────────────────────────
 
-describe("repoSettingsCard", () => {
+describe("repoCardGrid", () => {
+  it("renders repo cards for each repo", () => {
+    const html = repoCardGrid(mockRepos);
+    expect(html).toContain("acme/frontend");
+    expect(html).toContain("acme/backend");
+    expect(html).toContain('id="repo-grid"');
+  });
+
+  it("renders empty state when no repos", () => {
+    const html = repoCardGrid([]);
+    expect(html).toContain("No repos configured yet");
+  });
+});
+
+// ── repoSummaryCard ─────────────────────────────────────────────────────────
+
+describe("repoSummaryCard", () => {
   it("renders the repo card with correct id", () => {
-    const html = repoSettingsCard(mockRepos[0]);
+    const html = repoSummaryCard(mockRepos[0]);
     expect(html).toContain('id="repo-card-1"');
   });
 
   it("renders the repo full name", () => {
-    const html = repoSettingsCard(mockRepos[0]);
+    const html = repoSummaryCard(mockRepos[0]);
     expect(html).toContain("acme/frontend");
   });
 
   it("renders the default branch", () => {
-    const html = repoSettingsCard(mockRepos[1]);
+    const html = repoSummaryCard(mockRepos[1]);
     expect(html).toContain("develop");
   });
 
-  it("renders the hx-post for updating settings", () => {
-    const html = repoSettingsCard(mockRepos[0]);
-    expect(html).toContain('hx-post="/settings/repos/1"');
-    expect(html).toContain(`hx-target="#repo-card-1"`);
+  it("renders hx-get for opening detail panel", () => {
+    const html = repoSummaryCard(mockRepos[0]);
+    expect(html).toContain('hx-get="/repos/1"');
+    expect(html).toContain('hx-target="#detail-panel"');
   });
 
-  it("renders form fields for gate mode, per-task max, daily budget", () => {
-    const html = repoSettingsCard(mockRepos[0]);
+  it("renders override indicators for repos with overrides", () => {
+    const html = repoSummaryCard(mockRepos[0]);
+    // Has gateMode override → shows AI
+    expect(html).toContain("AI");
+    // Has perTaskMax override
+    expect(html).toContain("$10");
+  });
+});
+
+// ── repoDetailPanel ─────────────────────────────────────────────────────────
+
+describe("repoDetailPanel", () => {
+  it("renders the detail panel with form fields", () => {
+    const html = repoDetailPanel(mockRepos[0]);
+    expect(html).toContain("acme/frontend");
     expect(html).toContain("Gate Mode");
     expect(html).toContain("Per-Task Budget");
     expect(html).toContain("Daily Budget");
   });
 
-  it("renders save button", () => {
-    const html = repoSettingsCard(mockRepos[0]);
-    expect(html).toContain("Save");
+  it("renders hx-post for updating settings", () => {
+    const html = repoDetailPanel(mockRepos[0]);
+    expect(html).toContain('hx-post="/repos/1"');
+    expect(html).toContain('hx-target="#repo-card-1"');
   });
 
-  it("renders producer toggles section with four per-repo producers", () => {
-    const html = repoSettingsCard(mockRepos[0]);
+  it("renders save and delete buttons", () => {
+    const html = repoDetailPanel(mockRepos[0]);
+    expect(html).toContain("Save");
+    expect(html).toContain("Delete");
+  });
+
+  it("renders producer toggles", () => {
+    const html = repoDetailPanel(mockRepos[0]);
     expect(html).toContain("Producers");
     expect(html).toContain("log-scanner");
     expect(html).toContain("bug-hunter");
     expect(html).toContain("security-scanner");
     expect(html).toContain("feature-scout");
-    // self-monitor is a global producer, not per-repo
   });
 
   it("renders producer checkbox form fields with correct names", () => {
-    const html = repoSettingsCard(mockRepos[0]);
+    const html = repoDetailPanel(mockRepos[0]);
     expect(html).toContain('name="producer_enabled_log-scanner_1"');
     expect(html).toContain('name="producer_enabled_bug-hunter_1"');
     expect(html).toContain('name="producer_config_bug-hunter_1"');
@@ -298,10 +292,8 @@ describe("repoSettingsCard", () => {
         },
       },
     };
-    const html = repoSettingsCard(repoWithProducers);
-    // bug-hunter should be checked
+    const html = repoDetailPanel(repoWithProducers);
     expect(html).toContain('name="producer_enabled_bug-hunter_1" value="true" checked');
-    // log-scanner should NOT be checked
     expect(html).not.toMatch(/name="producer_enabled_log-scanner_1" value="true" checked/);
   });
 
@@ -314,8 +306,16 @@ describe("repoSettingsCard", () => {
         },
       },
     };
-    const html = repoSettingsCard(repoWithConfig);
+    const html = repoDetailPanel(repoWithConfig);
     expect(html).toContain("severity");
     expect(html).toContain("high");
+  });
+
+  it("renders collapsible sections for docs, registries, build, preview", () => {
+    const html = repoDetailPanel(mockRepos[0]);
+    expect(html).toContain("Docs &amp; Prism");
+    expect(html).toContain("Package Registries");
+    expect(html).toContain("Build System");
+    expect(html).toContain("Preview Config");
   });
 });
