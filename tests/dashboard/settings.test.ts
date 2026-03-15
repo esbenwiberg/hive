@@ -313,7 +313,7 @@ describe("repoDetailPanel", () => {
 
   it("renders collapsible sections for docs, registries, build, preview", () => {
     const html = repoDetailPanel(mockRepos[0]);
-    expect(html).toContain("Docs &amp; Prism");
+    expect(html).toContain("Docs & Prism");
     expect(html).toContain("Package Registries");
     expect(html).toContain("Build System");
     expect(html).toContain("Preview Config");
