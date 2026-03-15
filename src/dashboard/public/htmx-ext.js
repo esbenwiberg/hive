@@ -201,6 +201,11 @@
       showToast(message, type);
     });
 
+    // ── Close panel from server-triggered event ──────────────────────────
+    document.addEventListener("closePanel", function () {
+      closePanel();
+    });
+
     // ── HTMX error handler ─────────────────────────────────────────────────
     document.addEventListener("htmx:responseError", function (evt) {
       var detail = evt.detail || {};
