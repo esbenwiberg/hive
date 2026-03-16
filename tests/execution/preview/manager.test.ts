@@ -96,17 +96,37 @@ const { PreviewManager } = await import(
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function createFakeChildProcess(): ChildProcess {
+  const handlers: Map<string, Function[]> = new Map();
+
+  const mockOn = vi.fn((event: string, handler: Function) => {
+    if (!handlers.has(event)) {
+      handlers.set(event, []);
+    }
+    handlers.get(event)!.push(handler);
+    return this;
+  });
+
+  // Simulate immediate port detection by triggering stdout data event
+  setImmediate(() => {
+    const stdoutHandlers = handlers.get("data");
+    if (stdoutHandlers) {
+      stdoutHandlers.forEach((handler) => {
+        handler(Buffer.from("http://localhost:4001"));
+      });
+    }
+  });
+
   return {
     pid: 12345,
     killed: false,
     kill: vi.fn(() => true),
     stdout: {
-      on: vi.fn(),
+      on: mockOn,
     },
     stderr: {
-      on: vi.fn(),
+      on: mockOn,
     },
-    on: vi.fn(),
+    on: mockOn,
   } as unknown as ChildProcess;
 }
 
