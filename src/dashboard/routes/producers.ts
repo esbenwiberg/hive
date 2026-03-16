@@ -19,7 +19,9 @@ const PRODUCER_INTERVAL_OVERRIDES: Record<string, number> = {
 };
 
 const PRODUCER_NAMES = [
+  "ado-work-items",
   "bug-hunter",
+  "doc-auditor",
   "feature-scout",
   "github-issues",
   "log-scanner",
