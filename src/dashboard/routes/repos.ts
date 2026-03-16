@@ -132,7 +132,7 @@ router.post("/repos/:id", requireRole("admin"), async (req: Request, res: Respon
     }
 
     // Producer toggles & config
-    const PRODUCER_NAMES = ["log-scanner", "bug-hunter", "security-scanner", "feature-scout", "maintenance", "self-monitor", "github-issues"];
+    const PRODUCER_NAMES = ALL_PRODUCER_NAMES;
     const MAX_CONFIG_SIZE = 10 * 1024;
 
     const producers: Record<string, { enabled: boolean; config?: Record<string, unknown> }> = {};

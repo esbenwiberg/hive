@@ -41,7 +41,9 @@ export interface ProducersPageData {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const PRODUCER_NAMES = [
+  "ado-work-items",
   "bug-hunter",
+  "doc-auditor",
   "feature-scout",
   "github-issues",
   "log-scanner",

@@ -18,12 +18,15 @@ import { layout } from "./layout.js";
 // ── Shared constants (used by settings.ts for global config too) ────────────
 
 export const ALL_PRODUCER_NAMES = [
-  "log-scanner",
+  "ado-work-items",
   "bug-hunter",
-  "security-scanner",
+  "doc-auditor",
   "feature-scout",
-  "maintenance",
   "github-issues",
+  "log-scanner",
+  "maintenance",
+  "security-scanner",
+  "self-monitor",
 ] as const;
 
 export const PRODUCER_CONFIG_PLACEHOLDERS: Record<string, string> = {
