@@ -1,4 +1,5 @@
 import logger from "../logger.js";
+import { retryWithBackoff } from "../utils/retry.js";
 
 const API_VERSION = "7.1";
 
@@ -182,9 +183,20 @@ interface WorkItemFields {
   [key: string]: unknown;
 }
 
+export interface WorkItemAttachment {
+  id: string;
+  name: string;
+  url: string;
+}
+
 interface WorkItemResponse {
   id: number;
   fields: WorkItemFields;
+  relations?: Array<{
+    rel: string;
+    url: string;
+    attributes: { name?: string; comment?: string; resourceSize?: number; [key: string]: unknown };
+  }>;
   url: string;
 }
 
@@ -199,24 +211,26 @@ export async function queryWorkItems(
   pat: string,
   top?: number,
 ): Promise<Array<{ id: number }>> {
-  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/wiql?api-version=${API_VERSION}${top ? `&$top=${top}` : ""}`;
+  return retryWithBackoff(async () => {
+    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/wiql?api-version=${API_VERSION}${top ? `&$top=${top}` : ""}`;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
-    },
-    body: JSON.stringify({ query: wiql }),
-  });
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+      },
+      body: JSON.stringify({ query: wiql }),
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Azure DevOps WIQL query failed (${response.status}): ${text}`);
-  }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Azure DevOps WIQL query failed (${response.status}): ${text}`);
+    }
 
-  const data = await response.json() as WiqlResult;
-  return data.workItems.map((wi) => ({ id: wi.id }));
+    const data = await response.json() as WiqlResult;
+    return data.workItems.map((wi) => ({ id: wi.id }));
+  }, { label: `ado:queryWorkItems(${org}/${project})` });
 }
 
 /**
@@ -228,21 +242,23 @@ export async function getWorkItem(
   id: number,
   pat: string,
 ): Promise<WorkItemResponse> {
-  const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/workitems/${id}?$expand=all&api-version=${API_VERSION}`;
+  return retryWithBackoff(async () => {
+    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/workitems/${id}?$expand=all&api-version=${API_VERSION}`;
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
-    },
-  });
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+      },
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Azure DevOps get work item failed (${response.status}): ${text}`);
-  }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Azure DevOps get work item failed (${response.status}): ${text}`);
+    }
 
-  return await response.json() as WorkItemResponse;
+    return await response.json() as WorkItemResponse;
+  }, { label: `ado:getWorkItem(${id})` });
 }
 
 /**
@@ -348,4 +364,50 @@ export async function getPRThreadComments(
   }
 
   return result;
+}
+
+// ── Attachment APIs ─────────────────────────────────────────────────────────
+
+/**
+ * Extracts attachment metadata from a work item's relations.
+ * Requires the work item to be fetched with $expand=all.
+ */
+export function extractAttachments(wi: WorkItemResponse): WorkItemAttachment[] {
+  if (!wi.relations) return [];
+
+  return wi.relations
+    .filter((r) => r.rel === "AttachedFile")
+    .map((r) => ({
+      id: r.url.split("/").pop() ?? "",
+      name: r.attributes.name ?? "attachment",
+      url: r.url,
+    }));
+}
+
+/**
+ * Downloads an attachment by URL. Returns the binary content.
+ * ADO attachment URLs are fully qualified (from the relations array).
+ */
+export async function downloadAttachment(
+  attachmentUrl: string,
+  pat: string,
+): Promise<{ data: Buffer; contentType: string }> {
+  return retryWithBackoff(async () => {
+    const url = `${attachmentUrl}?api-version=${API_VERSION}`;
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Azure DevOps attachment download failed (${response.status}): ${text}`);
+    }
+
+    const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+    const arrayBuffer = await response.arrayBuffer();
+    return { data: Buffer.from(arrayBuffer), contentType };
+  }, { label: `ado:downloadAttachment` });
 }

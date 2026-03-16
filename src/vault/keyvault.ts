@@ -1,6 +1,7 @@
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 import logger from "../logger.js";
+import { retryWithBackoff } from "../utils/retry.js";
 
 // ── Secret name helper ───────────────────────────────────────────────────────
 
@@ -42,13 +43,18 @@ if (vaultUri) {
 
 export async function getSecret(name: string): Promise<string | null> {
   if (client) {
-    try {
-      const secret = await client.getSecret(name);
-      return secret.value ?? null;
-    } catch (err: unknown) {
-      if (err instanceof Error && "statusCode" in err && (err as { statusCode: number }).statusCode === 404) return null;
-      throw err;
-    }
+    return retryWithBackoff(
+      async () => {
+        try {
+          const secret = await client.getSecret(name);
+          return secret.value ?? null;
+        } catch (err: unknown) {
+          if (err instanceof Error && "statusCode" in err && (err as { statusCode: number }).statusCode === 404) return null;
+          throw err;
+        }
+      },
+      { label: `keyvault:getSecret(${name})` },
+    );
   }
   return localStore.get(name) ?? null;
 }

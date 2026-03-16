@@ -13,7 +13,9 @@ process.on("unhandledRejection", (reason) => {
 });
 
 process.on("uncaughtException", (err) => {
-  logger.fatal({ err }, "Uncaught exception — process will continue but may be unstable");
+  logger.fatal({ err }, "Uncaught exception — draining and exiting");
+  // Give in-flight work 5 seconds to suspend, then let ACA restart us
+  setTimeout(() => process.exit(1), 5_000).unref();
 });
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);

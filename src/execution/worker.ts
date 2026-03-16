@@ -21,8 +21,8 @@ import { reviewFix, quickVerify } from "./milestone-review.js";
 import { detectBuildSystem } from "./build-system.js";
 import type { BuildSystemInfo } from "./build-system.js";
 import { refineTask } from "../agents/refiner.js";
-import { parseHiveYaml } from "../hive-yaml.js";
-import type { PreviewConfig, BasePreviewConfig, ComposePreviewConfig, TestcontainersPreviewConfig, ProcessPreviewConfig } from "../hive-yaml.js";
+import { parseHiveYaml, parseHiveTimeoutConfig, parseHiveExecutionConfig } from "../hive-yaml.js";
+import type { PreviewConfig, BasePreviewConfig, ComposePreviewConfig, TestcontainersPreviewConfig, ProcessPreviewConfig, HiveTimeoutConfig } from "../hive-yaml.js";
 import { previewManager, getExternalPreviewUrl, getLocalPreviewUrl } from "./preview/manager.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
@@ -30,7 +30,7 @@ import { loadPrompt } from "../prompt-cache.js";
 import type { ArchitectBlueprint, ArchitectMilestone } from "../enrichers/architect.js";
 import type { ReviewGateResult, WorkerResult, WorktreeInfo } from "../domain/types.js";
 
-const MAX_REWORK_CYCLES = 2;
+const DEFAULT_MAX_REWORK_CYCLES = 3;
 
 /**
  * Builds a PreviewConfig from repo.settings.preview when no `.hive.yaml` exists.
@@ -648,13 +648,18 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     const buildSystemSection = buildSystemPromptSection(buildInfo, worktree.path);
     logger.info({ taskId, buildSystem: buildInfo.type, npmDir: buildInfo.npmDir, dotnetDir: buildInfo.dotnetDir }, "Detected build system for worker prompt");
 
+    // Read per-repo execution and timeout overrides from .hive.yaml
+    const hiveTimeouts: HiveTimeoutConfig = parseHiveTimeoutConfig(worktree.path) ?? {};
+    const hiveExecution = parseHiveExecutionConfig(worktree.path);
+    const maxReworkCycles = hiveExecution?.maxReworkCycles ?? DEFAULT_MAX_REWORK_CYCLES;
+
     // Pre-install dependencies so the agent doesn't waste turns discovering they're missing.
     // Mirrors quickVerify's install steps. Failures are non-fatal — the agent can retry.
     checkAbort();
     const { NODE_ENV: _dropEnv, ...cleanInstallEnv } = process.env;
     cleanInstallEnv.NODE_OPTIONS = [cleanInstallEnv.NODE_OPTIONS, `--max-old-space-size=${getNodeHeapLimitMB()}`].filter(Boolean).join(" ");
     // Use execInGroup so the timeout kills the entire process group (NuGet sub-processes, etc.)
-    const installOpts = { timeout: 120_000, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
+    const installOpts = { timeout: hiveTimeouts.install ?? 120_000, maxBuffer: 2 * 1024 * 1024, env: cleanInstallEnv };
     if (buildInfo.npmDir && (buildInfo.type === "npm" || buildInfo.type === "dotnet+npm")) {
       try {
         await addEvent(taskId, "dep_install", "worker", "Installing npm dependencies");
@@ -1061,7 +1066,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
 
     // ── Soft-pass filter: on rework cycles, only critical/major block ──────
     const reworkCount = task.reworkCount ?? 0;
-    const maxCyclesReview = task.maxReworkCycles ?? MAX_REWORK_CYCLES;
+    const maxCyclesReview = task.maxReworkCycles ?? maxReworkCycles;
 
     if (reworkCount > 0 && reviewResult.verdict === "rework") {
       const blockingFindings = reviewResult.findings.filter(
@@ -1114,7 +1119,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // Rework fixes or late-stage changes can introduce build errors that slip
     // through. Run quickVerify here to catch them before pushing.
     await addEvent(taskId, "final_verify_started", "worker", "Running final build/test verification");
-    const finalVerify = await quickVerify(worktree.path, buildSettings, { skipInstall: true });
+    const finalVerify = await quickVerify(worktree.path, buildSettings, { skipInstall: true, timeouts: hiveTimeouts });
 
     // Filter out pre-existing failures that were already broken on the base branch.
     // This prevents rework loops caused by repo issues the agent didn't introduce.
@@ -1232,7 +1237,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
             // Stop preview to free resources
             try { await previewManager.stopPreview(taskId); } catch { /* swallow */ }
 
-            const maxCycles = task.maxReworkCycles ?? MAX_REWORK_CYCLES;
+            const maxCycles = task.maxReworkCycles ?? maxReworkCycles;
             if ((task.reworkCount ?? 0) < maxCycles) {
               // Send for rework with browser findings
               await updateStatus(taskId, "rework");

@@ -1,6 +1,6 @@
 import { rm, mkdir, appendFile, writeFile, readFile, readdir, access } from "node:fs/promises";
 import { join } from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import { promisify } from "node:util";
 import logger from "../logger.js";
 import { getByUserAndProvider } from "../db/queries/user-credentials.js";
@@ -17,6 +17,20 @@ function escapeXml(s: string): string {
 }
 
 export const WORKTREE_BASE = "/tmp/hive-worktrees";
+
+const MIN_FREE_DISK_GB = 5;
+
+/** Returns free disk space in GB for the given path, or null if check fails. */
+function getFreeDiskGB(mountPath: string): number | null {
+  try {
+    const output = execSync(`df -BG "${mountPath}" | tail -1`, { encoding: "utf-8", timeout: 5_000 });
+    const parts = output.trim().split(/\s+/);
+    const availGB = parseInt(parts[3], 10);
+    return Number.isFinite(availGB) ? availGB : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolves git credentials for a user by looking up their stored token.
@@ -57,6 +71,14 @@ export async function createWorktree(
   const creds = await resolveGitCredentials(userId, provider);
   const dirName = `${branch.replace(/\//g, "-")}-${Date.now()}`;
   const worktreePath = `${WORKTREE_BASE}/${dirName}`;
+
+  // Fail fast if disk space is critically low
+  const freeGB = getFreeDiskGB("/tmp");
+  if (freeGB !== null && freeGB < MIN_FREE_DISK_GB) {
+    throw new Error(
+      `Insufficient disk space: ${freeGB} GB free on /tmp, need at least ${MIN_FREE_DISK_GB} GB`,
+    );
+  }
 
   // Ensure the parent directory exists; git clone will create worktreePath itself
   await mkdir(WORKTREE_BASE, { recursive: true });
