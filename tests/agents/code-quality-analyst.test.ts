@@ -1,4 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("../../src/db/connection.js", () => ({
+  db: {},
+  pool: {},
+}));
+
 import { extractJson } from "../../src/agents/sdk.js";
 
 // ── extractJson (shared utility) ─────────────────────────────────────────────

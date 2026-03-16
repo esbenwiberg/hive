@@ -1111,6 +1111,63 @@ router.post("/api/tasks/bulk-delete", requireAuth, async (req: Request, res: Res
   }
 });
 
+// ── POST /api/tasks/bulk-archive ─ Bulk archive tasks (admin-only) ──────
+
+router.post("/api/tasks/bulk-archive", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.session.user!;
+    if (user.role !== "admin") {
+      res.status(403).send("Admin access required");
+      return;
+    }
+
+    let ids: string[];
+    try {
+      ids = typeof req.body.ids === "string" ? JSON.parse(req.body.ids) : req.body.ids;
+    } catch {
+      res.status(400).send("Invalid ids");
+      return;
+    }
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).send("ids must be a non-empty array");
+      return;
+    }
+
+    let archived = 0;
+    const skipped: string[] = [];
+    for (const id of ids) {
+      try {
+        await taskQueries.updateStatus(id, TaskStatus.CANCELLED, user.id);
+        archived++;
+      } catch {
+        skipped.push(id);
+      }
+    }
+
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
+    const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
+      taskQueries.listWithCosts({}, undefined, undefined, userContext),
+      taskQueries.countByStatus(accessibleRepoIds),
+      repoQueries.listAll(),
+      fetchUserNames(),
+    ]);
+    const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
+
+    const message = skipped.length > 0
+      ? `Archived ${archived} task(s), ${skipped.length} skipped (already cancelled or invalid transition)`
+      : `Archived ${archived} task(s)`;
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message, type: "success" } }),
+    );
+    res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, true));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── POST /api/tasks/:id/reset ─ Reset task to pending (admin-only) ──────
 
 router.post("/api/tasks/:id/reset", requireAuth, async (req: Request, res: Response, next: NextFunction) => {

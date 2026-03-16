@@ -1846,6 +1846,7 @@ export function taskListPartial(
   const bulkToolbar = isAdmin
     ? `<div id="bulk-toolbar" class="hidden mt-3 flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2">
         <span id="bulk-count" class="text-sm text-slate-300">0 selected</span>
+        <button onclick="bulkArchive()" class="rounded-lg bg-slate-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-500">Archive Selected</button>
         <button onclick="bulkDelete()" class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500">Delete Selected</button>
       </div>
       <script>
@@ -1864,6 +1865,16 @@ export function taskListPartial(
           } else {
             toolbar.classList.add('hidden');
           }
+        }
+        function bulkArchive() {
+          var checked = document.querySelectorAll('.bulk-select:checked');
+          var ids = Array.from(checked).map(function(b) { return b.value; });
+          if (ids.length === 0) return;
+          if (!confirm('Archive ' + ids.length + ' task(s)? They will be moved to cancelled status.')) return;
+          htmx.ajax('POST', '/api/tasks/bulk-archive', {
+            target: '#task-list', swap: 'innerHTML',
+            values: { ids: JSON.stringify(ids) }
+          });
         }
         function bulkDelete() {
           var checked = document.querySelectorAll('.bulk-select:checked');

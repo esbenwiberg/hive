@@ -86,6 +86,18 @@ vi.mock("../../src/producers/feature-scout.js", () => ({
 vi.mock("../../src/producers/self-monitor.js", () => ({
   selfMonitor: makeProducerMock("self-monitor"),
 }));
+vi.mock("../../src/producers/doc-auditor.js", () => ({
+  docAuditor: makeProducerMock("doc-auditor"),
+}));
+vi.mock("../../src/producers/maintenance.js", () => ({
+  maintenanceProducer: makeProducerMock("maintenance"),
+}));
+vi.mock("../../src/producers/github-issues.js", () => ({
+  githubIssuesProducer: makeProducerMock("github-issues"),
+}));
+vi.mock("../../src/producers/ado-work-items.js", () => ({
+  adoWorkItemsProducer: makeProducerMock("ado-work-items"),
+}));
 
 const mockRecordRun = vi.fn().mockResolvedValue({});
 vi.mock("../../src/db/queries/producer-runs.js", () => ({
