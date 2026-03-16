@@ -648,10 +648,17 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     const buildSystemSection = buildSystemPromptSection(buildInfo, worktree.path);
     logger.info({ taskId, buildSystem: buildInfo.type, npmDir: buildInfo.npmDir, dotnetDir: buildInfo.dotnetDir }, "Detected build system for worker prompt");
 
-    // Read per-repo execution and timeout overrides from .hive.yaml
-    const hiveTimeouts: HiveTimeoutConfig = parseHiveTimeoutConfig(worktree.path) ?? {};
-    const hiveExecution = parseHiveExecutionConfig(worktree.path);
-    const maxReworkCycles = hiveExecution?.maxReworkCycles ?? DEFAULT_MAX_REWORK_CYCLES;
+    // Read per-repo execution and timeout overrides.
+    // Priority: .hive.yaml (repo-local) > repo settings (dashboard) > defaults
+    const repoSettingsAll = (repo.settings ?? {}) as Record<string, unknown>;
+    const dbTimeouts = (repoSettingsAll.timeouts ?? {}) as Record<string, number>;
+    const dbExecution = (repoSettingsAll.execution ?? {}) as Record<string, unknown>;
+    const yamlTimeouts: HiveTimeoutConfig = parseHiveTimeoutConfig(worktree.path) ?? {};
+    const yamlExecution = parseHiveExecutionConfig(worktree.path);
+    const hiveTimeouts: HiveTimeoutConfig = { ...dbTimeouts, ...yamlTimeouts };
+    const maxReworkCycles = yamlExecution?.maxReworkCycles
+      ?? (typeof dbExecution.maxReworkCycles === "number" ? dbExecution.maxReworkCycles : undefined)
+      ?? DEFAULT_MAX_REWORK_CYCLES;
 
     // Pre-install dependencies so the agent doesn't waste turns discovering they're missing.
     // Mirrors quickVerify's install steps. Failures are non-fatal — the agent can retry.
