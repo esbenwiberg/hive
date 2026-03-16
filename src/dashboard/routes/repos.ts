@@ -198,6 +198,35 @@ router.post("/repos/:id", requireRole("admin"), async (req: Request, res: Respon
       settings.build = build;
     }
 
+    // Execution timeouts (UI shows seconds, store as milliseconds)
+    const timeouts: Record<string, number> = {};
+    for (const key of ["install", "build", "test", "lint"] as const) {
+      const formKey = `timeout${key.charAt(0).toUpperCase() + key.slice(1)}_${repoId}`;
+      const val = body[formKey]?.trim();
+      if (val && val !== "") {
+        const num = Number(val);
+        if (!Number.isInteger(num) || num < 1 || num > 3600) {
+          res.status(400).send(`${key} timeout must be an integer between 1 and 3600 seconds`);
+          return;
+        }
+        timeouts[key] = num * 1000; // store as ms
+      }
+    }
+    if (Object.keys(timeouts).length > 0) {
+      settings.timeouts = timeouts;
+    }
+
+    // Execution config (max rework cycles)
+    const maxReworkVal = body[`maxReworkCycles_${repoId}`]?.trim();
+    if (maxReworkVal && maxReworkVal !== "") {
+      const num = Number(maxReworkVal);
+      if (!Number.isInteger(num) || num < 1 || num > 20) {
+        res.status(400).send("Max rework cycles must be an integer between 1 and 20");
+        return;
+      }
+      settings.execution = { maxReworkCycles: num };
+    }
+
     // Preview settings
     const preview: Record<string, unknown> = {};
     const previewEnabledKey = `previewEnabled_${repoId}`;

@@ -386,6 +386,33 @@ export function repoDetailPanel(repo: RepoRow): string {
       </div>
     </details>
 
+    <!-- Execution -->
+    ${(() => {
+      const timeouts = (settings.timeouts ?? {}) as Record<string, unknown>;
+      const execution = (settings.execution ?? {}) as Record<string, unknown>;
+      const toSec = (v: unknown) => typeof v === "number" ? String(Math.round(v / 1000)) : "";
+      const hasOverride = Object.keys(timeouts).length > 0 || Object.keys(execution).length > 0;
+      const marker = hasOverride ? overrideMarker : "";
+
+      return `<details>
+      <summary class="text-sm font-medium text-slate-300 cursor-pointer hover:text-slate-50">Execution${marker}</summary>
+      <div class="mt-3 space-y-3">
+        <p class="text-xs text-slate-500">Command timeouts and rework limits. These are dashboard defaults — <code>.hive.yaml</code> in the repo takes precedence when present.</p>
+        <div class="space-y-3">
+          <p class="text-xs font-medium text-slate-400">Command Timeouts (seconds)</p>
+          ${input(`timeoutInstall_${repo.id}`, "Install", { type: "number", value: toSec(timeouts.install), placeholder: "120 (default)" })}
+          ${input(`timeoutBuild_${repo.id}`, "Build", { type: "number", value: toSec(timeouts.build), placeholder: "120 (default)" })}
+          ${input(`timeoutTest_${repo.id}`, "Test", { type: "number", value: toSec(timeouts.test), placeholder: "120 (default)" })}
+          ${input(`timeoutLint_${repo.id}`, "Lint", { type: "number", value: toSec(timeouts.lint), placeholder: "120 (default)" })}
+        </div>
+        <div class="space-y-3 pt-2 border-t border-slate-700/50">
+          <p class="text-xs font-medium text-slate-400">Rework Limits</p>
+          ${input(`maxReworkCycles_${repo.id}`, "Max Rework Cycles", { type: "number", value: execution.maxReworkCycles != null ? String(execution.maxReworkCycles) : "", placeholder: "3 (default)" })}
+        </div>
+      </div>
+    </details>`;
+    })()}
+
     <!-- Preview Config -->
     <details>
       <summary class="text-sm font-medium text-slate-300 cursor-pointer hover:text-slate-50">Preview Config</summary>
