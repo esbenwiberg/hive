@@ -134,6 +134,8 @@ const mockParseHiveYaml = vi.fn();
 vi.mock("../../src/hive-yaml.js", () => ({
   parseHiveYaml: mockParseHiveYaml,
   parseHiveBuildConfig: vi.fn().mockReturnValue(null),
+  parseHiveTimeoutConfig: vi.fn().mockReturnValue(null),
+  parseHiveExecutionConfig: vi.fn().mockReturnValue(null),
 }));
 
 // Mock browser validator (dynamically imported by worker during preview)
