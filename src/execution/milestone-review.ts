@@ -91,6 +91,7 @@ async function runStep(
   cwd: string,
   label: string,
   failures: string[],
+  timeoutMs: number = SHELL_TIMEOUT_MS,
 ): Promise<boolean> {
   try {
     // Strip NODE_ENV=production so target-repo npm installs include devDependencies.
@@ -102,7 +103,7 @@ async function runStep(
     // Use process-group-aware exec so timeout kills all descendant processes
     await execInGroup(bin, args, {
       cwd,
-      timeout: SHELL_TIMEOUT_MS,
+      timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
       env: cleanEnv,
     });
@@ -141,11 +142,12 @@ async function runStep(
 export async function quickVerify(
   worktreePath: string,
   buildSettings?: { system?: string; npmDir?: string },
-  options?: { skipInstall?: boolean },
+  options?: { skipInstall?: boolean; timeouts?: { install?: number; build?: number; test?: number; lint?: number } },
 ): Promise<QuickVerifyResult> {
   const failures: string[] = [];
   const warnings: string[] = [];
   const skipInstall = options?.skipInstall ?? false;
+  const t = options?.timeouts;
 
   const info = await detectBuildSystem(worktreePath, undefined, buildSettings);
   logger.info({ worktreePath, buildSystem: info.type, skipInstall }, "quickVerify: detected build system");
@@ -157,7 +159,7 @@ export async function quickVerify(
     if (!skipInstall) {
       const installed = await runStep(
         "npm", ["install", "--prefer-offline", "--include=dev"],
-        npmDir, "npm install", failures,
+        npmDir, "npm install", failures, t?.install ?? SHELL_TIMEOUT_MS,
       );
 
       if (!installed) {
@@ -168,8 +170,8 @@ export async function quickVerify(
 
     // Lint is non-blocking — goes to warnings so it doesn't trigger rework
     // for issues in vendor/dist files the agent can't control.
-    await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", warnings);
-    await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures);
+    await runStep("npm", ["run", "lint", "--if-present"], npmDir, "npm lint", warnings, t?.lint ?? SHELL_TIMEOUT_MS);
+    await runStep("npm", ["run", "build", "--if-present"], npmDir, "npm build", failures, t?.build ?? SHELL_TIMEOUT_MS);
 
     // Vitest's explicit --watch flag overrides CI=true, so append --run to
     // force one-shot mode.  The flag is harmless if the script doesn't use vitest.
@@ -177,7 +179,7 @@ export async function quickVerify(
     if (await testScriptUsesVitest(npmDir)) {
       testArgs.push("--", "--run");
     }
-    await runStep("npm", testArgs, npmDir, "npm test", failures);
+    await runStep("npm", testArgs, npmDir, "npm test", failures, t?.test ?? SHELL_TIMEOUT_MS);
   }
 
   // ── dotnet steps ─────────────────────────────────────────────────────────
@@ -187,7 +189,7 @@ export async function quickVerify(
     if (!skipInstall) {
       const restored = await runStep(
         "dotnet", ["restore", "/p:NuGetAudit=false"],
-        dotnetDir, "dotnet restore", failures,
+        dotnetDir, "dotnet restore", failures, t?.install ?? SHELL_TIMEOUT_MS,
       );
 
       if (!restored) {
@@ -196,9 +198,9 @@ export async function quickVerify(
       }
     }
 
-    const built = await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures);
+    const built = await runStep("dotnet", ["build", "--no-restore"], dotnetDir, "dotnet build", failures, t?.build ?? SHELL_TIMEOUT_MS);
     if (built) {
-      await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures);
+      await runStep("dotnet", ["test", "--no-build"], dotnetDir, "dotnet test", failures, t?.test ?? SHELL_TIMEOUT_MS);
     } else {
       logger.warn({ dotnetDir }, "quickVerify: dotnet build failed — skipping dotnet test");
     }

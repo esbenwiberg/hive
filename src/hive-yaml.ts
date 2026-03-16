@@ -55,6 +55,99 @@ export function parseHiveBuildConfig(worktreePath: string): HiveBuildConfig | nu
   return Object.keys(result).length > 0 ? result : null;
 }
 
+// ── Timeout config ──────────────────────────────────────────────────────────
+
+/** Per-repo shell command timeout overrides (milliseconds). */
+export interface HiveTimeoutConfig {
+  /** npm/dotnet install timeout. Default: 120000 */
+  install?: number;
+  /** Build command timeout. Default: 120000 */
+  build?: number;
+  /** Test command timeout. Default: 120000 */
+  test?: number;
+  /** Lint command timeout. Default: 120000 */
+  lint?: number;
+}
+
+/**
+ * Reads `.hive.yaml` from the given path and returns the parsed `timeouts`
+ * section, or null if the file is missing or has no timeouts section.
+ */
+export function parseHiveTimeoutConfig(worktreePath: string): HiveTimeoutConfig | null {
+  const filePath = join(worktreePath, ".hive.yaml");
+
+  let contents: string;
+  try {
+    contents = readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+
+  let doc: Record<string, unknown>;
+  try {
+    doc = parse(contents) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  if (!doc || typeof doc !== "object" || !doc.timeouts) {
+    return null;
+  }
+
+  const raw = doc.timeouts as Record<string, unknown>;
+  const result: HiveTimeoutConfig = {};
+
+  for (const key of ["install", "build", "test", "lint"] as const) {
+    if (typeof raw[key] === "number" && raw[key] > 0) {
+      result[key] = raw[key] as number;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+// ── Execution config ────────────────────────────────────────────────────────
+
+/** Per-repo execution overrides. */
+export interface HiveExecutionConfig {
+  /** Max review→rework cycles before failing. Default: 3 */
+  maxReworkCycles?: number;
+}
+
+/**
+ * Reads `.hive.yaml` and returns the `execution` section.
+ */
+export function parseHiveExecutionConfig(worktreePath: string): HiveExecutionConfig | null {
+  const filePath = join(worktreePath, ".hive.yaml");
+
+  let contents: string;
+  try {
+    contents = readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+
+  let doc: Record<string, unknown>;
+  try {
+    doc = parse(contents) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  if (!doc || typeof doc !== "object" || !doc.execution) {
+    return null;
+  }
+
+  const raw = doc.execution as Record<string, unknown>;
+  const result: HiveExecutionConfig = {};
+
+  if (typeof raw.max_rework_cycles === "number" && raw.max_rework_cycles > 0) {
+    result.maxReworkCycles = raw.max_rework_cycles;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 // ── Preview type interfaces ─────────────────────────────────────────────────
 
 export interface BasePreviewConfig {

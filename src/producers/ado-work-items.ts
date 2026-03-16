@@ -1,25 +1,55 @@
+import TurndownService from "turndown";
 import { resolveGitCredentials } from "../execution/worktree.js";
 import { createTaskWithDedup } from "./base.js";
-import { queryWorkItems, getWorkItem, updateWorkItemTags } from "../integrations/azure-devops.js";
+import {
+  queryWorkItems,
+  getWorkItem,
+  updateWorkItemTags,
+  extractAttachments,
+  downloadAttachment,
+} from "../integrations/azure-devops.js";
+import { updateEnrichment } from "../db/queries/tasks.js";
 import logger from "../logger.js";
 import type { Producer, ProducerContext, ProducerResult } from "./base.js";
 
 interface AdoWorkItemsConfig {
   tag?: string;
   maxPerRun?: number;
+  /** Custom field reference names to extract as acceptance criteria. */
+  acceptanceCriteriaFields?: string[];
 }
 
 const MAX_BODY_CHARS = 10_000;
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5 MB per image
+
+/** Well-known ADO fields that commonly hold acceptance criteria. */
+const DEFAULT_AC_FIELDS = [
+  "Microsoft.VSTS.Common.AcceptanceCriteria",
+  "Custom.AcceptanceCriteria",
+  "Custom.DefinitionOfDone",
+];
+
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"]);
+
+const turndown = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+  bulletListMarker: "-",
+});
 
 /**
  * Polls Azure DevOps Work Items with a configurable tag and creates Hive tasks.
  *
- * No LLM calls — pure API polling. Zero cost per run (aside from
- * semantic dedup in createTaskWithDedup on first encounter).
+ * Extracts:
+ * - Description (HTML → Markdown via turndown)
+ * - Acceptance criteria from common custom fields
+ * - Image attachments (downloaded as buffers for Claude vision input)
  *
  * Config (per-repo `producers["ado-work-items"].config`):
  *   - tag: ADO tag to filter by (default: "hive")
  *   - maxPerRun: max work items to ingest per tick (default: 10)
+ *   - acceptanceCriteriaFields: custom field names for AC (default: common fields)
  *
  * ADO PAT scope requirement: Work Items Read+Write (in addition to existing Code scope).
  */
@@ -48,6 +78,7 @@ export class AdoWorkItemsProducer implements Producer {
     const config = (ctx.config ?? {}) as AdoWorkItemsConfig;
     const tag = config.tag ?? "hive";
     const maxPerRun = Math.min(config.maxPerRun ?? 10, 100);
+    const acFields = config.acceptanceCriteriaFields ?? DEFAULT_AC_FIELDS;
     const source = `producer:${this.name}`;
 
     // Parse org/project/repo
@@ -91,17 +122,63 @@ export class AdoWorkItemsProducer implements Producer {
         const fields = wi.fields;
 
         const title = `[${fields["System.WorkItemType"]} #${id}] ${fields["System.Title"]}`;
-        const rawBody = fields["System.Description"] ?? "";
-        // Strip HTML tags from ADO description (basic sanitization)
-        const plainBody = rawBody.replace(/<[^>]*>/g, "").trim();
-        const body = [
-          plainBody.slice(0, MAX_BODY_CHARS),
-          "",
+
+        // ── Description: HTML → Markdown ──────────────────────────────
+        const rawHtml = fields["System.Description"] ?? "";
+        const description = rawHtml ? turndown.turndown(rawHtml).trim() : "";
+
+        // ── Acceptance Criteria from custom fields ────────────────────
+        const acSections: string[] = [];
+        for (const fieldName of acFields) {
+          const rawAc = fields[fieldName];
+          if (typeof rawAc === "string" && rawAc.trim()) {
+            const acMd = turndown.turndown(rawAc).trim();
+            if (acMd) {
+              const label = fieldName.split(".").pop() ?? fieldName;
+              acSections.push(`## ${label}\n\n${acMd}`);
+            }
+          }
+        }
+
+        // ── Build task body ───────────────────────────────────────────
+        const bodyParts: string[] = [];
+        if (description) bodyParts.push(description);
+        if (acSections.length > 0) {
+          bodyParts.push("---\n\n# Acceptance Criteria\n\n" + acSections.join("\n\n"));
+        }
+        bodyParts.push(
           "---",
           `_Source: Azure DevOps Work Item #${id} (${org}/${project})_`,
-        ].join("\n");
+        );
 
-        const { skipped } = await createTaskWithDedup({
+        const body = bodyParts.join("\n\n").slice(0, MAX_BODY_CHARS);
+
+        // ── Image attachments for vision input ────────────────────────
+        const attachments = extractAttachments(wi);
+        const imageAttachments = attachments.filter((a) => {
+          const ext = "." + a.name.split(".").pop()?.toLowerCase();
+          return IMAGE_EXTENSIONS.has(ext);
+        });
+
+        const images: Array<{ name: string; data: string; mediaType: string }> = [];
+        for (const att of imageAttachments.slice(0, MAX_ATTACHMENTS)) {
+          try {
+            const { data, contentType } = await downloadAttachment(att.url, pat);
+            if (data.length > MAX_ATTACHMENT_SIZE) {
+              logger.warn({ workItemId: id, attachment: att.name, size: data.length }, "ado-work-items: skipping oversized attachment");
+              continue;
+            }
+            images.push({
+              name: att.name,
+              data: data.toString("base64"),
+              mediaType: contentType.startsWith("image/") ? contentType : "image/png",
+            });
+          } catch (dlErr) {
+            logger.warn({ workItemId: id, attachment: att.name, err: dlErr }, "ado-work-items: failed to download attachment");
+          }
+        }
+
+        const { skipped, task } = await createTaskWithDedup({
           title,
           body,
           source,
@@ -114,6 +191,20 @@ export class AdoWorkItemsProducer implements Producer {
           result.duplicatesSkipped++;
         } else {
           result.tasksCreated++;
+
+          // Store images in enrichment so the worker can pass them to Claude as vision input
+          if (task && images.length > 0) {
+            try {
+              const existing = (task.enrichment as Record<string, unknown>) ?? {};
+              await updateEnrichment(task.id, {
+                ...existing,
+                adoImages: images,
+              });
+              logger.info({ taskId: task.id, imageCount: images.length }, "ado-work-items: stored image attachments in enrichment");
+            } catch (enrichErr) {
+              logger.warn({ taskId: task.id, err: enrichErr }, "ado-work-items: failed to store image attachments");
+            }
+          }
         }
 
         // Swap tag so the work item isn't re-fetched on future ticks.

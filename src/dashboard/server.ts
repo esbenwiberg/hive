@@ -5,6 +5,7 @@ import sessionMiddleware from "../auth/session.js";
 import { getAuthUrl, handleCallback } from "../auth/entra.js";
 import { injectUser, isDevAuth } from "../auth/middleware.js";
 import { findOrCreateByEntraOid } from "../db/queries/users.js";
+import { pool } from "../db/connection.js";
 import logger from "../logger.js";
 import dashboardRouter from "./routes/dashboard.js";
 import taskRouter from "./routes/tasks.js";
@@ -155,8 +156,33 @@ app.post("/auth/logout", (req, res, next) => {
 
 // ── Health check ─────────────────────────────────────────────────────────────
 
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok" });
+app.get("/api/health", async (_req, res) => {
+  try {
+    const dbStart = Date.now();
+    await pool.query("SELECT 1");
+    const dbLatencyMs = Date.now() - dbStart;
+
+    let queueDepth = 0;
+    try {
+      const queueResult = await pool.query(
+        "SELECT count(*) FROM tasks WHERE status IN ('pending','queued','approved','enriching','executing','reviewing','rework')",
+      );
+      queueDepth = parseInt(queueResult.rows[0]?.count ?? "0", 10);
+    } catch { /* non-critical */ }
+
+    res.json({
+      status: "ok",
+      uptime: Math.floor(process.uptime()),
+      dbLatencyMs,
+      queueDepth,
+      memoryMB: Math.round(process.memoryUsage.rss() / 1024 / 1024),
+    });
+  } catch (err) {
+    res.status(503).json({
+      status: "unhealthy",
+      error: err instanceof Error ? err.message : "DB connection failed",
+    });
+  }
 });
 
 // ── Protected routes (routers) ──────────────────────────────────────────────
