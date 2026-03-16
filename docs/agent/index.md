@@ -213,3 +213,19 @@ This documentation covers the complete Agent API — a system for autonomous sof
 
 | Module | Description |
 |--------|-------------|
+| [`index.ts`](../../src/index.ts) | Application entry point that bootstraps the server and background services. |
+| [`logger.ts`](../../src/logger.ts) | Structured logging utilities used throughout the application. |
+| [`log-buffer.ts`](../../src/log-buffer.ts) | In-memory log buffer for capturing and replaying recent log output. |
+| [`notifications.ts`](../../src/notifications.ts) | Notification dispatch utilities for alerting on task and system events. |
+| [`prompts.ts`](../../src/prompts.ts) | Shared prompt templates and construction helpers for agent interactions. |
+| [`prompt-cache.ts`](../../src/prompt-cache.ts) | Caching layer for compiled prompts to reduce redundant LLM token usage. |
+| [`hive-yaml.ts`](../../src/hive-yaml.ts) | Parser and validator for the `hive.yaml` configuration file format. |
+| [`telemetry.ts`](../../src/telemetry.ts) | Telemetry instrumentation for tracking system performance and usage metrics. |
+| [`cli.ts`](../../src/cli.ts) | Command-line interface for daemon and producer management operations. |
+| [`blueprints/parser.ts`](../../src/blueprints/parser.ts) | Parser for blueprint definitions that describe agent task workflows. |
+| [`utils/retry.ts`](../../src/utils/retry.ts) | Generic retry utility with configurable backoff strategies. |
+| [`execution/exec-group.ts`](../../src/execution/exec-group.ts) | Manages grouped execution contexts for coordinating parallel agent work. |
+| [`execution/preview/proxy.ts`](../../src/execution/preview/proxy.ts) | Reverse-proxy component for routing traffic to preview environment containers. |
+| [`producers/ado-work-items.ts`](../../src/producers/ado-work-items.ts) | Producer agent that sources tasks from Azure DevOps work items. |
+| [`producers/github-issues.ts`](../../src/producers/github-issues.ts) | Producer agent that sources tasks from GitHub Issues. |
+| [`db/connection.ts`](../../src/db/connection.ts) | Database connection setup and pool configuration for PostgreSQL via Drizzle. |
