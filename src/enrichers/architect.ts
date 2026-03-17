@@ -49,6 +49,55 @@ function stripCodeFences(text: string): string {
 }
 
 /**
+ * Attempts to extract a JSON object from a string that may contain leading
+ * prose text. Finds the first top-level `{…}` block by brace-matching and
+ * tries to parse it.  Returns `null` when no valid JSON object can be found.
+ */
+function extractEmbeddedJson(text: string): Record<string, unknown> | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === "\\" && inString) {
+      escape = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1)) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Parses the raw Claude output into an ArchitectBlueprint.
  *
  * Attempts JSON parsing first. On failure, falls back to storing the raw text
@@ -62,8 +111,15 @@ export function parseBlueprint(raw: string, hasAnswers = false): ArchitectBluepr
   try {
     parsed = JSON.parse(cleaned) as Record<string, unknown>;
   } catch {
-    logger.warn("Architect response was not valid JSON; using raw text as fallback approach");
-    return { approach: cleaned };
+    // The model sometimes wraps its JSON in prose text — try to extract it.
+    const embedded = extractEmbeddedJson(cleaned);
+    if (embedded) {
+      logger.info("Architect response contained prose + embedded JSON; extracted successfully");
+      parsed = embedded;
+    } else {
+      logger.warn("Architect response was not valid JSON; using raw text as fallback approach");
+      return { approach: cleaned };
+    }
   }
 
   if (!parsed || typeof parsed !== "object") {

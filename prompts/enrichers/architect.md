@@ -192,4 +192,4 @@ When enrichment data shows `buildSystem: "dotnet"` or `"dotnet+npm"`:
 
 ## Response Format
 
-Respond with a single JSON object (no markdown code fences). The schema depends on the task size and whether clarification is needed, as described above.
+**CRITICAL: Your entire response must be a single JSON object — nothing else.** Do not include any prose, commentary, reasoning, or explanation before or after the JSON. Do not wrap the JSON in markdown code fences. The very first character of your response must be `{` and the very last must be `}`. The schema depends on the task size and whether clarification is needed, as described above.
