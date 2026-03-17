@@ -32,96 +32,32 @@ function restoreEnv(): void {
       process.env[key] = value;
     }
   }
-  // Clear backup
   for (const key of Object.keys(ENV_BACKUP)) delete ENV_BACKUP[key];
 }
 
-/** Build a mock fetch that returns different responses per URL pattern */
-function buildMockFetch(overrides: Record<string, unknown> = {}) {
-  const searchResponse = overrides.search ?? {
-    status: 200,
-    ok: true,
-    json: async () => ({
-      relevantCode: [
-        {
-          embeddingId: 1,
-          distance: 0.1,
-          score: 0.9,
-          summaryContent: "Handles user authentication flow",
-          targetId: "src/auth/login.ts::handleLogin",
-          level: "function",
-          filePath: "src/auth/login.ts",
-          symbolName: "handleLogin",
-          symbolKind: "function",
-        },
-      ],
-      moduleSummaries: [
-        {
-          targetId: "src/auth",
-          content: "Authentication module handling SSO and local login",
-        },
-      ],
-      findings: [
-        {
-          category: "coupling",
-          severity: "high",
-          title: "High coupling in auth module",
-          description: "Auth module has too many dependencies",
-          suggestion: "Consider extracting shared utilities",
-        },
-        {
-          category: "dead-code",
-          severity: "low",
-          title: "Unused export",
-          description: "legacyLogin is never imported",
-          suggestion: null,
-        },
-      ],
-    }),
+/** Build a mock fetch for the /context/enrich endpoint */
+function buildMockFetch(overrides: { status?: number; ok?: boolean; body?: unknown } = {}) {
+  const response = {
+    status: overrides.status ?? 200,
+    ok: overrides.ok ?? true,
+    json: async () =>
+      overrides.body ?? {
+        sections: [
+          { heading: "Purpose", priority: 1, content: "Auth module overview", tokenCount: 120 },
+          { heading: "Relevant Code", priority: 2, content: "handleLogin in src/auth/login.ts", tokenCount: 850 },
+          { heading: "Blast Radius", priority: 3, content: "Affects 3 downstream files", tokenCount: 210 },
+        ],
+        totalTokens: 1180,
+        truncated: false,
+      },
+    text: async () => JSON.stringify(overrides.body ?? { error: "mock error" }),
   };
 
-  const contextRelatedResponse = overrides.related ?? {
-    status: 200,
-    ok: true,
-    json: async () => ({
-      sections: [{ title: "auth/login.ts", content: "login code", tokens: 500 }],
-      totalTokens: 500,
-      truncated: false,
-    }),
-  };
-
-  const contextArchResponse = overrides.arch ?? {
-    status: 200,
-    ok: true,
-    json: async () => ({
-      sections: [{ title: "Architecture", content: "modular auth", tokens: 300 }],
-      totalTokens: 300,
-      truncated: false,
-    }),
-  };
-
-  const contextChangesResponse = overrides.changes ?? {
-    status: 200,
-    ok: true,
-    json: async () => ({
-      sections: [{ title: "Recent", content: "fixed SSO", tokens: 200 }],
-      totalTokens: 200,
-      truncated: false,
-    }),
-  };
-
-  return vi.fn().mockImplementation((url: string) => {
-    if (url.includes("/context/related")) return Promise.resolve(contextRelatedResponse);
-    if (url.includes("/context/arch")) return Promise.resolve(contextArchResponse);
-    if (url.includes("/context/changes")) return Promise.resolve(contextChangesResponse);
-    if (url.includes("/search")) return Promise.resolve(searchResponse);
-    return Promise.reject(new Error(`Unexpected URL: ${url}`));
-  });
+  return vi.fn().mockResolvedValue(response);
 }
 
 // ── Mock setup ──────────────────────────────────────────────────────────────
 
-// Mock fetch so we never make real HTTP calls — each test re-stubs as needed
 vi.stubGlobal("fetch", vi.fn());
 
 const mockGetById = vi.fn();
@@ -150,7 +86,6 @@ describe("prismEnricher", () => {
     restoreEnv();
   });
 
-  // We import fresh each time to pick up env changes
   async function getEnricher() {
     const mod = await import("../../src/enrichers/prism.js");
     return mod.prismEnricher;
@@ -169,17 +104,15 @@ describe("prismEnricher", () => {
     const enricher = await getEnricher();
     const result = await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
 
-    expect(result.durationMs).toBeGreaterThanOrEqual(0);
     expect(result.data).toEqual({});
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("skips when no Prism project found for repo path", async () => {
+  it("skips when project not found (404)", async () => {
     setEnv("PRISM_API_URL", "http://localhost:4000");
     mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
 
-    // All endpoints return 404
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 404, ok: false }));
+    vi.stubGlobal("fetch", buildMockFetch({ status: 404, ok: false }));
 
     const enricher = await getEnricher();
     const result = await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
@@ -187,10 +120,11 @@ describe("prismEnricher", () => {
     expect(result.data).toEqual({});
   });
 
-  it("skips when API call fails with non-404 error", async () => {
+  it("skips when API returns non-OK", async () => {
     setEnv("PRISM_API_URL", "http://localhost:4000");
     mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 500, ok: false }));
+
+    vi.stubGlobal("fetch", buildMockFetch({ status: 500, ok: false }));
 
     const enricher = await getEnricher();
     const result = await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
@@ -198,7 +132,7 @@ describe("prismEnricher", () => {
     expect(result.data).toEqual({});
   });
 
-  it("returns full enrichment data on happy path with context", async () => {
+  it("returns sections on happy path", async () => {
     setEnv("PRISM_API_URL", "http://localhost:4000");
     mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
 
@@ -208,49 +142,24 @@ describe("prismEnricher", () => {
     const enricher = await getEnricher();
     const result = await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
 
-    // Verify legacy structure
     const prism = result.data.prism as Record<string, unknown>;
     expect(prism).toBeDefined();
 
-    const relevantCode = prism.relevantCode as unknown[];
-    expect(relevantCode).toHaveLength(1);
-    expect(relevantCode[0]).toMatchObject({
-      targetId: "src/auth/login.ts::handleLogin",
-      filePath: "src/auth/login.ts",
-      score: 0.9,
-    });
+    const sections = prism.sections as unknown[];
+    expect(sections).toHaveLength(3);
+    expect(prism.totalTokens).toBe(1180);
+    expect(prism.truncated).toBe(false);
 
-    const moduleSummaries = prism.moduleSummaries as unknown[];
-    expect(moduleSummaries).toHaveLength(1);
+    const stats = prism.stats as Record<string, unknown>;
+    expect(stats.sectionCount).toBe(3);
+    expect(stats.totalTokens).toBe(1180);
 
-    const findings = prism.findings as unknown[];
-    expect(findings).toHaveLength(2);
-
-    // Verify context structure
-    const context = prism.context as Record<string, unknown>;
-    expect(context).toBeDefined();
-    expect(context.relatedFiles).toMatchObject({ totalTokens: 500, truncated: false });
-    expect(context.architecture).toMatchObject({ totalTokens: 300, truncated: false });
-    expect(context.recentChanges).toMatchObject({ totalTokens: 200, truncated: false });
-
-    // Verify stats
-    const stats = prism.stats as Record<string, number>;
-    expect(stats.searchResults).toBe(1);
-    expect(stats.summariesReturned).toBe(1);
-    expect(stats.findingsReturned).toBe(2);
-    expect(stats.contextEndpointsCalled).toBe(3);
-    expect(stats.contextTotalTokens).toBe(1000);
-
-    // Verify all 4 calls were made
-    expect(mock).toHaveBeenCalledTimes(4);
-    const urls = mock.mock.calls.map((c: unknown[]) => c[0] as string);
-    expect(urls).toContain("http://localhost:4000/api/projects/org/repo/search");
-    expect(urls).toContain("http://localhost:4000/api/projects/org/repo/context/related");
-    expect(urls).toContain("http://localhost:4000/api/projects/org/repo/context/arch");
-    expect(urls).toContain("http://localhost:4000/api/projects/org/repo/context/changes");
+    // Single call to /context/enrich
+    expect(mock).toHaveBeenCalledTimes(1);
+    expect((mock.mock.calls[0][0] as string)).toContain("/context/enrich");
   });
 
-  it("calls context endpoints with correct request bodies", async () => {
+  it("sends correct request body", async () => {
     setEnv("PRISM_API_URL", "http://localhost:4000");
     mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
 
@@ -260,92 +169,34 @@ describe("prismEnricher", () => {
     const enricher = await getEnricher();
     await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
 
-    // Find the context/related call and check its body
-    const relatedCall = mock.mock.calls.find((c: unknown[]) => (c[0] as string).includes("/context/related"));
-    expect(relatedCall).toBeDefined();
-    const relatedBody = JSON.parse((relatedCall![1] as { body: string }).body);
-    expect(relatedBody.intent).toContain("Fix authentication bug");
-    expect(relatedBody.tokenBudget).toBe(8000);
-
-    // Architecture uses title only
-    const archCall = mock.mock.calls.find((c: unknown[]) => (c[0] as string).includes("/context/arch"));
-    const archBody = JSON.parse((archCall![1] as { body: string }).body);
-    expect(archBody.intent).toBe("Fix authentication bug");
-    expect(archBody.tokenBudget).toBe(4000);
-
-    // Changes uses title only
-    const changesCall = mock.mock.calls.find((c: unknown[]) => (c[0] as string).includes("/context/changes"));
-    const changesBody = JSON.parse((changesCall![1] as { body: string }).body);
-    expect(changesBody.intent).toBe("Fix authentication bug");
-    expect(changesBody.tokenBudget).toBe(4000);
+    const body = JSON.parse((mock.mock.calls[0][1] as { body: string }).body);
+    expect(body.query).toContain("Fix authentication bug");
+    expect(body.query).toContain("login flow breaks");
+    expect(body.maxTokens).toBe(16000);
   });
 
-  it("handles partial context failure gracefully", async () => {
-    setEnv("PRISM_API_URL", "http://localhost:4000");
-    mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
-
-    // Architecture endpoint returns 500, others succeed
-    const mock = buildMockFetch({
-      arch: { status: 500, ok: false },
-    });
-    vi.stubGlobal("fetch", mock);
-
-    const enricher = await getEnricher();
-    const result = await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
-
-    const prism = result.data.prism as Record<string, unknown>;
-    expect(prism).toBeDefined();
-
-    const context = prism.context as Record<string, unknown>;
-    expect(context.relatedFiles).not.toBeNull();
-    expect(context.architecture).toBeNull(); // failed endpoint
-    expect(context.recentChanges).not.toBeNull();
-
-    // Stats still report 3 endpoints called
-    const stats = prism.stats as Record<string, number>;
-    expect(stats.contextEndpointsCalled).toBe(3);
-    // Only successful tokens counted
-    expect(stats.contextTotalTokens).toBe(700); // 500 + 0 + 200
-  });
-
-  it("skips context endpoints when slug has no slash", async () => {
+  it("uses prismSlug from repo settings when available", async () => {
     setEnv("PRISM_API_URL", "http://localhost:4000");
     mockGetById.mockResolvedValue({
       id: 5,
-      fullName: "monorepo",
-      settings: { prismSlug: "monorepo" },
+      fullName: "org/repo",
+      settings: { prismSlug: "custom/slug" },
     });
 
     const mock = buildMockFetch();
     vi.stubGlobal("fetch", mock);
 
     const enricher = await getEnricher();
-    const result = await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
+    await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
 
-    const prism = result.data.prism as Record<string, unknown>;
-    expect(prism).toBeDefined();
-
-    // Only the search call should have been made
-    expect(mock).toHaveBeenCalledTimes(1);
-    expect((mock.mock.calls[0][0] as string)).toContain("/search");
-
-    // Context should be all nulls
-    const context = prism.context as Record<string, unknown>;
-    expect(context.relatedFiles).toBeNull();
-    expect(context.architecture).toBeNull();
-    expect(context.recentChanges).toBeNull();
-
-    const stats = prism.stats as Record<string, number>;
-    expect(stats.contextEndpointsCalled).toBe(0);
-    expect(stats.contextTotalTokens).toBe(0);
+    expect((mock.mock.calls[0][0] as string)).toContain("/api/projects/custom/slug/context/enrich");
   });
 
-  it("skips when API throws (network error)", async () => {
+  it("skips when network error occurs", async () => {
     setEnv("PRISM_API_URL", "http://localhost:4000");
     mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
 
-    const networkError = vi.fn().mockRejectedValue(new Error("Network error"));
-    vi.stubGlobal("fetch", networkError);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network error")));
 
     const enricher = await getEnricher();
     const result = await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
@@ -353,30 +204,24 @@ describe("prismEnricher", () => {
     expect(result.data).toEqual({});
   });
 
-  it("returns enrichment data with empty results", async () => {
+  it("handles empty sections gracefully", async () => {
     setEnv("PRISM_API_URL", "http://localhost:4000");
-
     mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
 
-    const mock = buildMockFetch({
-      search: {
-        status: 200,
-        ok: true,
-        json: async () => ({ relevantCode: [], moduleSummaries: [], findings: [] }),
-      },
-    });
-    vi.stubGlobal("fetch", mock);
+    vi.stubGlobal("fetch", buildMockFetch({
+      body: { sections: [], totalTokens: 0, truncated: false },
+    }));
 
     const enricher = await getEnricher();
     const result = await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
 
     const prism = result.data.prism as Record<string, unknown>;
     expect(prism).toBeDefined();
-    expect(prism.stats).toBeDefined();
-    expect(prism.context).toBeDefined();
+    expect(prism.sections).toEqual([]);
+    expect(prism.totalTokens).toBe(0);
   });
 
-  it("sends PRISM_API_KEY as Authorization header when set", async () => {
+  it("sends Authorization header when API key is set", async () => {
     setEnv("PRISM_API_URL", "http://localhost:4000");
     setEnv("PRISM_API_KEY", "secret-key");
     mockGetById.mockResolvedValue({ id: 5, fullName: "org/repo" });
@@ -387,11 +232,8 @@ describe("prismEnricher", () => {
     const enricher = await getEnricher();
     await enricher.run(DUMMY_TASK, "/tmp/repo", {}, DEFAULT_CONFIG);
 
-    // All calls should have the auth header
-    for (const call of mock.mock.calls) {
-      expect((call[1] as { headers: Record<string, string> }).headers).toMatchObject({
-        Authorization: "Bearer secret-key",
-      });
-    }
+    expect((mock.mock.calls[0][1] as { headers: Record<string, string> }).headers).toMatchObject({
+      Authorization: "Bearer secret-key",
+    });
   });
 });
