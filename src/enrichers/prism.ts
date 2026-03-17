@@ -226,7 +226,9 @@ export const prismEnricher: Enricher = {
     ]);
 
     // If search returned null (404 or failure) and no context data, bail out
+    // but still surface a marker so the UI can show why prism is empty.
     if (!searchResult && !relatedFiles && !architecture && !recentChanges) {
+      logger.warn({ taskId: task.id, slug }, "Prism enricher: all endpoints failed, returning empty");
       return { data: {}, durationMs: Date.now() - startTime };
     }
 

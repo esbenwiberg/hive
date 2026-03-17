@@ -373,8 +373,36 @@ export async function getConfigOverrides(): Promise<ConfigOverrides> {
 export async function saveConfigOverrides(
   overrides: ConfigOverrides,
 ): Promise<AutonomousConfig> {
-  await setConfig(CONFIG_DB_KEY, overrides);
+  // Deep-merge with existing DB overrides so that omitted keys are preserved
+  // rather than silently wiped (e.g. password fields left blank on re-save).
+  const existing = await getConfigOverrides();
+  const merged = deepMergeOverrides(existing, overrides);
+  await setConfig(CONFIG_DB_KEY, merged);
   const base = loadConfig();
-  _config = mergeOverrides(base, overrides);
+  _config = mergeOverrides(base, merged);
   return _config;
+}
+
+/**
+ * Two-level merge: for each key in `patch`, if both sides are plain objects
+ * merge their properties; otherwise the patch value wins.
+ */
+function deepMergeOverrides(
+  base: ConfigOverrides,
+  patch: ConfigOverrides,
+): ConfigOverrides {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    const k = key as keyof ConfigOverrides;
+    const existing = result[k];
+    if (
+      existing && typeof existing === "object" && !Array.isArray(existing) &&
+      value && typeof value === "object" && !Array.isArray(value)
+    ) {
+      (result as Record<string, unknown>)[k] = { ...existing, ...value };
+    } else {
+      (result as Record<string, unknown>)[k] = value;
+    }
+  }
+  return result;
 }
