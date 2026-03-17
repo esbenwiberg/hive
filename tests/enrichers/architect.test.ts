@@ -304,6 +304,38 @@ describe("parseBlueprint", () => {
     expect(result.clarificationQuestions).toEqual(["Q1?", "Q2?"]);
   });
 
+  it("extracts embedded JSON when response contains leading prose", () => {
+    const prose = `I need to assess whether this task is clear enough to produce a blueprint, or whether clarification is needed.
+
+The task describes a security bug (privilege escalation via delegation).`;
+    const json = JSON.stringify({
+      clarificationQuestions: [
+        "Where does the delegation logic currently live?",
+        "What does 'permission level' mean in this context?",
+      ],
+      awaitingInput: true,
+    });
+    const input = `${prose}\n\n${json}`;
+
+    const result = parseBlueprint(input);
+    expect(result.awaitingInput).toBe(true);
+    expect(result.clarificationQuestions).toEqual([
+      "Where does the delegation logic currently live?",
+      "What does 'permission level' mean in this context?",
+    ]);
+  });
+
+  it("extracts embedded JSON with approach field from prose response", () => {
+    const input = `Here is my analysis:\n\n${JSON.stringify({
+      approach: "Refactor the auth module",
+      keyFiles: ["src/auth.ts"],
+    })}`;
+
+    const result = parseBlueprint(input);
+    expect(result.approach).toBe("Refactor the auth module");
+    expect(result.keyFiles).toEqual(["src/auth.ts"]);
+  });
+
   it("coerces milestone fields with defaults for missing properties", () => {
     const input = JSON.stringify({
       approach: "test",
