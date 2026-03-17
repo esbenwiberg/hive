@@ -629,64 +629,39 @@ function hivemindEnrichmentContent(hivemind: Record<string, unknown>): string {
  * Dedicated renderer for the `prism` enricher result.
  */
 function prismEnrichmentContent(prism: Record<string, unknown>): string {
-  const relevantCode = Array.isArray(prism.relevantCode) ? prism.relevantCode as Array<Record<string, unknown>> : [];
-  const relatedFiles = Array.isArray(prism.relatedFiles) ? prism.relatedFiles as Array<Record<string, unknown>> : [];
-  const moduleSummaries = Array.isArray(prism.moduleSummaries) ? prism.moduleSummaries as Array<Record<string, unknown>> : [];
+  const sections = Array.isArray(prism.sections) ? prism.sections as Array<Record<string, unknown>> : [];
+  const truncated = prism.truncated === true;
+  const totalTokens = typeof prism.totalTokens === "number" ? prism.totalTokens : 0;
 
-  const parts: string[] = [];
+  if (sections.length === 0) {
+    return `<span class="text-slate-500 italic">no context returned</span>`;
+  }
 
-  if (relevantCode.length > 0) {
-    const items = relevantCode.map((rc) => {
-      const file = rc.filePath ? escapeHtml(String(rc.filePath)) : null;
-      const symbol = rc.symbolName ? escapeHtml(String(rc.symbolName)) : null;
-      const kind = rc.symbolKind ? `<span class="text-slate-500 ml-1">${escapeHtml(String(rc.symbolKind))}</span>` : "";
-      const score = typeof rc.score === "number" ? rc.score.toFixed(2) : null;
-      const summary = rc.summary ? escapeHtml(String(rc.summary).slice(0, 120)) : null;
-      const label = symbol ? `<code class="text-violet-300">${symbol}</code>${kind} ${file ? `<span class="text-slate-500">in</span> <code class="text-slate-300 break-all">${file}</code>` : ""}` : (file ? `<code class="text-slate-300 break-all">${file}</code>` : "—");
-      return `<li class="py-1 border-b border-slate-800 last:border-0">
-        <div class="flex items-start justify-between gap-2">
-          <span class="text-xs">${label}</span>
-          ${score !== null ? `<span class="shrink-0 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">${score}</span>` : ""}
+  const items = sections.map((s) => {
+    const heading = escapeHtml(String(s.heading ?? ""));
+    const priority = typeof s.priority === "number" ? s.priority : null;
+    const tokens = typeof s.tokenCount === "number" ? s.tokenCount : null;
+    const content = s.content ? escapeHtml(String(s.content).slice(0, 300)) : "";
+
+    return `<div class="py-2 border-b border-slate-800 last:border-0">
+      <div class="flex items-center justify-between gap-2 mb-1">
+        <span class="text-xs font-medium text-violet-300">${heading}</span>
+        <div class="flex gap-1 shrink-0">
+          ${priority !== null ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-500">P${priority}</span>` : ""}
+          ${tokens !== null ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-500">${tokens}t</span>` : ""}
         </div>
-        ${summary ? `<p class="text-xs text-slate-500 mt-0.5 truncate" title="${escapeHtml(summary)}">${escapeHtml(summary)}</p>` : ""}
-      </li>`;
-    }).join("");
-    parts.push(`<div class="mb-3">
-      <p class="text-xs font-medium text-slate-400 mb-1">Relevant Code (${relevantCode.length})</p>
-      <ul class="list-none">${items}</ul>
-    </div>`);
-  } else {
-    parts.push(`<p class="text-xs text-slate-500 italic">No relevant code found</p>`);
-  }
+      </div>
+      <p class="text-xs text-slate-400 whitespace-pre-line line-clamp-3">${content}</p>
+    </div>`;
+  }).join("");
 
-  if (relatedFiles.length > 0) {
-    const items = relatedFiles.map((rf) => {
-      const path = rf.path ? escapeHtml(String(rf.path)) : "—";
-      const score = typeof rf.score === "number" ? rf.score.toFixed(2) : null;
-      const rel = rf.relationship ? escapeHtml(String(rf.relationship)) : null;
-      const summary = rf.summary ? escapeHtml(String(rf.summary).slice(0, 120)) : null;
-      return `<li class="py-1 border-b border-slate-800 last:border-0">
-        <div class="flex items-start justify-between gap-2">
-          <code class="text-xs text-slate-300 break-all">${path}</code>
-          <div class="flex gap-1 shrink-0">
-            ${rel ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">${rel}</span>` : ""}
-            ${score !== null ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">${score}</span>` : ""}
-          </div>
-        </div>
-        ${summary ? `<p class="text-xs text-slate-500 mt-0.5 truncate" title="${escapeHtml(summary)}">${escapeHtml(summary)}</p>` : ""}
-      </li>`;
-    }).join("");
-    parts.push(`<div class="mb-3">
-      <p class="text-xs font-medium text-slate-400 mb-1">Related Files (${relatedFiles.length})</p>
-      <ul class="list-none">${items}</ul>
-    </div>`);
-  }
+  const footer = `<div class="mt-2 flex items-center gap-3 text-xs text-slate-500">
+    <span>${totalTokens.toLocaleString()} tokens</span>
+    <span>${sections.length} sections</span>
+    ${truncated ? `<span class="text-amber-400">truncated</span>` : ""}
+  </div>`;
 
-  if (moduleSummaries.length > 0) {
-    parts.push(`<p class="text-xs text-slate-500">${moduleSummaries.length} module summar${moduleSummaries.length === 1 ? "y" : "ies"} available</p>`);
-  }
-
-  return parts.length > 0 ? parts.join("") : `<span class="text-slate-500 italic">no results</span>`;
+  return `<div>${items}${footer}</div>`;
 }
 
 // ── Enricher icons (inline SVG) ──────────────────────────────────────────────
@@ -718,10 +693,10 @@ function enricherSummary(key: string, value: unknown): string {
   const obj = value as Record<string, unknown>;
 
   if (key === "prism") {
-    const stats = obj.stats as Record<string, number> | undefined;
-    if (stats?.searchResults) return `${stats.searchResults} results`;
-    const relevantCode = Array.isArray(obj.relevantCode) ? obj.relevantCode.length : 0;
-    return relevantCode > 0 ? `${relevantCode} symbols` : "";
+    const sections = Array.isArray(obj.sections) ? obj.sections.length : 0;
+    const totalTokens = typeof obj.totalTokens === "number" ? obj.totalTokens : 0;
+    if (sections > 0) return `${sections} sections · ${(totalTokens / 1000).toFixed(1)}k tokens`;
+    return "";
   }
   if (key === "docs") {
     const count = typeof obj.count === "number" ? obj.count : null;
