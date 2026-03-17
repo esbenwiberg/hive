@@ -5,6 +5,7 @@ import { execInGroup, getNodeHeapLimitMB } from "./exec-group.js";
 import { eq } from "drizzle-orm";
 import logger from "../logger.js";
 import { callClaudeWithTools } from "../agents/sdk.js";
+import type { ImageBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.js";
 import { getWorkerTools, createWorktreeToolExecutor, type PrismConfig } from "./worker-tools.js";
 import { getById as getTask, updateStatus } from "../db/queries/tasks.js";
 import { getById as getRepo } from "../db/queries/repos.js";
@@ -328,6 +329,7 @@ async function executeMilestones(
   buildSettings?: { system?: string; npmDir?: string },
   buildInfo?: BuildSystemInfo,
   signal?: AbortSignal,
+  imageBlocks?: ImageBlockParam[],
 ): Promise<{ totalCostUsd: number; reviewFixIssues: string[] }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
@@ -426,6 +428,7 @@ async function executeMilestones(
       prompt: milestonePrompt,
       model,
       systemPrompt,
+      ...(imageBlocks?.length ? { images: imageBlocks } : {}),
       tools: getWorkerTools(prismConfig),
       executeTool: createWorktreeToolExecutor(worktreePath, prismConfig, buildInfo),
       onTurnComplete: () => heartbeat(task.id),
@@ -727,15 +730,35 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // data, so passing raw codebase/docs/git-history/dependencies is redundant noise.
     const taskSize = task.size ?? "medium";
     let enrichmentStr = "";
+    let imageBlocks: ImageBlockParam[] = [];
 
     if (task.enrichment) {
       const enrichObj = task.enrichment as Record<string, unknown>;
+
+      // Extract images from enrichment (ADO attachments + user-pasted images)
+      const adoImages = enrichObj.adoImages as Array<{name: string; data: string; mediaType: string}> | undefined;
+      const userImages = enrichObj.userImages as Array<{name: string; data: string; mediaType: string}> | undefined;
+      const allImages = [...(adoImages ?? []), ...(userImages ?? [])];
+      if (allImages.length > 0) {
+        imageBlocks = allImages.map(img => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: img.mediaType as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
+            data: img.data,
+          },
+        }));
+        logger.info({ taskId, count: imageBlocks.length }, "Extracted vision images from enrichment");
+      }
+
+      // Strip image data from the enrichment used for text context (avoid double-counting)
+      const { adoImages: _a, userImages: _u, ...enrichmentWithoutImages } = enrichObj;
 
       if (taskSize === "trivial" || taskSize === "small") {
         // Format the architect blueprint as structured sections (matching the
         // milestone prompt format) instead of dumping raw JSON.  This gives
         // the worker model clear, actionable instructions.
-        const bp = enrichObj.architect as ArchitectBlueprint | undefined;
+        const bp = enrichmentWithoutImages.architect as ArchitectBlueprint | undefined;
         if (bp && !bp.skipped) {
           const parts: string[] = [];
           if (bp.approach) {
@@ -758,19 +781,19 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         }
       } else {
         // Medium/large: full enrichment helps Claude navigate unfamiliar code
-        enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(task.enrichment, null, 2)}`;
+        enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(enrichmentWithoutImages, null, 2)}`;
       }
 
       // Guard against context overflow regardless of task size
       const INPUT_CHAR_BUDGET = 170_000 * 4;
       if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
-        enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(task.enrichment)}`;
+        enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(enrichmentWithoutImages)}`;
         logger.info({ taskId, chars: enrichmentStr.length }, "Compacted enrichment JSON (removed pretty-print)");
       }
       if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
         const slim: Record<string, unknown> = {};
         for (const key of ["architect", "scorer", "prism"]) {
-          if (enrichObj[key]) slim[key] = enrichObj[key];
+          if (enrichmentWithoutImages[key]) slim[key] = enrichmentWithoutImages[key];
         }
         enrichmentStr = `\n## Enrichment Context (trimmed)\n${JSON.stringify(slim)}`;
         logger.info({ taskId, chars: enrichmentStr.length }, "Trimmed enrichment to architect+scorer+prism only");
@@ -778,6 +801,8 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       }
       if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
         enrichmentStr = "";
+        // If enrichment itself is too large, images would only make context worse
+        imageBlocks = [];
         logger.warn({ taskId }, "Dropped enrichment entirely — too large for context window");
         await addEvent(taskId, "enrichment_dropped", "worker", "Enrichment dropped entirely — too large for context window. Worker is operating without enrichment context.");
       }
@@ -867,7 +892,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         await milestoneGitProvider.push(worktree!.path, branchName, milestoneCreds);
       };
 
-      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings, buildInfo, signal);
+      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings, buildInfo, signal, imageBlocks);
       implCostUsd = totalCostUsd;
       allReviewFixIssues.push(...reviewFixIssues);
     } else {
@@ -933,6 +958,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         prompt: userPrompt,
         model: callModel,
         systemPrompt: getFlowPrompt(),
+        ...(imageBlocks.length ? { images: imageBlocks } : {}),
         tools: getWorkerTools(prismConfig),
         executeTool: loggingExecutor,
         onTurnComplete: () => heartbeat(taskId),

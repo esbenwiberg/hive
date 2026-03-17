@@ -15,6 +15,8 @@ export interface SdkRequest {
   maxTokens?: number;
   systemPrompt?: string;
   dryRun?: boolean;
+  /** Optional vision images to include alongside the prompt. */
+  images?: ImageBlockParam[];
 }
 
 export interface CostMeta {
@@ -36,6 +38,8 @@ export interface AgenticRequest {
   model?: string;
   maxTokens?: number;
   systemPrompt?: string;
+  /** Optional vision images to include alongside the initial prompt. */
+  images?: ImageBlockParam[];
   tools: Tool[];
   /** Execute a tool call; return the string result or rich content (or throw to signal error). */
   executeTool: (name: string, input: Record<string, unknown>) => Promise<string | ToolResultContent>;
@@ -291,10 +295,14 @@ export async function callClaude(req: SdkRequest): Promise<SdkResponse> {
     ? [{ type: "text" as const, text: req.systemPrompt, ...(caching ? { cache_control: { type: "ephemeral" as const } } : {}) }]
     : undefined;
 
+  const userContent = req.images?.length
+    ? [{ type: "text" as const, text: req.prompt }, ...req.images]
+    : req.prompt;
+
   const createParams = {
     model,
     ...(system ? { system } : {}),
-    messages: [{ role: "user" as const, content: req.prompt }],
+    messages: [{ role: "user" as const, content: userContent }],
   };
 
   let message;
@@ -360,7 +368,10 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
       )
     : req.tools;
 
-  const messages: MessageParam[] = [{ role: "user", content: req.prompt }];
+  const initialContent = req.images?.length
+    ? [{ type: "text" as const, text: req.prompt }, ...req.images]
+    : req.prompt;
+  const messages: MessageParam[] = [{ role: "user", content: initialContent }];
 
   let terminationReason: string | undefined;
 

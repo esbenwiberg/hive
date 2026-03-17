@@ -307,7 +307,7 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       return;
     }
 
-    await taskQueries.create({
+    const task = await taskQueries.create({
       title: title.trim(),
       body: trimmedBody,
       source: "user",
@@ -321,6 +321,25 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
         ? { blueprintSource: "user" as const, userBlueprintMarkdown: rawBlueprintMarkdown }
         : {}),
     });
+
+    // Store pasted images in enrichment
+    const imagesJson = req.body.images;
+    if (imagesJson && typeof imagesJson === "string" && imagesJson !== "[]") {
+      try {
+        const parsed = JSON.parse(imagesJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const validMediaTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+          const valid = parsed.filter((img: Record<string, unknown>) =>
+            img.name && typeof img.data === "string" && (img.data as string).length < 7_000_000
+            && validMediaTypes.includes(img.mediaType as string)
+          ).slice(0, 5);
+          if (valid.length > 0) {
+            const existing = (task.enrichment as Record<string, unknown>) ?? {};
+            await taskQueries.updateEnrichment(task.id, { ...existing, userImages: valid });
+          }
+        }
+      } catch { /* ignore invalid JSON */ }
+    }
 
     // Return updated task list
     const accessibleRepoIds = await getAccessibleRepoIds(user);
