@@ -110,8 +110,8 @@ Respond with a JSON object:
 
 1. Be data-driven: base all observations on the provided data, not assumptions
 2. Keep proposals actionable and specific, not vague
-3. Limit proposals to at most 10 total across all action types
-4. Only propose creating learnings for patterns seen in 2+ tasks
+3. Limit proposals to at most 5 total across all action types — be highly selective
+4. Only propose creating learnings for patterns seen in 3+ tasks (not 2)
 5. Only propose deprecating learnings that are clearly ineffective (low confidence, high contradictions, no recent use)
 6. Always return valid JSON with all required fields, even if arrays are empty
 7. Never propose new learnings that are semantically equivalent to any dismissed learning listed in the input

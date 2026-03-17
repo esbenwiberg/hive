@@ -137,11 +137,13 @@ vi.mock("../../src/agents/retrospective.js", () => ({
   runRetrospective: mockRunRetrospective,
 }));
 
-const mockApplyMonthlyDecay = vi.fn().mockResolvedValue(0);
+const mockApplyWeeklyDecay = vi.fn().mockResolvedValue(0);
 const mockArchiveStale = vi.fn().mockResolvedValue(0);
+const mockArchiveNeverUsed = vi.fn().mockResolvedValue(0);
 vi.mock("../../src/db/queries/learnings.js", () => ({
-  applyMonthlyDecay: mockApplyMonthlyDecay,
+  applyWeeklyDecay: mockApplyWeeklyDecay,
   archiveStale: mockArchiveStale,
+  archiveNeverUsed: mockArchiveNeverUsed,
 }));
 
 const mockCurateLearnings = vi.fn().mockResolvedValue(undefined);

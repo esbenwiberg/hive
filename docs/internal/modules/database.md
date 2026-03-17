@@ -549,7 +549,8 @@ The most feature-rich query file, supporting the full lifecycle of knowledge-bas
 | `reinforceLearning(id, taskId)` | `reinforcements += 1`, `confidence += 0.05` (cap 1.0) |
 | `contradictLearning(id, taskId, amount?)` | `contradictions += 1`, `confidence -= amount` (floor 0.0) |
 | `supersedeLearning(oldId, newId)` | Set `superseded_by` on old learning |
-| `applyMonthlyDecay()` | Multiply `confidence * 0.95` for unused learnings; return count |
+| `applyWeeklyDecay()` | Multiply `confidence * 0.987` for unused learnings (≈0.95/month); return count |
+| `archiveNeverUsed(minAgeDays?)` | Archive learnings never used after N days (default 30) |
 | `archiveStale()` | Set `superseded_by = -1` for low-confidence, unused learnings |
 | `dismissLearning(id, userId)` | Admin dismiss: set `dismissed_at/by`, `superseded_by = -1` |
 | `getDismissedLearnings(limit?)` | Dismissed learnings for admin UI |

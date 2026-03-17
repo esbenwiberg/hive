@@ -32,7 +32,7 @@ Respond with JSON:
         "category": "code-quality",
         "content": "Actionable advice to avoid this recurring issue",
         "tags": ["review", "quality"],
-        "confidence": 0.50
+        "confidence": 0.30
       }
     }
   ]

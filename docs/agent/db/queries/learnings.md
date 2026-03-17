@@ -260,12 +260,12 @@ import { supersedeLearning } from 'db/queries/learnings';
 
 ---
 
-### `applyMonthlyDecay`
+### `applyWeeklyDecay`
 
-Applies monthly decay: multiplies `confidence` by `0.95` for all learnings where `last_used_at < now() - 30 days` and not superseded. Returns the count of affected rows.
+Applies weekly decay: multiplies `confidence` by `0.987` for all learnings unused for 7+ days (or never used) and not superseded. 0.987^4 ≈ 0.95/month — same effective monthly rate. Returns the count of affected rows.
 
 ```ts
-import { applyMonthlyDecay } from 'db/queries/learnings';
+import { applyWeeklyDecay } from 'db/queries/learnings';
 ```
 
 #### Parameters

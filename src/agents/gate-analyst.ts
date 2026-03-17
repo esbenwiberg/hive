@@ -32,7 +32,7 @@ Respond with JSON:
         "category": "anti-pattern",
         "content": "Actionable advice to avoid this pattern",
         "tags": ["gate", "rejection"],
-        "confidence": 0.50
+        "confidence": 0.30
       }
     }
   ]

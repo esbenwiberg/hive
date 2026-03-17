@@ -56,7 +56,7 @@ export async function createLearning(data: {
       confidence:
         data.confidence !== undefined
           ? data.confidence.toFixed(2)
-          : undefined,
+          : "0.30",
       tags: data.tags ?? null,
       sourceTaskIds: data.sourceTaskIds ?? null,
     })
@@ -89,13 +89,16 @@ export async function retrieveRelevantLearnings(opts: {
   scopes: string[];
   tags: string[];
   limit?: number;
+  minConfidence?: number;
 }): Promise<LearningRow[]> {
-  const limit = opts.limit ?? 15;
+  const limit = opts.limit ?? 8;
+  const minConfidence = opts.minConfidence ?? 0.40;
 
-  // Build conditions: scope in list, tags overlap (if tags provided), not superseded
+  // Build conditions: scope in list, tags overlap (if tags provided), not superseded, confidence floor
   const conditions = [
     sql`${learnings.scope} = ANY(ARRAY[${sql.join(opts.scopes.map((s) => sql`${s}`), sql`, `)}]::text[])`,
     isNull(learnings.supersededBy),
+    sql`${learnings.confidence} >= ${minConfidence}`,
   ];
 
   // Only add tag overlap condition when tags are provided
@@ -105,11 +108,24 @@ export async function retrieveRelevantLearnings(opts: {
     );
   }
 
+  // Rank by tag specificity (more matching tags = more relevant), then confidence,
+  // then effectiveness ratio (reinforcements vs total feedback), then reinforcements.
+  const tagMatchExpr = opts.tags.length > 0
+    ? sql`coalesce(array_length(${learnings.tags} & ARRAY[${sql.join(opts.tags.map((t) => sql`${t}`), sql`, `)}]::text[], 1), 0)`
+    : sql`0`;
+
+  const effectivenessExpr = sql`case when (${learnings.reinforcements} + ${learnings.contradictions}) > 0 then ${learnings.reinforcements}::float / (${learnings.reinforcements} + ${learnings.contradictions}) else 0.5 end`;
+
   const rows = await db
     .select()
     .from(learnings)
     .where(and(...conditions))
-    .orderBy(desc(learnings.confidence), desc(learnings.reinforcements))
+    .orderBy(
+      sql`${tagMatchExpr} desc`,
+      desc(learnings.confidence),
+      sql`${effectivenessExpr} desc`,
+      desc(learnings.reinforcements),
+    )
     .limit(limit);
 
   // Update last_used_at on the returned rows
@@ -176,20 +192,22 @@ export async function supersedeLearning(
 }
 
 /**
- * Applies monthly decay: multiplies confidence by 0.95 for all learnings
- * where last_used_at < now() - 30 days and not superseded.
+ * Applies weekly decay: multiplies confidence by 0.987 for all learnings
+ * where last_used_at < now() - 7 days and not superseded.
+ * 0.987^4 ≈ 0.95 per month — same effective monthly decay as before but
+ * applied more frequently for tighter feedback loops.
  * Returns count of affected rows.
  */
-export async function applyMonthlyDecay(): Promise<number> {
+export async function applyWeeklyDecay(): Promise<number> {
   const result = await db
     .update(learnings)
     .set({
-      confidence: sql`(${learnings.confidence} * 0.95)::numeric(3,2)`,
+      confidence: sql`(${learnings.confidence} * 0.987)::numeric(3,2)`,
       updatedAt: new Date(),
     })
     .where(
       and(
-        sql`${learnings.lastUsedAt} < now() - interval '30 days'`,
+        sql`(${learnings.lastUsedAt} is null or ${learnings.lastUsedAt} < now() - interval '7 days')`,
         isNull(learnings.supersededBy),
       ),
     )
@@ -213,6 +231,27 @@ export async function archiveStale(): Promise<number> {
         sql`${learnings.reinforcements} < 3`,
         isNull(learnings.supersededBy),
         sql`(${learnings.lastUsedAt} is null or ${learnings.lastUsedAt} < now() - interval '30 days')`,
+      ),
+    )
+    .returning({ id: learnings.id });
+
+  return result.length;
+}
+
+/**
+ * Archives learnings that have never been used and are older than the given age.
+ * Targets learnings where lastUsedAt IS NULL and createdAt is older than minAgeDays.
+ * Returns count of affected rows.
+ */
+export async function archiveNeverUsed(minAgeDays = 30): Promise<number> {
+  const result = await db
+    .update(learnings)
+    .set({ supersededBy: -1, updatedAt: new Date() })
+    .where(
+      and(
+        sql`${learnings.lastUsedAt} is null`,
+        sql`${learnings.createdAt} < now() - interval '1 day' * ${minAgeDays}`,
+        isNull(learnings.supersededBy),
       ),
     )
     .returning({ id: learnings.id });

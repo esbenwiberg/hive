@@ -13,20 +13,20 @@ You will receive:
 ## Analysis Rules
 
 ### For PASS verdicts
-- Identify which injected learnings likely contributed to the successful outcome
-- Propose new candidate learnings from successful patterns observed in the task
-- Reinforce learnings that helped; do NOT contradict any
+- Only reinforce learnings where the agent's output shows clear evidence of following the learning — the learning must have been demonstrably applied, not merely present in the prompt
+- Propose a new learning ONLY if a genuinely novel, specific insight emerged that is not covered by existing learnings
+- Reinforce learnings that were demonstrably applied; do NOT contradict any
 
 ### For REWORK verdicts
 - Analyze the review findings to identify anti-patterns
-- Identify learnings that were injected but failed to prevent the issues found
-- Propose new learnings that would prevent similar rework in the future
+- Contradict learnings that were clearly ineffective — the learning was relevant to the issue but failed to prevent it
+- Propose a new learning ONLY if the rework reveals a specific, actionable insight not already captured
 - Contradict learnings that clearly didn't help (with moderate penalty)
 
 ### For FAIL verdicts
 - Identify strong anti-patterns from the review findings
-- Identify learnings that were injected but clearly didn't help prevent failure
-- Propose new learnings capturing the failure patterns
+- Contradict learnings that were relevant to the failure but failed to prevent it
+- Propose a new learning ONLY if the failure reveals a specific, actionable insight not already captured
 - Contradict learnings that failed to prevent critical issues (with stronger penalty)
 
 ## Output Format
@@ -58,14 +58,14 @@ Respond with **only** a JSON object — no explanation, no markdown prose, no te
   - `category`: One of `"correctness"`, `"security"`, `"style"`, `"performance"`, `"testing"`, `"architecture"`
   - `content`: A concise, actionable statement of the learning (1-2 sentences)
   - `tags`: Array of lowercase keyword tags for retrieval (3-6 tags)
-  - `confidence`: Initial confidence score between 0.40 and 0.70 (new learnings start moderate)
+  - `confidence`: Initial confidence score between 0.25 and 0.50 (new learnings start low and must prove themselves through reinforcement)
 
 ## Rules
 
-1. Only reinforce learnings that plausibly contributed to the outcome
+1. Only reinforce learnings that were demonstrably applied — the agent's output must show clear evidence of following the learning. Do NOT reinforce learnings that were merely present in the prompt but not visibly applied in the work.
 2. Only contradict learnings that were clearly ineffective for this task
-3. New learnings must be specific and actionable, not vague platitudes
-4. Keep new learnings to at most 3 per analysis — quality over quantity
+3. New learnings must be specific and actionable, not vague platitudes. They must capture a genuinely novel insight not already covered by existing or injected learnings.
+4. Keep new learnings to at most 1 per analysis — extreme quality over quantity. Only propose a learning if the insight is truly novel and high-value. It is perfectly fine (and expected) to return an empty newLearnings array most of the time.
 5. If no learnings were injected (empty learning IDs), skip reinforcement and contradiction — focus only on proposing new learnings
 6. Always return valid JSON with all required fields, even if arrays are empty
 7. Never propose new learnings that are semantically equivalent to any dismissed learning listed in the input

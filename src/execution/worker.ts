@@ -706,7 +706,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       relevantLearnings = await retrieveRelevantLearnings({
         scopes: ["universal", `repo:${repo.fullName}`],
         tags: buildRetrievalTags({ taskType: task.type, severity: task.severity, repoFullName: repo.fullName }),
-        limit: 15,
+        limit: 8,
       });
 
       learningIds = relevantLearnings.map((l) => l.id);

@@ -23,7 +23,7 @@ import { recordRun } from "../db/queries/producer-runs.js";
 import { notifyTasksCreated } from "../notifications.js";
 import { listAll } from "../db/queries/repos.js";
 import { runRetrospective } from "../agents/retrospective.js";
-import { applyMonthlyDecay, archiveStale } from "../db/queries/learnings.js";
+import { applyWeeklyDecay, archiveStale, archiveNeverUsed } from "../db/queries/learnings.js";
 import { curateLearnings } from "../agents/keeper.js";
 import { getConfig, setConfig } from "../domain/config.js";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
@@ -46,7 +46,7 @@ const DEFAULT_MAX_PER_USER = 2;
 const DEFAULT_PRODUCER_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
 const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1_000; // 24 hours
 const RETROSPECTIVE_MIN_GAP_MS = 7 * 24 * 60 * 60 * 1_000; // 7 days
-const DECAY_MIN_GAP_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
+const DECAY_MIN_GAP_MS = 7 * 24 * 60 * 60 * 1_000; // 7 days (weekly curation)
 const PREVIEW_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const PR_CLOSE_CLEANUP_INTERVAL_MS = 60 * 1_000; // 60 seconds
 const PR_FEEDBACK_POLL_INTERVAL_MS = 15 * 60 * 1_000; // 15 minutes
@@ -610,7 +610,7 @@ export class Daemon {
 
   private async _decayTick(): Promise<void> {
     try {
-      // Gate decay so it only runs once per 30 days
+      // Gate decay so it only runs once per 7 days (weekly curation cycle)
       const lastDecayRaw = await getConfig("lastDecayRun");
       if (lastDecayRaw) {
         const lastDecay = new Date(lastDecayRaw as string).getTime();
@@ -618,12 +618,13 @@ export class Daemon {
         if (elapsed < DECAY_MIN_GAP_MS) {
           logger.debug(
             { elapsedDays: (elapsed / (24 * 60 * 60 * 1000)).toFixed(1) },
-            "Daemon: monthly decay not due yet, skipping",
+            "Daemon: weekly decay not due yet, skipping",
           );
           // Still run archival and curation even if decay is not due
           const archived = await archiveStale();
-          if (archived > 0) {
-            logger.info({ archived }, "Daemon: stale archival complete (decay skipped)");
+          const neverUsedArchived = await archiveNeverUsed(30);
+          if (archived > 0 || neverUsedArchived > 0) {
+            logger.info({ archived, neverUsedArchived }, "Daemon: archival complete (decay skipped)");
           }
           await curateLearnings();
           logger.info("Daemon: learning curation complete");
@@ -631,13 +632,14 @@ export class Daemon {
         }
       }
 
-      const decayed = await applyMonthlyDecay();
+      const decayed = await applyWeeklyDecay();
       await setConfig("lastDecayRun", new Date().toISOString());
       const archived = await archiveStale();
+      const neverUsedArchived = await archiveNeverUsed(30);
 
       logger.info(
-        { decayed, archived },
-        "Daemon: confidence decay and stale archival complete",
+        { decayed, archived, neverUsedArchived },
+        "Daemon: weekly confidence decay and archival complete",
       );
 
       await curateLearnings();
