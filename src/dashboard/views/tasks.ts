@@ -630,7 +630,7 @@ function hivemindEnrichmentContent(hivemind: Record<string, unknown>): string {
  */
 function prismEnrichmentContent(prism: Record<string, unknown>): string {
   const relevantCode = Array.isArray(prism.relevantCode) ? prism.relevantCode as Array<Record<string, unknown>> : [];
-  const findings = Array.isArray(prism.findings) ? prism.findings as Array<Record<string, unknown>> : [];
+  const relatedFiles = Array.isArray(prism.relatedFiles) ? prism.relatedFiles as Array<Record<string, unknown>> : [];
   const moduleSummaries = Array.isArray(prism.moduleSummaries) ? prism.moduleSummaries as Array<Record<string, unknown>> : [];
 
   const parts: string[] = [];
@@ -655,10 +655,31 @@ function prismEnrichmentContent(prism: Record<string, unknown>): string {
       <p class="text-xs font-medium text-slate-400 mb-1">Relevant Code (${relevantCode.length})</p>
       <ul class="list-none">${items}</ul>
     </div>`);
+  } else {
+    parts.push(`<p class="text-xs text-slate-500 italic">No relevant code found</p>`);
   }
 
-  if (relevantCode.length === 0) {
-    parts.push(`<p class="text-xs text-slate-500 italic">No relevant code found</p>`);
+  if (relatedFiles.length > 0) {
+    const items = relatedFiles.map((rf) => {
+      const path = rf.path ? escapeHtml(String(rf.path)) : "—";
+      const score = typeof rf.score === "number" ? rf.score.toFixed(2) : null;
+      const rel = rf.relationship ? escapeHtml(String(rf.relationship)) : null;
+      const summary = rf.summary ? escapeHtml(String(rf.summary).slice(0, 120)) : null;
+      return `<li class="py-1 border-b border-slate-800 last:border-0">
+        <div class="flex items-start justify-between gap-2">
+          <code class="text-xs text-slate-300 break-all">${path}</code>
+          <div class="flex gap-1 shrink-0">
+            ${rel ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">${rel}</span>` : ""}
+            ${score !== null ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">${score}</span>` : ""}
+          </div>
+        </div>
+        ${summary ? `<p class="text-xs text-slate-500 mt-0.5 truncate" title="${escapeHtml(summary)}">${escapeHtml(summary)}</p>` : ""}
+      </li>`;
+    }).join("");
+    parts.push(`<div class="mb-3">
+      <p class="text-xs font-medium text-slate-400 mb-1">Related Files (${relatedFiles.length})</p>
+      <ul class="list-none">${items}</ul>
+    </div>`);
   }
 
   if (moduleSummaries.length > 0) {
