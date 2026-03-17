@@ -276,7 +276,7 @@ export const architectEnricher: Enricher = {
       const relevant = await retrieveRelevantLearnings({
         scopes,
         tags: buildRetrievalTags({ taskType: task.type, severity: task.severity, repoFullName: repo?.fullName }),
-        limit: 10,
+        limit: 6,
       });
 
       if (relevant.length > 0) {

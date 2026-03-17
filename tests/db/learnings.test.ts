@@ -15,7 +15,7 @@ const {
   retrieveRelevantLearnings,
   reinforceLearning,
   contradictLearning,
-  applyMonthlyDecay,
+  applyWeeklyDecay,
   archiveStale,
   listLearnings,
   getLearningStats,
@@ -33,7 +33,7 @@ describe("learnings queries", () => {
   // ── createLearning ──────────────────────────────────────────────────────────
 
   describe("createLearning", () => {
-    it("creates with correct defaults (confidence 0.50)", async () => {
+    it("creates with correct defaults (confidence 0.30)", async () => {
       const row = await createLearning({
         scope: "universal",
         category: "testing",
@@ -44,7 +44,7 @@ describe("learnings queries", () => {
       expect(row.scope).toBe("universal");
       expect(row.category).toBe("testing");
       expect(row.content).toBe("Always write unit tests before integration tests");
-      expect(row.confidence).toBe("0.50");
+      expect(row.confidence).toBe("0.30");
       expect(row.reinforcements).toBe(0);
       expect(row.contradictions).toBe(0);
       expect(row.tags).toBeNull();
@@ -94,9 +94,9 @@ describe("learnings queries", () => {
 
   describe("retrieveRelevantLearnings", () => {
     it("filters by scope", async () => {
-      await createLearning({ scope: "universal", category: "a", content: "L1", tags: ["t1"] });
-      await createLearning({ scope: "repo:acme/widget", category: "a", content: "L2", tags: ["t1"] });
-      await createLearning({ scope: "repo:other/repo", category: "a", content: "L3", tags: ["t1"] });
+      await createLearning({ scope: "universal", category: "a", content: "L1", confidence: 0.60, tags: ["t1"] });
+      await createLearning({ scope: "repo:acme/widget", category: "a", content: "L2", confidence: 0.60, tags: ["t1"] });
+      await createLearning({ scope: "repo:other/repo", category: "a", content: "L3", confidence: 0.60, tags: ["t1"] });
 
       const rows = await retrieveRelevantLearnings({
         scopes: ["universal", "repo:acme/widget"],
@@ -109,7 +109,7 @@ describe("learnings queries", () => {
       expect(contents).not.toContain("L3");
     });
 
-    it("sorts by confidence DESC", async () => {
+    it("sorts by confidence DESC and filters below confidence floor", async () => {
       await createLearning({ scope: "universal", category: "a", content: "Low", confidence: 0.30, tags: ["t1"] });
       await createLearning({ scope: "universal", category: "a", content: "High", confidence: 0.90, tags: ["t1"] });
       await createLearning({ scope: "universal", category: "a", content: "Mid", confidence: 0.60, tags: ["t1"] });
@@ -119,9 +119,23 @@ describe("learnings queries", () => {
         tags: ["t1"],
       });
 
+      // Low (0.30) should be filtered out by the 0.40 confidence floor
+      expect(rows).toHaveLength(2);
       expect(rows[0].content).toBe("High");
       expect(rows[1].content).toBe("Mid");
-      expect(rows[2].content).toBe("Low");
+    });
+
+    it("allows overriding minConfidence to include low-confidence learnings", async () => {
+      await createLearning({ scope: "universal", category: "a", content: "Low", confidence: 0.20, tags: ["t1"] });
+      await createLearning({ scope: "universal", category: "a", content: "High", confidence: 0.90, tags: ["t1"] });
+
+      const rows = await retrieveRelevantLearnings({
+        scopes: ["universal"],
+        tags: ["t1"],
+        minConfidence: 0.10,
+      });
+
+      expect(rows).toHaveLength(2);
     });
   });
 
@@ -133,6 +147,7 @@ describe("learnings queries", () => {
         scope: "universal",
         category: "testing",
         content: "Reinforce me",
+        confidence: 0.50,
       });
 
       expect(created.confidence).toBe("0.50");
@@ -154,6 +169,7 @@ describe("learnings queries", () => {
         scope: "universal",
         category: "testing",
         content: "Contradict me",
+        confidence: 0.50,
       });
 
       await contradictLearning(created.id, "task-1");
@@ -179,10 +195,10 @@ describe("learnings queries", () => {
     });
   });
 
-  // ── applyMonthlyDecay ──────────────────────────────────────────────────────
+  // ── applyWeeklyDecay ───────────────────────────────────────────────────────
 
-  describe("applyMonthlyDecay", () => {
-    it("reduces confidence for stale learnings", async () => {
+  describe("applyWeeklyDecay", () => {
+    it("reduces confidence for unused learnings (>7 days)", async () => {
       const created = await createLearning({
         scope: "universal",
         category: "testing",
@@ -190,17 +206,34 @@ describe("learnings queries", () => {
         confidence: 1.00,
       });
 
-      // Manually set lastUsedAt to 31+ days ago
+      // Manually set lastUsedAt to 8+ days ago
       await db.execute(
-        sql`UPDATE learnings SET last_used_at = now() - interval '35 days' WHERE id = ${created.id}`,
+        sql`UPDATE learnings SET last_used_at = now() - interval '10 days' WHERE id = ${created.id}`,
       );
 
-      const affected = await applyMonthlyDecay();
+      const affected = await applyWeeklyDecay();
       expect(affected).toBe(1);
 
       const updated = await getLearningById(created.id);
-      // 1.00 * 0.95 = 0.95
-      expect(updated!.confidence).toBe("0.95");
+      // 1.00 * 0.987 = 0.99 (rounded to 2dp)
+      expect(updated!.confidence).toBe("0.99");
+    });
+
+    it("decays learnings that have never been used", async () => {
+      const created = await createLearning({
+        scope: "universal",
+        category: "testing",
+        content: "Never used",
+        confidence: 0.80,
+      });
+
+      // lastUsedAt is null by default — should be decayed
+      const affected = await applyWeeklyDecay();
+      expect(affected).toBe(1);
+
+      const updated = await getLearningById(created.id);
+      // 0.80 * 0.987 = 0.79 (rounded to 2dp)
+      expect(updated!.confidence).toBe("0.79");
     });
   });
 
@@ -367,6 +400,7 @@ describe("learnings queries", () => {
         scope: "repo:acme/widget",
         category: "correctness",
         content: "Always validate inputs",
+        confidence: 0.60,
         tags,
       });
 
@@ -392,6 +426,7 @@ describe("learnings queries", () => {
         scope: "repo:acme/widget",
         category: "correctness",
         content: "Old-style learning",
+        confidence: 0.60,
         tags: ["validation", "database", "correctness"],
       });
 

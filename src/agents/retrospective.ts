@@ -224,7 +224,7 @@ export async function runRetrospective(): Promise<RetrospectiveReport> {
             scope: proposal.scope,
             category: proposal.category,
             content: proposal.content,
-            confidence: 0.50,
+            confidence: 0.30,
             tags: normalizeLearningTags(proposal.tags ?? [], { taskType: null, repoFullName }),
           });
           await recordEvent({

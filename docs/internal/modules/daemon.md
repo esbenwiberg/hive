@@ -52,7 +52,7 @@ The daemon runs entirely within the same Node.js process as the Express dashboar
 | Preview cleanup | 60 s | `cleanupExpiredPreviews()` |
 | PR-close cleanup | 60 s | `cleanupClosedPRPreviews()` |
 | Retrospective | 24 h interval; 7-day gap gate | `runRetrospective()` |
-| Decay | 24 h interval; 30-day gap gate | `applyMonthlyDecay()` + `curateLearnings()` |
+| Decay | 24 h interval; 7-day gap gate | `applyWeeklyDecay()` + `archiveNeverUsed()` + `curateLearnings()` |
 
 ---
 
@@ -443,8 +443,8 @@ Even when the gap gate prevents a full decay run, the tick still runs **archival
 const archived = await archiveStale();   // move low-confidence learnings to archive
 await curateLearnings();                  // keeper agent: merge + prune
 
-// Only when 30-day gap has elapsed:
-const decayed = await applyMonthlyDecay();  // reduce confidence scores
+// Only when 7-day gap has elapsed:
+const decayed = await applyWeeklyDecay();  // reduce confidence scores (0.987x per week ≈ 0.95x per month)
 await setConfig("lastDecayRun", new Date().toISOString());
 ```
 
@@ -656,9 +656,10 @@ prCloseCleanupScheduler (60 s)
 retrospectiveScheduler (24 h / 7-day gate)
   └─ runRetrospective() → analyse completed tasks → synthesise learnings
 
-decayScheduler (24 h / 30-day gate)
-  └─ applyMonthlyDecay() → reduce confidence of unused learnings
+decayScheduler (24 h / 7-day gate)
+  └─ applyWeeklyDecay() → reduce confidence of unused learnings (0.987x/week)
   └─ archiveStale() → archive below-threshold learnings
+  └─ archiveNeverUsed() → archive learnings never used after 30 days
   └─ curateLearnings() → keeper agent: merge duplicates, prune irrelevant
 ```
 
