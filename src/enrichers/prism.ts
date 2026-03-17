@@ -41,10 +41,6 @@ interface PrismEnrichmentData {
   };
 }
 
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const MAX_TOKENS = 16_000;
-
 // ── Enricher ─────────────────────────────────────────────────────────────────
 
 export const prismEnricher: Enricher = {
@@ -99,7 +95,7 @@ export const prismEnricher: Enricher = {
       const res = await fetch(url, {
         method: "POST",
         headers,
-        body: JSON.stringify({ query, maxTokens: MAX_TOKENS }),
+        body: JSON.stringify({ query, maxTokens: prismConfig.maxTokens }),
       });
 
       if (res.status === 404) {

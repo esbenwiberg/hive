@@ -489,6 +489,11 @@ export function globalSettingsPartial(
       type: "password",
       placeholder: config.prism.apiKey ? "Leave blank to keep saved key" : "sk-...",
     }),
+    input("prismMaxTokens", "Max Tokens", {
+      type: "number",
+      value: String(config.prism.maxTokens),
+      placeholder: "48000",
+    }),
   ].join("");
 
   const prismCard = card(prismFields, {

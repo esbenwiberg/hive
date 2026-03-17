@@ -240,11 +240,16 @@ router.post("/settings/global", requireRole("admin"), async (req: Request, res: 
     // Prism
     const prismApiUrl = body.prismApiUrl?.trim();
     const prismApiKey = body.prismApiKey?.trim();
+    const prismMaxTokens = body.prismMaxTokens?.trim();
 
-    if (prismApiUrl || prismApiKey) {
+    if (prismApiUrl || prismApiKey || prismMaxTokens) {
       overrides.prism = {};
       if (prismApiUrl) overrides.prism.apiUrl = prismApiUrl;
       if (prismApiKey) overrides.prism.apiKey = prismApiKey;
+      if (prismMaxTokens) {
+        const val = Number(prismMaxTokens);
+        if (!Number.isNaN(val) && val > 0) overrides.prism.maxTokens = val;
+      }
     }
 
     // Preview
