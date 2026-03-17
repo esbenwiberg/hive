@@ -361,9 +361,14 @@ const STATUS_TABS = [
 function filterTabs(
   activeStatus: string,
   counts: Record<string, number>,
+  repoNames: Map<number, string> = new Map(),
+  activeRepoId?: number,
 ): string {
   const total = Object.values(counts).reduce((a, b) => a + b, 0) - (counts["archived"] ?? 0);
   const attentionCount = ATTENTION_STATUSES.reduce((sum, s) => sum + (counts[s] ?? 0), 0);
+
+  // Build query string fragment for repo filter (preserved across tab clicks)
+  const repoParam = activeRepoId ? `&repoId=${activeRepoId}` : "";
 
   const tabs = STATUS_TABS.map((tab) => {
     const cnt = tab.key === "" ? total : tab.key === "attention" ? attentionCount : (counts[tab.key] ?? 0);
@@ -373,8 +378,8 @@ function filterTabs(
       : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-300";
 
     const url = tab.key === "attention"
-      ? `/api/tasks?status=attention`
-      : tab.key ? `/api/tasks?status=${tab.key}` : "/api/tasks";
+      ? `/api/tasks?status=attention${repoParam}`
+      : tab.key ? `/api/tasks?status=${tab.key}${repoParam}` : `/api/tasks${repoParam ? "?" + repoParam.slice(1) : ""}`;
 
     return `<button
       class="inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${activeClasses}"
@@ -385,7 +390,27 @@ function filterTabs(
     </button>`;
   });
 
-  return `<div class="flex gap-1 border-b border-slate-700 overflow-x-auto">${tabs.join("")}</div>`;
+  // Repo filter dropdown
+  const sortedRepos = Array.from(repoNames.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  const statusParam = activeStatus ? `status=${activeStatus}` : "";
+  const repoOptions = sortedRepos.map(([id, name]) => {
+    const selected = id === activeRepoId ? " selected" : "";
+    return `<option value="${id}"${selected}>${escapeHtml(name)}</option>`;
+  }).join("");
+
+  const repoFilter = repoNames.size > 0
+    ? `<select
+        class="shrink-0 rounded-lg border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-300 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+        onchange="var url='/api/tasks${statusParam ? "?" + statusParam : ""}';if(this.value)url+='${statusParam ? "&" : "?"}repoId='+this.value;htmx.ajax('GET',url,{target:'#task-list',swap:'innerHTML'})">
+        <option value="">All repos</option>
+        ${repoOptions}
+      </select>`
+    : "";
+
+  return `<div class="flex items-center justify-between gap-4 border-b border-slate-700">
+  <div class="flex gap-1 overflow-x-auto">${tabs.join("")}</div>
+  ${repoFilter}
+</div>`;
 }
 
 // ── Creator label helper ─────────────────────────────────────────────────────
@@ -1843,6 +1868,7 @@ export function taskListPartial(
   repoNames: Map<number, string> = new Map(),
   userNames: Map<number, string> = new Map(),
   isAdmin = false,
+  activeRepoId?: number,
 ): string {
   const isArchiveView = activeStatus === "archived";
   const bulkToolbar = isAdmin
@@ -1902,7 +1928,7 @@ export function taskListPartial(
       </script>`
     : "";
 
-  return `${filterTabs(activeStatus ?? "", counts)}
+  return `${filterTabs(activeStatus ?? "", counts, repoNames, activeRepoId)}
 ${bulkToolbar}
 <div class="mt-4">${taskTable(tasks, repoNames, userNames, isAdmin)}</div>`;
 }
@@ -1945,7 +1971,7 @@ export function taskListPage(
 
   const content = `${banners ? banners + "\n" : ""}${header}
 <div id="task-list">
-  ${taskListPartial(tasks, counts, activeStatus, repoNames, userNames, user.role === "admin")}
+  ${taskListPartial(tasks, counts, activeStatus, repoNames, userNames, user.role === "admin", filters.repoId)}
 </div>
 
 <!-- Create panel (slide-over) -->

@@ -5,7 +5,7 @@ import * as producerRunQueries from "../../db/queries/producer-runs.js";
 import { listAll as listAllRepos } from "../../db/queries/repos.js";
 import { getConfig, setConfig } from "../../domain/config.js";
 import type { ProducerData, ProducersPageData } from "../views/producers.js";
-import { producersPage } from "../views/producers.js";
+import { producersPage, producerDetailPanel } from "../views/producers.js";
 
 const router = Router();
 
@@ -80,6 +80,47 @@ router.get("/producers", requireAuth, async (req: Request, res: Response, next: 
 
     const data: ProducersPageData = { producers };
     res.send(producersPage(data, user));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /producers/:name ─ Detail panel for a single producer ────────────────
+
+router.get("/producers/:name", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const name = String(req.params.name);
+
+    if (!PRODUCER_NAMES.includes(name)) {
+      res.status(404).send("Unknown producer");
+      return;
+    }
+
+    const globalIntervalMs = parseInt(
+      process.env.HIVE_PRODUCER_INTERVAL_MS ?? String(DEFAULT_PRODUCER_INTERVAL_MS),
+      10,
+    );
+
+    const runs = await producerRunQueries.listRecent(name);
+
+    const configInterval = await getConfig(`producer.${name}.intervalMs`);
+    const effectiveInterval = (typeof configInterval === "number" && configInterval > 0)
+      ? configInterval
+      : PRODUCER_INTERVAL_OVERRIDES[name] ?? globalIntervalMs;
+    const schedule = formatIntervalMs(effectiveInterval);
+
+    const allRepos = await listAllRepos();
+    const enabledRepos: string[] = [];
+    for (const repo of allRepos) {
+      const settings = (repo.settings ?? {}) as Record<string, unknown>;
+      const producersMap = (settings.producers ?? {}) as Record<string, { enabled?: boolean }>;
+      if (producersMap[name]?.enabled === true) {
+        enabledRepos.push(repo.fullName);
+      }
+    }
+
+    const producer: ProducerData = { name, runs, schedule, enabledRepos, intervalMs: effectiveInterval };
+    res.send(producerDetailPanel(producer));
   } catch (err) {
     next(err);
   }

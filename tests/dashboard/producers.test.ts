@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   producersPage,
+  producerSummaryCard,
+  producerDetailPanel,
   producerCardPartial,
 } from "../../src/dashboard/views/producers.js";
 import type {
@@ -49,6 +51,7 @@ const mockProducer: ProducerData = {
   runs: [mockRun, mockRunWithErrors],
   schedule: "every 6h",
   enabledRepos: ["acme/frontend", "acme/backend"],
+  intervalMs: 900000,
 };
 
 const mockProducerNoRuns: ProducerData = {
@@ -56,6 +59,7 @@ const mockProducerNoRuns: ProducerData = {
   runs: [],
   schedule: null,
   enabledRepos: [],
+  intervalMs: 900000,
 };
 
 const mockPageData: ProducersPageData = {
@@ -97,18 +101,24 @@ describe("producersPage", () => {
     const html = producersPage(emptyData, mockUser);
     expect(html).toContain("No producers configured");
   });
+
+  it("renders a responsive card grid", () => {
+    const html = producersPage(mockPageData, mockUser);
+    expect(html).toContain("grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3");
+    expect(html).toContain('id="producer-grid"');
+  });
 });
 
-// ── producerCardPartial ─────────────────────────────────────────────────────
+// ── producerSummaryCard ─────────────────────────────────────────────────────
 
-describe("producerCardPartial", () => {
+describe("producerSummaryCard", () => {
   it("renders the producer name", () => {
-    const html = producerCardPartial(mockProducer);
+    const html = producerSummaryCard(mockProducer);
     expect(html).toContain("bug-hunter");
   });
 
   it("renders health badge as Healthy when last run has no errors", () => {
-    const html = producerCardPartial(mockProducer);
+    const html = producerSummaryCard(mockProducer);
     expect(html).toContain("Healthy");
   });
 
@@ -118,39 +128,89 @@ describe("producerCardPartial", () => {
       runs: [mockRunWithErrors],
       schedule: "daily",
       enabledRepos: [],
+      intervalMs: 900000,
     };
-    const html = producerCardPartial(producerWithErrors);
+    const html = producerSummaryCard(producerWithErrors);
     expect(html).toContain("Errors");
   });
 
   it("renders No runs badge when producer has no runs", () => {
-    const html = producerCardPartial(mockProducerNoRuns);
+    const html = producerSummaryCard(mockProducerNoRuns);
     expect(html).toContain("No runs");
   });
 
-  it("renders schedule badge when schedule is set", () => {
-    const html = producerCardPartial(mockProducer);
+  it("renders schedule info", () => {
+    const html = producerSummaryCard(mockProducer);
     expect(html).toContain("every 6h");
   });
 
-  it("renders No schedule badge when schedule is null", () => {
-    const html = producerCardPartial(mockProducerNoRuns);
-    expect(html).toContain("No schedule");
+  it("renders dash when schedule is null", () => {
+    const html = producerSummaryCard(mockProducerNoRuns);
+    expect(html).toContain("\u2014");
+  });
+
+  it("renders repo count", () => {
+    const html = producerSummaryCard(mockProducer);
+    expect(html).toContain("Repos");
+    expect(html).toContain(">2<");
+  });
+
+  it("renders total tasks across runs", () => {
+    const html = producerSummaryCard(mockProducer);
+    expect(html).toContain("Total Tasks");
+    expect(html).toContain(">8<"); // 5 + 3
+  });
+
+  it("renders the card container with correct id", () => {
+    const html = producerSummaryCard(mockProducer);
+    expect(html).toContain('id="producer-card-bug-hunter"');
+  });
+
+  it("has HTMX attributes for loading detail panel", () => {
+    const html = producerSummaryCard(mockProducer);
+    expect(html).toContain('hx-get="/producers/bug-hunter"');
+    expect(html).toContain('hx-target="#detail-panel"');
+  });
+
+  it("shows Never for last run when no runs exist", () => {
+    const html = producerSummaryCard(mockProducerNoRuns);
+    expect(html).toContain("Never");
+  });
+});
+
+// ── producerDetailPanel ─────────────────────────────────────────────────────
+
+describe("producerDetailPanel", () => {
+  it("renders the producer name in header", () => {
+    const html = producerDetailPanel(mockProducer);
+    expect(html).toContain("bug-hunter");
+  });
+
+  it("renders health and schedule badges in header", () => {
+    const html = producerDetailPanel(mockProducer);
+    expect(html).toContain("Healthy");
+    expect(html).toContain("every 6h");
+  });
+
+  it("renders interval selector with current value selected", () => {
+    const html = producerDetailPanel(mockProducer);
+    expect(html).toContain("Poll interval");
+    expect(html).toContain('value="900000" selected');
   });
 
   it("renders repo badges when repos are enabled", () => {
-    const html = producerCardPartial(mockProducer);
+    const html = producerDetailPanel(mockProducer);
     expect(html).toContain("acme/frontend");
     expect(html).toContain("acme/backend");
   });
 
   it("renders 'No repos enabled' when enabledRepos is empty", () => {
-    const html = producerCardPartial(mockProducerNoRuns);
+    const html = producerDetailPanel(mockProducerNoRuns);
     expect(html).toContain("No repos enabled");
   });
 
   it("renders last run stat cards with correct values", () => {
-    const html = producerCardPartial(mockProducer);
+    const html = producerDetailPanel(mockProducer);
     expect(html).toContain("Tasks Created");
     expect(html).toContain("5");
     expect(html).toContain("Duplicates Skipped");
@@ -160,13 +220,13 @@ describe("producerCardPartial", () => {
   });
 
   it("renders last run timestamp", () => {
-    const html = producerCardPartial(mockProducer);
+    const html = producerDetailPanel(mockProducer);
     expect(html).toContain("Last run:");
     expect(html).toContain("2026-02-18 10:30:00");
   });
 
   it("renders recent runs table", () => {
-    const html = producerCardPartial(mockProducer);
+    const html = producerDetailPanel(mockProducer);
     expect(html).toContain("Recent Runs");
     expect(html).toContain("Time");
     expect(html).toContain("Tasks");
@@ -177,23 +237,29 @@ describe("producerCardPartial", () => {
   });
 
   it("renders OK badge for runs without errors", () => {
-    const html = producerCardPartial(mockProducer);
+    const html = producerDetailPanel(mockProducer);
     expect(html).toContain("OK");
   });
 
   it("renders error count badge for runs with errors", () => {
-    const html = producerCardPartial(mockProducer);
+    const html = producerDetailPanel(mockProducer);
     expect(html).toContain("1 error");
   });
 
   it("renders empty state when producer has no runs", () => {
-    const html = producerCardPartial(mockProducerNoRuns);
+    const html = producerDetailPanel(mockProducerNoRuns);
     expect(html).toContain("No runs recorded yet");
   });
 
-  it("renders the card container with correct id", () => {
-    const html = producerCardPartial(mockProducer);
-    expect(html).toContain('id="producer-card-bug-hunter"');
+  it("renders close button", () => {
+    const html = producerDetailPanel(mockProducer);
+    expect(html).toContain("closePanel()");
+  });
+
+  it("renders as a slide-out panel", () => {
+    const html = producerDetailPanel(mockProducer);
+    expect(html).toContain("fixed inset-y-0 right-0");
+    expect(html).toContain("w-[680px]");
   });
 
   it("formats duration correctly for longer runs", () => {
@@ -205,8 +271,19 @@ describe("producerCardPartial", () => {
       }],
       schedule: null,
       enabledRepos: [],
+      intervalMs: 900000,
     };
-    const html = producerCardPartial(producerLongRun);
+    const html = producerDetailPanel(producerLongRun);
     expect(html).toContain("2m 5s");
+  });
+});
+
+// ── producerCardPartial (backward compat) ───────────────────────────────────
+
+describe("producerCardPartial", () => {
+  it("returns the same output as producerSummaryCard", () => {
+    const partial = producerCardPartial(mockProducer);
+    const summary = producerSummaryCard(mockProducer);
+    expect(partial).toBe(summary);
   });
 });

@@ -112,7 +112,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response, next: Next
 
     const isAdmin = user.role === "admin";
     if (req.headers["hx-request"]) {
-      res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames, isAdmin));
+      res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames, isAdmin, filters.repoId));
     } else {
       res.send(taskListPage(tasks, filters, counts, user, filteredRepos, userNames, HIVE_SELF_REPO, accessibleRepoIds, budgetRemaining));
     }
@@ -181,7 +181,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
     ]);
     const repoNames = new Map(repos.map((r) => [r.id, r.fullName]));
 
-    res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames, user.role === "admin"));
+    res.send(taskListPartial(tasks, counts, activeStatus, repoNames, userNames, user.role === "admin", filters.repoId));
   } catch (err) {
     next(err);
   }
