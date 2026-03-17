@@ -122,6 +122,7 @@ export interface TaskFilters {
   createdBy?: number;
   search?: string;
   visibility?: string;
+  archived?: boolean;
 }
 
 // ── Execution Types ────────────────────────────────────────────────────────

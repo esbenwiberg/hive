@@ -113,6 +113,7 @@ export const tasks = pgTable(
     visibility: text("visibility").notNull().default("public"),
     blueprintSource: text("blueprint_source").notNull().default("architect"),
     userBlueprintMarkdown: text("user_blueprint_markdown"),
+    archivedAt: timestamp("archived_at", tz),
     createdAt: timestamp("created_at", tz).defaultNow(),
     updatedAt: timestamp("updated_at", tz).defaultNow(),
   },
@@ -122,6 +123,7 @@ export const tasks = pgTable(
     index("tasks_created_by_idx").on(t.createdBy),
     index("tasks_created_at_idx").on(t.createdAt),
     index("tasks_visibility_idx").on(t.visibility),
+    index("tasks_archived_at_idx").on(t.archivedAt),
   ],
 );
 

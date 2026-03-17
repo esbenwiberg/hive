@@ -1,4 +1,4 @@
-import { eq, ilike, and, or, sql, count, desc, inArray, notInArray, isNotNull } from "drizzle-orm";
+import { eq, ilike, and, or, sql, count, desc, inArray, notInArray, isNotNull, isNull } from "drizzle-orm";
 import { db } from "../connection.js";
 import { tasks } from "../schema.js";
 import { generateTaskId } from "../../domain/types.js";
@@ -115,6 +115,13 @@ export async function list(
   userContext?: { userId: number; role: string; accessibleRepoIds?: number[] },
 ) {
   const conditions = [];
+
+  // Archive filter: show only archived when requested, exclude archived otherwise
+  if (filters.archived) {
+    conditions.push(isNotNull(tasks.archivedAt));
+  } else {
+    conditions.push(isNull(tasks.archivedAt));
+  }
 
   if (filters.statuses && filters.statuses.length > 0) {
     conditions.push(inArray(tasks.status, filters.statuses));
@@ -441,23 +448,36 @@ export async function countByStatus(accessibleRepoIds?: number[]): Promise<Recor
     return {};
   }
 
-  const where = accessibleRepoIds
-    ? inArray(tasks.repoId, accessibleRepoIds)
-    : undefined;
+  const conditions = [isNull(tasks.archivedAt)];
+  if (accessibleRepoIds) {
+    conditions.push(inArray(tasks.repoId, accessibleRepoIds));
+  }
+  const where = and(...conditions);
 
-  const rows = await db
-    .select({
-      status: tasks.status,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(tasks)
-    .where(where)
-    .groupBy(tasks.status);
+  const [statusRows, archivedRows] = await Promise.all([
+    db
+      .select({
+        status: tasks.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(tasks)
+      .where(where)
+      .groupBy(tasks.status),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(
+        accessibleRepoIds
+          ? and(isNotNull(tasks.archivedAt), inArray(tasks.repoId, accessibleRepoIds))
+          : isNotNull(tasks.archivedAt),
+      ),
+  ]);
 
   const result: Record<string, number> = {};
-  for (const row of rows) {
+  for (const row of statusRows) {
     result[row.status] = row.count;
   }
+  result["archived"] = archivedRows[0]?.count ?? 0;
   return result;
 }
 
@@ -547,4 +567,33 @@ export async function getDoneTasksWithPR() {
     .select()
     .from(tasks)
     .where(and(eq(tasks.status, "done"), isNotNull(tasks.prUrl)));
+}
+
+/**
+ * Archives tasks by setting archived_at timestamp.
+ * Preserves the original status — archiving is orthogonal to status.
+ */
+export async function archiveByIds(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+
+  const result = await db
+    .update(tasks)
+    .set({ archivedAt: new Date(), updatedAt: new Date() })
+    .where(and(inArray(tasks.id, ids), isNull(tasks.archivedAt)));
+
+  return Number(result.rowCount ?? 0);
+}
+
+/**
+ * Unarchives tasks by clearing archived_at timestamp.
+ */
+export async function unarchiveByIds(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+
+  const result = await db
+    .update(tasks)
+    .set({ archivedAt: null, updatedAt: new Date() })
+    .where(and(inArray(tasks.id, ids), isNotNull(tasks.archivedAt)));
+
+  return Number(result.rowCount ?? 0);
 }
