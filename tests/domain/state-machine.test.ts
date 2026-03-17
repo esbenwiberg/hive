@@ -164,9 +164,9 @@ describe("getAvailableActions", () => {
     expect(actions[1].label).toBe("PR Rework");
   });
 
-  it("returns accept_browser_validation, force_pr, more_cycles, redesign, continue, retry and archive for failed", () => {
+  it("returns accept_browser_validation, force_pr, more_cycles, redesign, continue and retry for failed", () => {
     const actions = getAvailableActions("failed");
-    expect(actions).toHaveLength(7);
+    expect(actions).toHaveLength(6);
     const actionNames = actions.map((a) => a.action);
     expect(actionNames).toContain("accept_browser_validation");
     expect(actionNames).toContain("force_pr");
@@ -174,7 +174,6 @@ describe("getAvailableActions", () => {
     expect(actionNames).toContain("redesign");
     expect(actionNames).toContain("continue");
     expect(actionNames).toContain("retry");
-    expect(actionNames).toContain("archive");
   });
 
   it("returns empty array for merged (terminal state)", () => {

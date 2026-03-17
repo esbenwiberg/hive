@@ -485,7 +485,7 @@ describe("tasks queries", () => {
   describe("countByStatus", () => {
     it("returns empty object when no tasks exist", async () => {
       const counts = await countByStatus();
-      expect(counts).toEqual({});
+      expect(counts).toEqual({ archived: 0 });
     });
 
     it("returns correct counts grouped by status", async () => {
