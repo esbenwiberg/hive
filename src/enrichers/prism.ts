@@ -186,7 +186,9 @@ export const prismEnricher: Enricher = {
           throw new Error(`Prism API returned ${response.status}`);
         }
 
-        return (await response.json()) as {
+        const json = await response.json() as Record<string, unknown>;
+        logger.debug({ taskId: task.id, keys: Object.keys(json) }, "Prism search response keys");
+        return json as {
           relevantCode: PrismRelevantCode[];
           moduleSummaries: PrismModuleSummary[];
           findings: PrismFinding[];
@@ -241,20 +243,24 @@ export const prismEnricher: Enricher = {
       (architecture?.totalTokens ?? 0) +
       (recentChanges?.totalTokens ?? 0);
 
+    const relevantCode = searchResult?.relevantCode ?? [];
+    const moduleSummaries = searchResult?.moduleSummaries ?? [];
+    const findings = searchResult?.findings ?? [];
+
     const data: Record<string, unknown> = {
       prism: {
-        relevantCode: searchResult?.relevantCode ?? [],
-        moduleSummaries: searchResult?.moduleSummaries ?? [],
-        findings: searchResult?.findings ?? [],
+        relevantCode,
+        moduleSummaries,
+        findings,
         context: {
           relatedFiles,
           architecture,
           recentChanges,
         },
         stats: {
-          searchResults: searchResult?.relevantCode.length ?? 0,
-          summariesReturned: searchResult?.moduleSummaries.length ?? 0,
-          findingsReturned: searchResult?.findings.length ?? 0,
+          searchResults: relevantCode.length,
+          summariesReturned: moduleSummaries.length,
+          findingsReturned: findings.length,
           contextEndpointsCalled,
           contextTotalTokens,
         },
@@ -264,9 +270,9 @@ export const prismEnricher: Enricher = {
     logger.info(
       {
         taskId: task.id,
-        searchResults: searchResult?.relevantCode.length ?? 0,
-        summaries: searchResult?.moduleSummaries.length ?? 0,
-        findings: searchResult?.findings.length ?? 0,
+        searchResults: relevantCode.length,
+        summaries: moduleSummaries.length,
+        findings: findings.length,
         contextEndpointsCalled,
         contextTotalTokens,
         durationMs,
