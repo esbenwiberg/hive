@@ -124,8 +124,19 @@ export class AdoWorkItemsProducer implements Producer {
         const title = `[${fields["System.WorkItemType"]} #${id}] ${fields["System.Title"]}`;
 
         // ── Description: HTML → Markdown ──────────────────────────────
-        const rawHtml = fields["System.Description"] ?? "";
+        // Bug work items store the description in ReproSteps, not System.Description.
+        const isBug = fields["System.WorkItemType"] === "Bug";
+        const rawHtml =
+          fields["System.Description"] ??
+          (isBug ? (fields["Microsoft.VSTS.TCM.ReproSteps"] as string) : undefined) ??
+          "";
         const description = rawHtml ? turndown.turndown(rawHtml).trim() : "";
+
+        // ── Bug-specific: System Info ───────────────────────────────────
+        const systemInfoHtml = isBug
+          ? (fields["Microsoft.VSTS.TCM.SystemInfo"] as string | undefined)
+          : undefined;
+        const systemInfo = systemInfoHtml ? turndown.turndown(systemInfoHtml).trim() : "";
 
         // ── Acceptance Criteria from custom fields ────────────────────
         const acSections: string[] = [];
@@ -143,6 +154,7 @@ export class AdoWorkItemsProducer implements Producer {
         // ── Build task body ───────────────────────────────────────────
         const bodyParts: string[] = [];
         if (description) bodyParts.push(description);
+        if (systemInfo) bodyParts.push("## System Info\n\n" + systemInfo);
         if (acSections.length > 0) {
           bodyParts.push("---\n\n# Acceptance Criteria\n\n" + acSections.join("\n\n"));
         }
