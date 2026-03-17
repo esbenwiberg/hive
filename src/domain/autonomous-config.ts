@@ -75,6 +75,7 @@ export interface PreviewSettings {
 export interface PrismConfig {
   apiUrl: string;
   apiKey: string;
+  maxTokens: number;
 }
 
 export interface ConcurrencyConfig {
@@ -136,7 +137,7 @@ const DEFAULTS: AutonomousConfig = {
     validation_max_turns: 20,
   },
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
-  prism: { apiUrl: "", apiKey: "" },
+  prism: { apiUrl: "", apiKey: "", maxTokens: 48_000 },
   reviewFix: { maxIterations: 2, fixMaxTurns: 20 },
 };
 

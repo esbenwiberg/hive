@@ -641,18 +641,21 @@ function prismEnrichmentContent(prism: Record<string, unknown>): string {
     const heading = escapeHtml(String(s.heading ?? ""));
     const priority = typeof s.priority === "number" ? s.priority : null;
     const tokens = typeof s.tokenCount === "number" ? s.tokenCount : null;
-    const content = s.content ? escapeHtml(String(s.content).slice(0, 300)) : "";
+    const content = s.content ? escapeHtml(String(s.content)) : "";
 
-    return `<div class="py-2 border-b border-slate-800 last:border-0">
-      <div class="flex items-center justify-between gap-2 mb-1">
+    return `<details class="py-2 border-b border-slate-800 last:border-0 group">
+      <summary class="flex items-center justify-between gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden select-none">
         <span class="text-xs font-medium text-violet-300">${heading}</span>
-        <div class="flex gap-1 shrink-0">
+        <div class="flex items-center gap-1 shrink-0">
           ${priority !== null ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-500">P${priority}</span>` : ""}
           ${tokens !== null ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-500">${tokens}t</span>` : ""}
+          <svg class="h-3.5 w-3.5 text-slate-500 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
+          </svg>
         </div>
-      </div>
-      <p class="text-xs text-slate-400 whitespace-pre-line line-clamp-3">${content}</p>
-    </div>`;
+      </summary>
+      <p class="text-xs text-slate-400 whitespace-pre-line mt-1.5 max-h-96 overflow-y-auto">${content}</p>
+    </details>`;
   }).join("");
 
   const footer = `<div class="mt-2 flex items-center gap-3 text-xs text-slate-500">
