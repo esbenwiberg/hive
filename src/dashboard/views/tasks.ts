@@ -2506,6 +2506,11 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
     ${input("title", "Title", { required: true, placeholder: "Brief task title" })}
     ${textarea("body", "Description", { placeholder: "Describe the task in detail...", rows: 4 })}
 
+    <!-- Image attachments (paste into description) -->
+    <input type="hidden" name="images" id="task-images" value="[]">
+    <div id="image-previews" class="flex flex-wrap gap-2 mt-1"></div>
+    <p class="text-xs text-slate-500 mt-1">Paste images (Ctrl+V) into the description field to attach (max 5, 5MB each)</p>
+
     <!-- Blueprint toggle -->
     <div>
       <label class="flex items-center gap-3 cursor-pointer">
@@ -2575,6 +2580,42 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         var panel = document.getElementById('blueprint-panel');
         if (enabled) { panel.classList.remove('hidden'); }
         else { panel.classList.add('hidden'); }
+      }
+
+      // Paste-to-attach image handler for description textarea
+      document.querySelector('textarea[name="body"]')?.addEventListener('paste', function(e) {
+        var items = Array.from(e.clipboardData?.items ?? []);
+        var imageItem = items.find(function(i) { return i.type.startsWith('image/'); });
+        if (!imageItem) return;
+
+        e.preventDefault();
+        var file = imageItem.getAsFile();
+        if (!file || file.size > 5 * 1024 * 1024) return;
+
+        var reader = new FileReader();
+        reader.onload = function() {
+          var base64 = reader.result.split(',')[1];
+          var images = JSON.parse(document.getElementById('task-images').value);
+          if (images.length >= 5) return;
+          images.push({ name: file.name || 'pasted-image.png', data: base64, mediaType: file.type });
+          document.getElementById('task-images').value = JSON.stringify(images);
+
+          var preview = document.createElement('div');
+          preview.className = 'relative group';
+          preview.innerHTML =
+            '<img src="' + reader.result + '" class="h-16 w-16 object-cover rounded border border-slate-600" />' +
+            '<button type="button" class="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-4 h-4 text-xs leading-none hidden group-hover:block" ' +
+            'onclick="removeTaskImage(this,' + (images.length - 1) + ')">x</button>';
+          document.getElementById('image-previews').appendChild(preview);
+        };
+        reader.readAsDataURL(file);
+      });
+
+      function removeTaskImage(btn, index) {
+        var images = JSON.parse(document.getElementById('task-images').value);
+        images.splice(index, 1);
+        document.getElementById('task-images').value = JSON.stringify(images);
+        btn.closest('.relative').remove();
       }
     </script>
 
