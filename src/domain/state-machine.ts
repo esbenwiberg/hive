@@ -141,7 +141,6 @@ export function getAvailableActions(status: string): Action[] {
       { action: "redesign", targetStatus: TaskStatus.APPROVED, label: "Redesign" },
       { action: "continue", targetStatus: TaskStatus.APPROVED, label: "Continue" },
       { action: "retry", targetStatus: TaskStatus.PENDING, label: "Retry" },
-      { action: "archive", targetStatus: TaskStatus.CANCELLED, label: "Archive" },
     ],
     [TaskStatus.CANCELLED]: [
       { action: "retry", targetStatus: TaskStatus.PENDING, label: "Retry" },

@@ -70,7 +70,9 @@ async function fetchUserNames(): Promise<Map<number, string>> {
 function parseTaskFilters(query: Request["query"]): TaskFilters {
   const filters: TaskFilters = {};
   const status = query.status as string | undefined;
-  if (status === "attention") {
+  if (status === "archived") {
+    filters.archived = true;
+  } else if (status === "attention") {
     filters.statuses = ATTENTION_STATUSES;
   } else if (status) {
     filters.status = status;
@@ -1134,16 +1136,7 @@ router.post("/api/tasks/bulk-archive", requireAuth, async (req: Request, res: Re
       return;
     }
 
-    let archived = 0;
-    const skipped: string[] = [];
-    for (const id of ids) {
-      try {
-        await taskQueries.updateStatus(id, TaskStatus.CANCELLED, user.id);
-        archived++;
-      } catch {
-        skipped.push(id);
-      }
-    }
+    const archived = await taskQueries.archiveByIds(ids);
 
     const accessibleRepoIds = await getAccessibleRepoIds(user);
     const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
@@ -1155,14 +1148,60 @@ router.post("/api/tasks/bulk-archive", requireAuth, async (req: Request, res: Re
     ]);
     const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
 
-    const message = skipped.length > 0
-      ? `Archived ${archived} task(s), ${skipped.length} skipped (already cancelled or invalid transition)`
+    const skipped = ids.length - archived;
+    const message = skipped > 0
+      ? `Archived ${archived} task(s), ${skipped} already archived`
       : `Archived ${archived} task(s)`;
     res.setHeader(
       "HX-Trigger",
       JSON.stringify({ showToast: { message, type: "success" } }),
     );
     res.send(taskListPartial(tasks, counts, undefined, repoNames, userNames, true));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/tasks/bulk-unarchive ─ Bulk unarchive tasks (admin-only) ───
+
+router.post("/api/tasks/bulk-unarchive", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.session.user!;
+    if (user.role !== "admin") {
+      res.status(403).send("Admin access required");
+      return;
+    }
+
+    let ids: string[];
+    try {
+      ids = typeof req.body.ids === "string" ? JSON.parse(req.body.ids) : req.body.ids;
+    } catch {
+      res.status(400).send("Invalid ids");
+      return;
+    }
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).send("ids must be a non-empty array");
+      return;
+    }
+
+    const unarchived = await taskQueries.unarchiveByIds(ids);
+
+    const accessibleRepoIds = await getAccessibleRepoIds(user);
+    const userContext = { userId: user.id, role: user.role, accessibleRepoIds };
+    const [{ tasks }, counts, allRepos, userNames] = await Promise.all([
+      taskQueries.listWithCosts({ archived: true }, undefined, undefined, userContext),
+      taskQueries.countByStatus(accessibleRepoIds),
+      repoQueries.listAll(),
+      fetchUserNames(),
+    ]);
+    const repoNames = new Map(allRepos.map((r) => [r.id, r.fullName]));
+
+    res.setHeader(
+      "HX-Trigger",
+      JSON.stringify({ showToast: { message: `Unarchived ${unarchived} task(s)`, type: "success" } }),
+    );
+    res.send(taskListPartial(tasks, counts, "archived", repoNames, userNames, true));
   } catch (err) {
     next(err);
   }

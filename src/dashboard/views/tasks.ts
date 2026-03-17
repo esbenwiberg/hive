@@ -354,14 +354,15 @@ const STATUS_TABS = [
   { key: "reviewing", label: "Reviewing" },
   { key: "done", label: "Done" },
   { key: "failed", label: "Failed" },
-  { key: "cancelled", label: "Archived" },
+  { key: "cancelled", label: "Cancelled" },
+  { key: "archived", label: "Archived" },
 ];
 
 function filterTabs(
   activeStatus: string,
   counts: Record<string, number>,
 ): string {
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const total = Object.values(counts).reduce((a, b) => a + b, 0) - (counts["archived"] ?? 0);
   const attentionCount = ATTENTION_STATUSES.reduce((sum, s) => sum + (counts[s] ?? 0), 0);
 
   const tabs = STATUS_TABS.map((tab) => {
@@ -1843,10 +1844,13 @@ export function taskListPartial(
   userNames: Map<number, string> = new Map(),
   isAdmin = false,
 ): string {
+  const isArchiveView = activeStatus === "archived";
   const bulkToolbar = isAdmin
     ? `<div id="bulk-toolbar" class="hidden mt-3 flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2">
         <span id="bulk-count" class="text-sm text-slate-300">0 selected</span>
-        <button onclick="bulkArchive()" class="rounded-lg bg-slate-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-500">Archive Selected</button>
+        ${isArchiveView
+          ? `<button onclick="bulkUnarchive()" class="rounded-lg bg-slate-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-500">Unarchive Selected</button>`
+          : `<button onclick="bulkArchive()" class="rounded-lg bg-slate-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-500">Archive Selected</button>`}
         <button onclick="bulkDelete()" class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500">Delete Selected</button>
       </div>
       <script>
@@ -1870,8 +1874,17 @@ export function taskListPartial(
           var checked = document.querySelectorAll('.bulk-select:checked');
           var ids = Array.from(checked).map(function(b) { return b.value; });
           if (ids.length === 0) return;
-          if (!confirm('Archive ' + ids.length + ' task(s)? They will be moved to cancelled status.')) return;
+          if (!confirm('Archive ' + ids.length + ' task(s)? Their status will be preserved.')) return;
           htmx.ajax('POST', '/api/tasks/bulk-archive', {
+            target: '#task-list', swap: 'innerHTML',
+            values: { ids: JSON.stringify(ids) }
+          });
+        }
+        function bulkUnarchive() {
+          var checked = document.querySelectorAll('.bulk-select:checked');
+          var ids = Array.from(checked).map(function(b) { return b.value; });
+          if (ids.length === 0) return;
+          htmx.ajax('POST', '/api/tasks/bulk-unarchive', {
             target: '#task-list', swap: 'innerHTML',
             values: { ids: JSON.stringify(ids) }
           });
