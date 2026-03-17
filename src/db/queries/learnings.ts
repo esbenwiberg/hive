@@ -111,7 +111,7 @@ export async function retrieveRelevantLearnings(opts: {
   // Rank by tag specificity (more matching tags = more relevant), then confidence,
   // then effectiveness ratio (reinforcements vs total feedback), then reinforcements.
   const tagMatchExpr = opts.tags.length > 0
-    ? sql`coalesce(array_length(${learnings.tags} & ARRAY[${sql.join(opts.tags.map((t) => sql`${t}`), sql`, `)}]::text[], 1), 0)`
+    ? sql`coalesce((SELECT count(*)::int FROM unnest(${learnings.tags}) AS t WHERE t = ANY(ARRAY[${sql.join(opts.tags.map((t) => sql`${t}`), sql`, `)}]::text[])), 0)`
     : sql`0`;
 
   const effectivenessExpr = sql`case when (${learnings.reinforcements} + ${learnings.contradictions}) > 0 then ${learnings.reinforcements}::float / (${learnings.reinforcements} + ${learnings.contradictions}) else 0.5 end`;
