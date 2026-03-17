@@ -71,6 +71,7 @@ vi.mock("../../src/domain/autonomous-config.js", () => ({
     prism: {
       apiUrl: "",
       apiKey: "",
+      maxTokens: 48_000,
     },
   }),
 }));
@@ -172,7 +173,7 @@ describe("prismEnricher", () => {
     const body = JSON.parse((mock.mock.calls[0][1] as { body: string }).body);
     expect(body.query).toContain("Fix authentication bug");
     expect(body.query).toContain("login flow breaks");
-    expect(body.maxTokens).toBe(16000);
+    expect(body.maxTokens).toBe(48000);
   });
 
   it("uses prismSlug from repo settings when available", async () => {
