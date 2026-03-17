@@ -177,10 +177,29 @@ export function repoDetailPanel(repo: RepoRow): string {
 
   // Enricher toggles
   const enrichersSettings = (settings.enrichers ?? {}) as Record<string, { enabled?: boolean }>;
+  const prismEnabled = enrichersSettings.prism?.enabled === true;
+  const supersededByPrism = new Set(["codebase", "docs", "git-history"]);
+  const prismCheckboxId = `enricher_enabled_prism_${repo.id}`;
+
   const enricherToggles = ALL_ENRICHER_NAMES.map((name) => {
     const entry = enrichersSettings[name];
     const isEnabled = entry?.enabled === true;
-    return checkbox(`enricher_enabled_${name}_${repo.id}`, name, isEnabled);
+    const cb = checkbox(`enricher_enabled_${name}_${repo.id}`, name, isEnabled);
+
+    if (name === "prism") {
+      // Toggle hint visibility on the superseded enrichers
+      return `<div>${cb.replace(
+        "<input ",
+        `<input onchange="document.querySelectorAll('.prism-hint-${repo.id}').forEach(el => el.style.display = this.checked ? 'block' : 'none')" `,
+      )}</div>`;
+    }
+
+    if (supersededByPrism.has(name)) {
+      const display = prismEnabled ? "block" : "none";
+      return `<div>${cb}<div class="prism-hint-${repo.id} ml-7 text-xs text-amber-400" style="display:${display}">\u26A1 Superseded by Prism context enrichment</div></div>`;
+    }
+
+    return cb;
   }).join("");
 
   // Preview fields

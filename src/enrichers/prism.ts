@@ -2,6 +2,9 @@
  * Prism enricher — semantic codebase search, module summaries, and
  * architectural findings powered by the Prism API.
  *
+ * Calls the legacy /search endpoint plus 3 new context endpoints
+ * (related files, architecture, recent changes) in parallel.
+ *
  * Requires PRISM_API_URL (or prism.apiUrl in config) to be set.
  * All embedding and indexing is handled by Prism; Hive only sends
  * the query text and receives structured results.
@@ -38,14 +41,33 @@ interface PrismFinding {
   suggestion: string | null;
 }
 
+interface PrismContextSection {
+  title: string;
+  content: string;
+  tokens: number;
+}
+
+interface PrismContextResponse {
+  sections: PrismContextSection[];
+  totalTokens: number;
+  truncated: boolean;
+}
+
 interface PrismEnrichmentData {
   relevantCode: PrismRelevantCode[];
   moduleSummaries: PrismModuleSummary[];
   findings: PrismFinding[];
+  context: {
+    relatedFiles: PrismContextResponse | null;
+    architecture: PrismContextResponse | null;
+    recentChanges: PrismContextResponse | null;
+  };
   stats: {
     searchResults: number;
     summariesReturned: number;
     findingsReturned: number;
+    contextEndpointsCalled: number;
+    contextTotalTokens: number;
   };
 }
 
@@ -54,6 +76,12 @@ interface PrismEnrichmentData {
 const MAX_SEARCH_RESULTS = 20;
 const MAX_MODULE_SUMMARIES = 30;
 const MAX_FINDINGS = 20;
+
+const CONTEXT_TOKEN_BUDGETS = {
+  related: 8000,
+  arch: 4000,
+  changes: 4000,
+} as const;
 
 // ── Enricher ────────────────────────────────────────────────────────────────
 
@@ -97,49 +125,136 @@ export const prismEnricher: Enricher = {
     const bodySnippet = (task.body ?? "").slice(0, 200).replace(/\n/g, " ").trim();
     const query = `${task.title} ${bodySnippet}`.trim();
 
-    let result: { relevantCode: PrismRelevantCode[]; moduleSummaries: PrismModuleSummary[]; findings: PrismFinding[] };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    };
 
-    try {
-      const response = await fetch(`${apiUrl}/api/projects/${slug}/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          query,
-          maxResults: MAX_SEARCH_RESULTS,
-          maxSummaries: MAX_MODULE_SUMMARIES,
-          maxFindings: MAX_FINDINGS,
-        }),
-      });
+    // ── Helper: call a context endpoint ──────────────────────────────────
+    async function callContext(
+      endpoint: string,
+      body: Record<string, unknown>,
+    ): Promise<PrismContextResponse | null> {
+      try {
+        const response = await fetch(`${apiUrl}/api/projects/${slug}/${endpoint}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
 
-      if (response.status === 404) {
-        logger.info({ taskId: task.id, slug }, "Prism enricher: project not found, skipping");
-        return { data: {}, durationMs: Date.now() - startTime };
+        if (!response.ok) {
+          logger.warn(
+            { taskId: task.id, endpoint, status: response.status },
+            "Prism context endpoint returned non-OK status",
+          );
+          return null;
+        }
+
+        return (await response.json()) as PrismContextResponse;
+      } catch (err) {
+        logger.warn(
+          { taskId: task.id, endpoint, err },
+          "Prism context endpoint call failed",
+        );
+        return null;
       }
+    }
 
-      if (!response.ok) {
-        throw new Error(`Prism API returned ${response.status}`);
+    // ── Fire all calls in parallel ───────────────────────────────────────
+
+    // Determine if slug has owner/repo format for context endpoints
+    const hasOwnerRepo = slug.includes("/");
+
+    const searchPromise = (async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/projects/${slug}/search`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query,
+            maxResults: MAX_SEARCH_RESULTS,
+            maxSummaries: MAX_MODULE_SUMMARIES,
+            maxFindings: MAX_FINDINGS,
+          }),
+        });
+
+        if (response.status === 404) {
+          return null; // project not found
+        }
+
+        if (!response.ok) {
+          throw new Error(`Prism API returned ${response.status}`);
+        }
+
+        return (await response.json()) as {
+          relevantCode: PrismRelevantCode[];
+          moduleSummaries: PrismModuleSummary[];
+          findings: PrismFinding[];
+        };
+      } catch (err) {
+        logger.warn({ taskId: task.id, err }, "Prism enricher: search call failed");
+        return null;
       }
+    })();
 
-      result = await response.json() as typeof result;
-    } catch (err) {
-      logger.warn({ taskId: task.id, err }, "Prism enricher: API call failed, skipping");
+    const contextPromises = hasOwnerRepo
+      ? {
+          relatedFiles: callContext("context/related", {
+            intent: query,
+            tokenBudget: CONTEXT_TOKEN_BUDGETS.related,
+          }),
+          architecture: callContext("context/arch", {
+            intent: task.title,
+            tokenBudget: CONTEXT_TOKEN_BUDGETS.arch,
+          }),
+          recentChanges: callContext("context/changes", {
+            intent: task.title,
+            tokenBudget: CONTEXT_TOKEN_BUDGETS.changes,
+          }),
+        }
+      : {
+          relatedFiles: Promise.resolve(null) as Promise<PrismContextResponse | null>,
+          architecture: Promise.resolve(null) as Promise<PrismContextResponse | null>,
+          recentChanges: Promise.resolve(null) as Promise<PrismContextResponse | null>,
+        };
+
+    const [searchResult, relatedFiles, architecture, recentChanges] = await Promise.all([
+      searchPromise,
+      contextPromises.relatedFiles,
+      contextPromises.architecture,
+      contextPromises.recentChanges,
+    ]);
+
+    // If search returned null (404 or failure) and no context data, bail out
+    if (!searchResult && !relatedFiles && !architecture && !recentChanges) {
       return { data: {}, durationMs: Date.now() - startTime };
     }
 
     const durationMs = Date.now() - startTime;
 
+    // Count how many context endpoints were actually called (not skipped)
+    const contextEndpointsCalled = hasOwnerRepo ? 3 : 0;
+    const contextTotalTokens =
+      (relatedFiles?.totalTokens ?? 0) +
+      (architecture?.totalTokens ?? 0) +
+      (recentChanges?.totalTokens ?? 0);
+
     const data: Record<string, unknown> = {
       prism: {
-        relevantCode: result.relevantCode,
-        moduleSummaries: result.moduleSummaries,
-        findings: result.findings,
+        relevantCode: searchResult?.relevantCode ?? [],
+        moduleSummaries: searchResult?.moduleSummaries ?? [],
+        findings: searchResult?.findings ?? [],
+        context: {
+          relatedFiles,
+          architecture,
+          recentChanges,
+        },
         stats: {
-          searchResults: result.relevantCode.length,
-          summariesReturned: result.moduleSummaries.length,
-          findingsReturned: result.findings.length,
+          searchResults: searchResult?.relevantCode.length ?? 0,
+          summariesReturned: searchResult?.moduleSummaries.length ?? 0,
+          findingsReturned: searchResult?.findings.length ?? 0,
+          contextEndpointsCalled,
+          contextTotalTokens,
         },
       } satisfies PrismEnrichmentData,
     };
@@ -147,9 +262,11 @@ export const prismEnricher: Enricher = {
     logger.info(
       {
         taskId: task.id,
-        searchResults: result.relevantCode.length,
-        summaries: result.moduleSummaries.length,
-        findings: result.findings.length,
+        searchResults: searchResult?.relevantCode.length ?? 0,
+        summaries: searchResult?.moduleSummaries.length ?? 0,
+        findings: searchResult?.findings.length ?? 0,
+        contextEndpointsCalled,
+        contextTotalTokens,
         durationMs,
       },
       "Prism enricher completed",
