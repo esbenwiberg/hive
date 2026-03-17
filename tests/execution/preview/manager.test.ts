@@ -106,7 +106,13 @@ function createFakeChildProcess(): ChildProcess {
     stderr: {
       on: vi.fn(),
     },
-    on: vi.fn(),
+    on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+      // Fire "exit" immediately so the 5s port-detection timeout in
+      // spawnCommand resolves instantly instead of blocking the test suite.
+      if (event === "exit") {
+        queueMicrotask(() => cb(0, null));
+      }
+    }),
   } as unknown as ChildProcess;
 }
 
