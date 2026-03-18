@@ -17,8 +17,8 @@ Given recent gate decisions, identify patterns where similar rejection reasons a
 For each pattern found, propose a learning.
 
 Scope rules:
-- Use "universal" for patterns that apply across all repos.
-- Use "repo:<owner/name>" (matching the repo in the input) for patterns specific to one repo.
+- Default to "universal". Most learnings (security, testing, code quality, architecture, correctness patterns) apply across all repos — even if discovered in one repo.
+- Use "repo:<owner/name>" ONLY for learnings that reference repo-specific configuration, tooling, conventions, or architecture unique to that repo (e.g., "this repo uses Tailwind v4", "CI requires make lint", "this repo's API uses a custom middleware chain"). If the learning would make sense in any codebase, it MUST be "universal".
 
 Respond with JSON:
 \`\`\`json

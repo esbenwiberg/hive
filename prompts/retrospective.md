@@ -99,7 +99,10 @@ Respond with a JSON object:
 - **blindSpots**: Up to 5 failure patterns not covered by existing learnings
 - **proposals**: Array of proposed actions:
   - `action`: One of `"create"`, `"promote"`, `"deprecate"`
-  - `scope`: Required for `"create"` — one of `"universal"`, `"repo"`, `"task-type"`
+  - `scope`: Required for `"create"` — one of `"universal"`, `"repo:<owner/name>"`, `"task:<type>"`. **Scope decision rules:**
+    - Default to `"universal"`. Most learnings (security, testing, code quality, architecture, correctness patterns) apply across all repos.
+    - Use `"repo:<owner/name>"` ONLY for learnings that reference repo-specific configuration, tooling, conventions, or architectural patterns unique to that repo (e.g., "this repo uses Tailwind v4", "CI requires `make lint`"). If the learning would make sense in any codebase, it MUST be `"universal"`.
+    - Use `"task:<type>"` only for insights truly specific to a task category.
   - `category`: Required for `"create"` — e.g. `"correctness"`, `"security"`, `"style"`, `"performance"`, `"testing"`, `"architecture"`
   - `content`: Required for `"create"` — actionable learning content
   - `tags`: Required for `"create"` — keyword tags for retrieval
