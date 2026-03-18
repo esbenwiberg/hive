@@ -72,6 +72,9 @@ export function logsPage(user: SessionUser): string {
 
     <!-- Controls -->
     <div class="flex items-center gap-2">
+      <button id="log-detailed" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-700 hover:text-slate-50" title="Toggle detailed view">
+        Detailed
+      </button>
       <button id="log-pause" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-700 hover:text-slate-50" title="Pause/Resume">
         Pause
       </button>

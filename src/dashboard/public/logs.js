@@ -38,11 +38,18 @@
   var entryCount = 0;
   var knownComponents = {};
   var filterTimer = null;
+  var detailedMode = false;
+
+  // Fields to hide from the detail panel (already shown in the log line)
+  var HIDDEN_FIELDS = {
+    level: 1, time: 1, msg: 1, pid: 1, hostname: 1, taskId: 1, raw: 1,
+    v: 1, name: 1,
+  };
 
   // ── DOM refs ───────────────────────────────────────────────────────────────
 
   var container, statusDot, statusText, pauseBtn, clearBtn, countEl,
-    scrollBtn, componentSelect, taskIdInput, searchInput;
+    scrollBtn, componentSelect, taskIdInput, searchInput, detailedBtn;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -92,11 +99,63 @@
     }
   }
 
+  // ── Detail extraction ──────────────────────────────────────────────────────
+
+  function extractDetails(entry) {
+    var raw;
+    try {
+      raw = typeof entry.raw === "string" ? JSON.parse(entry.raw) : entry.raw;
+    } catch (_e) {
+      return null;
+    }
+    if (!raw || typeof raw !== "object") return null;
+
+    var extras = {};
+    var hasAny = false;
+    for (var key in raw) {
+      if (!Object.prototype.hasOwnProperty.call(raw, key)) continue;
+      if (HIDDEN_FIELDS[key]) continue;
+      extras[key] = raw[key];
+      hasAny = true;
+    }
+    return hasAny ? extras : null;
+  }
+
+  function renderDetailPanel(extras) {
+    var panel = document.createElement("div");
+    panel.className = "log-detail-panel ml-16 mb-1 rounded border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] leading-relaxed";
+
+    var html = '<table class="w-full">';
+    for (var key in extras) {
+      if (!Object.prototype.hasOwnProperty.call(extras, key)) continue;
+      var val = extras[key];
+      var display = typeof val === "object" ? JSON.stringify(val, null, 2) : String(val);
+      var valClass = "text-slate-300";
+      // Color-code HTTP status codes
+      if (key === "status" && typeof val === "number") {
+        if (val >= 200 && val < 300) valClass = "text-emerald-400";
+        else if (val >= 400 && val < 500) valClass = "text-amber-400";
+        else if (val >= 500) valClass = "text-red-400";
+      }
+      var isMultiline = typeof val === "object" || (typeof display === "string" && display.length > 100);
+      html += '<tr class="align-top">' +
+        '<td class="pr-3 py-0.5 text-slate-500 whitespace-nowrap font-medium">' + esc(key) + '</td>' +
+        '<td class="py-0.5 ' + valClass + (isMultiline ? ' whitespace-pre-wrap break-all' : '') + '">' + esc(display) + '</td>' +
+        '</tr>';
+    }
+    html += '</table>';
+    panel.innerHTML = html;
+    return panel;
+  }
+
   // ── Rendering ──────────────────────────────────────────────────────────────
 
   function renderEntry(entry) {
+    var wrapper = document.createElement("div");
+    wrapper.className = "log-entry";
+
     var line = document.createElement("div");
-    line.className = "flex gap-2 py-0.5 hover:bg-slate-900/50";
+    line.className = "flex gap-2 py-0.5 hover:bg-slate-900/50 cursor-pointer select-none";
 
     var time = '<span class="text-slate-500 shrink-0">' + esc(formatTime(entry.time)) + "</span>";
 
@@ -113,15 +172,41 @@
     var msgColor = LEVEL_MSG_COLOR[entry.levelLabel] || "text-slate-300";
     var msg = '<span class="' + msgColor + ' break-all">' + esc(entry.msg) + "</span>";
 
-    line.innerHTML = time + level + comp + taskTag + msg;
-    container.appendChild(line);
+    var extras = extractDetails(entry);
+
+    // Show a subtle indicator when extra fields exist
+    var detailHint = extras
+      ? '<span class="text-slate-600 shrink-0 text-[10px] ml-auto" title="Click to expand details">&hellip;</span>'
+      : '';
+
+    line.innerHTML = time + level + comp + taskTag + msg + detailHint;
+    wrapper.appendChild(line);
 
     if (entry.err) {
       var errEl = document.createElement("div");
       errEl.className = "ml-16 text-red-400/80 whitespace-pre-wrap py-0.5";
       errEl.textContent = entry.err;
-      container.appendChild(errEl);
+      wrapper.appendChild(errEl);
     }
+
+    // Detail panel (expandable)
+    if (extras) {
+      var panel = renderDetailPanel(extras);
+      if (!detailedMode) {
+        panel.style.display = "none";
+      }
+      wrapper.appendChild(panel);
+
+      line.addEventListener("click", function () {
+        var isHidden = panel.style.display === "none";
+        panel.style.display = isHidden ? "" : "none";
+        if (isHidden && autoScroll) {
+          container.scrollTop = container.scrollHeight;
+        }
+      });
+    }
+
+    container.appendChild(wrapper);
 
     // Track component
     if (entry.component && !knownComponents[entry.component]) {
@@ -256,8 +341,30 @@
     componentSelect = document.getElementById("log-component");
     taskIdInput = document.getElementById("log-task-id");
     searchInput = document.getElementById("log-search");
+    detailedBtn = document.getElementById("log-detailed");
 
     if (!container) return; // Not on the logs page
+
+    // Detailed mode toggle
+    detailedBtn.addEventListener("click", function () {
+      detailedMode = !detailedMode;
+      detailedBtn.textContent = detailedMode ? "Compact" : "Detailed";
+      if (detailedMode) {
+        detailedBtn.classList.add("border-amber-400/50", "text-amber-400");
+        detailedBtn.classList.remove("border-slate-600", "text-slate-300");
+      } else {
+        detailedBtn.classList.remove("border-amber-400/50", "text-amber-400");
+        detailedBtn.classList.add("border-slate-600", "text-slate-300");
+      }
+      // Toggle all existing detail panels
+      var panels = container.querySelectorAll(".log-detail-panel");
+      for (var i = 0; i < panels.length; i++) {
+        panels[i].style.display = detailedMode ? "" : "none";
+      }
+      if (autoScroll) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
 
     // Pause / Resume
     pauseBtn.addEventListener("click", function () {
