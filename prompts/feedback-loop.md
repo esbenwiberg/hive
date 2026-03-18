@@ -54,7 +54,10 @@ Respond with **only** a JSON object — no explanation, no markdown prose, no te
 - **reinforceIds**: Array of learning IDs that helped or are validated by this outcome. Empty array if none.
 - **contradictIds**: Array of learning IDs that failed to prevent issues. Empty array if none.
 - **newLearnings**: Array of new learnings to create. Each must have:
-  - `scope`: One of `"universal"`, `"repo:<name>"`, or `"task:<type>"` — how broadly the learning applies
+  - `scope`: One of `"universal"`, `"repo:<name>"`, or `"task:<type>"` — how broadly the learning applies. **Scope decision rules:**
+    - Default to `"universal"`. Most learnings (security, testing, code quality, architecture, correctness patterns) apply across all repos.
+    - Use `"repo:<name>"` ONLY for learnings that reference repo-specific configuration, tooling, conventions, or architectural patterns unique to that repo (e.g., "this repo uses Tailwind v4", "CI requires `make lint`", "this repo's API layer uses a custom middleware chain"). If the learning would make sense in any codebase, it MUST be `"universal"`.
+    - Use `"task:<type>"` only for insights truly specific to a task category.
   - `category`: One of `"correctness"`, `"security"`, `"style"`, `"performance"`, `"testing"`, `"architecture"`
   - `content`: A concise, actionable statement of the learning (1-2 sentences)
   - `tags`: Array of lowercase keyword tags for retrieval (3-6 tags)

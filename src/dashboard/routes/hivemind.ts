@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth, requireRole } from "../../auth/middleware.js";
-import { getLearningById, listLearnings, getLearningStats, getLearningUsageStats, dismissLearning, applyWeeklyDecay, archiveStale, archiveNeverUsed } from "../../db/queries/learnings.js";
+import { getLearningById, listLearnings, getLearningStats, getLearningUsageStats, dismissLearning, applyWeeklyDecay, archiveStale, archiveNeverUsed, deepClean } from "../../db/queries/learnings.js";
 import { getEventsForLearning, getEventCountsByType, getDailyEventVolume } from "../../db/queries/learning-events.js";
 import { getConfig, setConfig } from "../../domain/config.js";
 import { curateLearnings } from "../../agents/keeper.js";
@@ -180,6 +180,33 @@ router.post("/hivemind/curate", requireAuth, requireRole("admin"), async (req: R
       showToast: `Cleanup done: ${decayed} decayed, ${archived + neverUsedArchived} archived. Keeper curation running in background.`,
     }));
     // Refresh the full learnings list
+    const { learnings, total } = await listLearnings({ limit: PAGE_SIZE, offset: 0 });
+    res.send(learningsListPartial(learnings, total, 1));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /hivemind/deep-clean ─ Aggressive thorough cleanup ───────────────────
+
+router.post("/hivemind/deep-clean", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    logger.info({ triggeredBy: req.session.user!.id }, "Hivemind: deep clean triggered");
+
+    const result = await deepClean();
+    const totalArchived = result.neverUsed + result.lowConfidence + result.dormant;
+
+    // Still run keeper for dedup on whatever survives
+    curateLearnings().catch((err) => {
+      logger.error({ err }, "Hivemind: deep clean keeper failed");
+    });
+
+    logger.info(result, "Hivemind: deep clean complete, keeper running async");
+
+    res.set("HX-Trigger", JSON.stringify({
+      showToast: `Deep clean done: ${result.decayed} decayed (×0.90), ${totalArchived} archived (${result.neverUsed} never-used, ${result.lowConfidence} low-confidence, ${result.dormant} dormant). Keeper running.`,
+    }));
+
     const { learnings, total } = await listLearnings({ limit: PAGE_SIZE, offset: 0 });
     res.send(learningsListPartial(learnings, total, 1));
   } catch (err) {

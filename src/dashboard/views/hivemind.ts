@@ -706,16 +706,64 @@ export function hivemindPage(data: HivemindPageData, user: SessionUser): string 
       <h2 class="text-xl font-semibold text-slate-50">Hivemind Knowledge Explorer</h2>
       <p class="mt-1 text-sm text-slate-400">Browse, filter, and inspect the structured learnings that guide autonomous agents.</p>
     </div>
-    <button class="inline-flex items-center gap-2 shrink-0 rounded-lg border border-amber-800/50 bg-amber-950/30 px-4 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-900/40"
-            hx-post="/hivemind/curate"
-            hx-target="#learnings-list"
-            hx-swap="innerHTML"
-            hx-confirm="Run a full cleanup cycle? This applies confidence decay, archives stale learnings, and runs the keeper agent for dedup."
-            hx-indicator="#curate-spinner">
-      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" /></svg>
-      <span>Force Cleanup</span>
-      <svg id="curate-spinner" class="htmx-indicator h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-    </button>
+    <div class="flex items-center gap-2 shrink-0">
+      <button class="inline-flex items-center gap-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-4 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-900/40"
+              hx-post="/hivemind/curate"
+              hx-target="#learnings-list"
+              hx-swap="innerHTML"
+              hx-confirm="Run a full cleanup cycle? This applies confidence decay, archives stale learnings, and runs the keeper agent for dedup."
+              hx-indicator="#curate-spinner">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" /></svg>
+        <span>Force Cleanup</span>
+        <svg id="curate-spinner" class="htmx-indicator h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+      </button>
+      <button class="inline-flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-900/40"
+              onclick="document.getElementById('deep-clean-modal').classList.remove('hidden')"
+              id="deep-clean-btn">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
+        <span>Deep Clean</span>
+        <svg id="deep-clean-spinner" class="htmx-indicator h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+      </button>
+    </div>
+
+    <!-- Deep Clean confirmation modal -->
+    <div id="deep-clean-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div class="w-full max-w-md rounded-xl border border-red-800/50 bg-slate-900 p-6 shadow-2xl mx-4">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-950 text-red-400">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
+          </div>
+          <div>
+            <h3 class="text-lg font-semibold text-red-400">Deep Clean</h3>
+            <p class="text-xs text-slate-400">Aggressive, irreversible cleanup</p>
+          </div>
+        </div>
+        <div class="space-y-2 mb-6 text-sm text-slate-300">
+          <p>This will <span class="font-semibold text-red-400">aggressively</span> archive learnings:</p>
+          <ul class="space-y-1 text-slate-400 ml-4 list-disc">
+            <li><span class="text-red-400">All</span> never-used learnings (regardless of age)</li>
+            <li>Confidence &lt; 50% with &lt; 3 reinforcements</li>
+            <li>Unused 14+ days with confidence &lt; 60%</li>
+            <li>Harsh decay (×0.90) on all inactive learnings</li>
+          </ul>
+          <p class="text-amber-400 text-xs mt-3">This cannot be undone. Archived learnings will no longer be used by agents.</p>
+        </div>
+        <div class="flex items-center gap-3 justify-end">
+          <button onclick="document.getElementById('deep-clean-modal').classList.add('hidden')"
+                  class="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 transition-colors">
+            Cancel
+          </button>
+          <button class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 transition-colors"
+                  hx-post="/hivemind/deep-clean"
+                  hx-target="#learnings-list"
+                  hx-swap="innerHTML"
+                  hx-indicator="#deep-clean-spinner"
+                  onclick="document.getElementById('deep-clean-modal').classList.add('hidden')">
+            Yes, Deep Clean
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Stat cards -->

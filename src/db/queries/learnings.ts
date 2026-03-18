@@ -260,6 +260,81 @@ export async function archiveNeverUsed(minAgeDays = 30): Promise<number> {
 }
 
 /**
+ * Deep clean: aggressively archives low-value learnings.
+ * - ALL never-used learnings (regardless of age)
+ * - Confidence < 0.5 with < 3 reinforcements
+ * - Unused 14+ days with confidence < 0.6
+ * - Applies a harsh 0.90 decay to everything not used in 7 days
+ * Returns a breakdown of what was archived.
+ */
+export async function deepClean(): Promise<{
+  decayed: number;
+  neverUsed: number;
+  lowConfidence: number;
+  dormant: number;
+}> {
+  // 1. Harsh decay (0.90 instead of 0.987) on anything unused 7+ days
+  const decayResult = await db
+    .update(learnings)
+    .set({
+      confidence: sql`(${learnings.confidence} * 0.90)::numeric(3,2)`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        sql`(${learnings.lastUsedAt} is null or ${learnings.lastUsedAt} < now() - interval '7 days')`,
+        isNull(learnings.supersededBy),
+      ),
+    )
+    .returning({ id: learnings.id });
+
+  // 2. Archive ALL never-used learnings (no age gate)
+  const neverUsedResult = await db
+    .update(learnings)
+    .set({ supersededBy: -1, updatedAt: new Date() })
+    .where(
+      and(
+        sql`${learnings.lastUsedAt} is null`,
+        isNull(learnings.supersededBy),
+      ),
+    )
+    .returning({ id: learnings.id });
+
+  // 3. Archive low confidence (< 0.5) with few reinforcements (< 3)
+  const lowConfResult = await db
+    .update(learnings)
+    .set({ supersededBy: -1, updatedAt: new Date() })
+    .where(
+      and(
+        sql`${learnings.confidence} < 0.5`,
+        sql`${learnings.reinforcements} < 3`,
+        isNull(learnings.supersededBy),
+      ),
+    )
+    .returning({ id: learnings.id });
+
+  // 4. Archive dormant: unused 14+ days with confidence < 0.6
+  const dormantResult = await db
+    .update(learnings)
+    .set({ supersededBy: -1, updatedAt: new Date() })
+    .where(
+      and(
+        sql`${learnings.confidence} < 0.6`,
+        sql`(${learnings.lastUsedAt} is not null and ${learnings.lastUsedAt} < now() - interval '14 days')`,
+        isNull(learnings.supersededBy),
+      ),
+    )
+    .returning({ id: learnings.id });
+
+  return {
+    decayed: decayResult.length,
+    neverUsed: neverUsedResult.length,
+    lowConfidence: lowConfResult.length,
+    dormant: dormantResult.length,
+  };
+}
+
+/**
  * Dismisses a learning: sets dismissedAt/dismissedBy, marks supersededBy = -1
  * so it's excluded from retrieveRelevantLearnings, and records a dismissed event.
  */
