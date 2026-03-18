@@ -1090,10 +1090,24 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // Transition to reviewing
     await updateStatus(taskId, "reviewing");
 
+    // Run pre-review build/test verification so the review gate sees real results
+    // instead of Claude guessing from the diff.
+    await addEvent(taskId, "pre_review_verify", "worker", "Running build/test before review");
+    const preReviewVerify = await quickVerify(worktree.path, buildSettings, { skipInstall: true, timeouts: hiveTimeouts });
+    const buildFailed = preReviewVerify.failures.some(f => f.startsWith("npm build failed") || f.startsWith("dotnet build failed"));
+    const testFailed = preReviewVerify.failures.some(f => f.startsWith("npm test failed") || f.startsWith("dotnet test failed"));
+    const actualVerification = {
+      buildSucceeded: !buildFailed,
+      testsPassed: !testFailed,
+      lintClean: preReviewVerify.warnings.length === 0,
+      failures: preReviewVerify.failures,
+      warnings: preReviewVerify.warnings,
+    };
+
     // Run review gate (pass learning IDs for feedback loop)
     await addEvent(taskId, "review_started", "worker", "Starting code review");
     await heartbeat(taskId);
-    const reviewResult = await reviewChanges(taskId, worktree, learningIds, allReviewFixIssues.length > 0 ? allReviewFixIssues : undefined);
+    const reviewResult = await reviewChanges(taskId, worktree, learningIds, allReviewFixIssues.length > 0 ? allReviewFixIssues : undefined, actualVerification);
     await addEvent(taskId, "review_complete", "worker", `Review: ${reviewResult.verdict}`);
     await heartbeat(taskId);
 
