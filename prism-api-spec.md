@@ -1,31 +1,28 @@
-# Prism HTTP API — Implementation Spec
+# Prism HTTP API — Integration Spec
 
-Hive currently integrates with Prism via the `@prism/core` library, connecting directly to Prism's database. This document proposes replacing that with a proper HTTP API so that each system owns its own data and responsibilities.
+Hive integrates with Prism via its HTTP API. Prism owns code indexing, embedding, and context assembly — Hive sends queries and receives pre-assembled context.
 
 ## Motivation
 
-- **Hive was generating its own embeddings** to query Prism's vector index — meaning Hive had to know (and match exactly) which embedding model Prism used. One wrong model name or dimension mismatch produces silently bad search results.
-- **Hive was calling `runPipeline` directly after PR merges** — no deduplication. If three PRs merge in quick succession for the same repo, three full reindex runs fire in parallel.
-- **Hive had direct read access to Prism's database schema** — any schema change in Prism breaks Hive.
-
-With an HTTP API, Prism owns all of this. Hive just sends a query or a reindex request.
+- **Hive doesn't generate embeddings** — Prism handles embedding model selection, so no model/dimension mismatch risk.
+- **Reindex requests are deduplicated** — Prism queues and coalesces, so multiple PR merges don't trigger parallel reindex runs.
+- **No shared database** — Hive talks to Prism over HTTP only; schema changes in Prism don't break Hive.
 
 ---
 
-## Changes on the Hive side
+## How Hive uses the API
 
-Already done. Hive now:
+Three integration points:
 
-- Calls `POST /api/projects/:slug/search` with plain query text — no embeddings, no model config
-- Calls `POST /api/projects/:slug/reindex` on PR merge — fire-and-forget, 202 response
-- Configures only `PRISM_API_URL` and `PRISM_API_KEY` (no database URL, no embedding provider/model)
-- No longer runs a nightly semantic reindex tick — Prism schedules this internally
+- **Enrichment (primary):** `POST /api/projects/:owner/:repo/context/enrich` — one-shot task context for the enrichment pipeline (`src/enrichers/prism.ts`)
+- **Search (worker tool):** `POST /api/projects/:owner/:repo/search` — semantic code search available as `search_codebase` tool during task execution (`src/execution/worker-tools.ts`)
+- **Reindex (fire-and-forget):** `POST /api/projects/:owner/:repo/reindex` — triggered on PR merge (`src/daemon/pr-close-cleanup.ts`)
+
+Configuration: `PRISM_API_URL` and `PRISM_API_KEY` env vars (or `prism.apiUrl`/`prism.apiKey` in `autonomous.config.yaml`).
 
 ---
 
-## API to implement
-
-### Authentication
+## Authentication
 
 All endpoints require a bearer token:
 
@@ -33,15 +30,77 @@ All endpoints require a bearer token:
 Authorization: Bearer <api-key>
 ```
 
-Return `401` if missing or invalid. A single shared API key is fine to start with.
+Return `401` if missing or invalid.
+
+---
+
+## Endpoints
+
+All project endpoints use `:owner/:repo` as separate path segments (e.g. `my-org/my-repo`).
+
+---
+
+### `POST /api/projects/:owner/:repo/context/enrich`
+
+> **Recommended entry point.** One-shot endpoint that assembles everything an agent needs for a task.
+
+Returns mentioned files, architecture context, semantic code & doc matches, forward dependencies, aggregated blast radius, and recent changes — all scoped to a natural language query. Prism allocates the token budget across signals automatically via a 4-tier priority system.
+
+**Used by:** `src/enrichers/prism.ts` (enrichment pipeline)
+
+**Request body:**
+```json
+{
+  "query": "string — natural language description of the task",
+  "maxTokens": 16000
+}
+```
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `query` | string | yes | — | Natural language description of the task |
+| `maxTokens` | number | no | 16000 | Token budget — priority system allocates it |
+
+**Response `200`:**
+```json
+{
+  "sections": [
+    { "heading": "Mentioned Files", "priority": 1, "content": "**src/indexer/pipeline.ts**\n...", "tokenCount": 620 },
+    { "heading": "Purpose", "priority": 1, "content": "Prism is a standalone...", "tokenCount": 120 },
+    { "heading": "System Architecture", "priority": 1, "content": "Core modules: indexer, context, db...", "tokenCount": 310 },
+    { "heading": "Dependencies of Mentioned Files", "priority": 2, "content": "**src/db/queries.ts** — ...", "tokenCount": 280 },
+    { "heading": "Relevant Code", "priority": 2, "content": "**src/indexer/pipeline.ts** — ...", "tokenCount": 850 },
+    { "heading": "Relevant Documentation", "priority": 2, "content": "**docs/architecture.md** — ...", "tokenCount": 200 },
+    { "heading": "Blast Radius (3 files potentially affected)", "priority": 3, "content": "...", "tokenCount": 210 },
+    { "heading": "Commits for Relevant Files", "priority": 3, "content": "`a1b2c3d` fix: handle timeout...", "tokenCount": 180 },
+    { "heading": "Recent Commits", "priority": 4, "content": "`e4f5g6h` feat: add caching...", "tokenCount": 150 }
+  ],
+  "totalTokens": 2920,
+  "truncated": false
+}
+```
+
+**Priority tiers:**
+
+| Priority | Sections | Behaviour |
+|----------|----------|-----------|
+| 1 | Mentioned Files, Purpose, System Architecture | Guaranteed — survive even tiny token budgets |
+| 2 | Dependencies of Mentioned Files, Shared Dependencies, Relevant Code, Relevant Documentation | High value — included unless budget is very tight |
+| 3 | Blast Radius, Commits for Relevant Files | Supporting — trimmed first under budget pressure |
+| 4 | Recent Commits | Background — only when budget allows |
+
+**Response `404`:** Project not found or not yet indexed — Hive skips the enricher gracefully.
+
+**Notes:**
+- Graceful degradation: returns architecture + critical findings even if semantic layer isn't indexed yet.
 
 ---
 
 ### `POST /api/projects/:owner/:repo/search`
 
-Semantic search over a project's index. Prism handles embedding internally.
+Semantic search over a project's index. Used as an agent tool during task execution.
 
-**Path params:** `:owner/:repo` — the repository owner and name as separate path segments (e.g. `my-org/my-repo`).
+**Used by:** `src/execution/worker-tools.ts` (`search_codebase` tool)
 
 **Request body:**
 ```json
@@ -85,20 +144,15 @@ Semantic search over a project's index. Prism handles embedding internally.
 }
 ```
 
-**Response `404`:** Project not found or not yet indexed — Hive will skip the enricher gracefully.
-
-**Notes:**
-- Only return findings with severity `critical`, `high`, or `medium` (Hive filters these, but filtering server-side is cheaper)
-- If the project's `indexStatus` is not `completed` or `partial`, return `404` — not ready yet
-- Embed the query using the same model/provider used to build the index for that project
+**Response `404`:** Project not found or not yet indexed.
 
 ---
 
 ### `POST /api/projects/:owner/:repo/reindex`
 
-Enqueue a reindex request. Prism processes these on its own schedule.
+Enqueue a reindex request. Prism queues and deduplicates — multiple requests for the same repo collapse into one.
 
-**Path params:** `:owner/:repo` — same separate path segments.
+**Used by:** `src/daemon/pr-close-cleanup.ts` (fire-and-forget on PR merge)
 
 **Request body:**
 ```json
@@ -115,62 +169,3 @@ Possible layer values: `"structural"`, `"semantic"`, or both.
 ```
 
 **Response `404`:** Project not found — Hive ignores this case.
-
-**Implementation notes — the queue:**
-
-This is the key change. Instead of running reindex synchronously, persist requests to a table:
-
-```sql
-CREATE TABLE reindex_requests (
-  id          SERIAL PRIMARY KEY,
-  project_id  TEXT NOT NULL,
-  layers      TEXT[] NOT NULL DEFAULT '{structural}',
-  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (project_id)  -- deduplication: upsert on conflict
-);
-```
-
-On each `POST /reindex`, do an upsert:
-```sql
-INSERT INTO reindex_requests (project_id, layers, requested_at)
-VALUES ($1, $2, now())
-ON CONFLICT (project_id)
-DO UPDATE SET layers = EXCLUDED.layers, requested_at = now();
-```
-
-This means if the same repo gets 10 reindex requests in one minute, only one row exists and one reindex runs.
-
----
-
-## Prism daemon changes
-
-Replace the current nightly/periodic reindex scheduling with a single 15-minute polling loop:
-
-```
-every 15 minutes:
-  rows = SELECT * FROM reindex_requests ORDER BY requested_at ASC
-  for each row:
-    project = getProject(row.project_id)
-    runPipeline(project, { layers: row.layers })
-    DELETE FROM reindex_requests WHERE id = row.id
-```
-
-Process one repo at a time to avoid overloading the embedding API. If a reindex fails, log and delete the row anyway (or add a retry counter if you want retries).
-
-The semantic layer (embeddings) can be folded into this same queue — Hive or any other trigger just posts `{ "layers": ["structural", "semantic"] }` or `{ "layers": ["semantic"] }`.
-
----
-
-## Config changes on the Hive side
-
-`autonomous.config.yaml` and the settings UI now only need:
-
-```yaml
-prism:
-  apiUrl: "https://prism.example.com"
-  apiKey: "sk-..."
-```
-
-Or via environment variables: `PRISM_API_URL`, `PRISM_API_KEY`.
-
-The old fields (`databaseUrl`, `embeddingProvider`, `embeddingModel`) are gone.
