@@ -1,9 +1,11 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth, requireRole } from "../../auth/middleware.js";
-import { getLearningById, listLearnings, getLearningStats, getLearningUsageStats, dismissLearning } from "../../db/queries/learnings.js";
+import { getLearningById, listLearnings, getLearningStats, getLearningUsageStats, dismissLearning, applyWeeklyDecay, archiveStale, archiveNeverUsed } from "../../db/queries/learnings.js";
 import { getEventsForLearning, getEventCountsByType, getDailyEventVolume } from "../../db/queries/learning-events.js";
-import { getConfig } from "../../domain/config.js";
+import { getConfig, setConfig } from "../../domain/config.js";
+import { curateLearnings } from "../../agents/keeper.js";
+import logger from "../../logger.js";
 import type { RetrospectiveReport } from "../../agents/retrospective.js";
 import type { HivemindPageData } from "../views/hivemind.js";
 import {
@@ -151,6 +153,35 @@ router.post("/hivemind/learnings/:id/dismiss", requireAuth, requireRole("admin")
 
     res.set("HX-Trigger", JSON.stringify({ showToast: "Learning dismissed" }));
     res.send(learningDetailPartial(learning, events));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /hivemind/curate ─ Force a full cleanup cycle ────────────────────────
+
+router.post("/hivemind/curate", requireAuth, requireRole("admin"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    logger.info({ triggeredBy: req.session.user!.id }, "Hivemind: manual curation triggered");
+
+    const decayed = await applyWeeklyDecay();
+    await setConfig("lastDecayRun", new Date().toISOString());
+    const archived = await archiveStale();
+    const neverUsedArchived = await archiveNeverUsed(30);
+
+    // Run the keeper agent for dedup/promotion (async, don't block the response)
+    curateLearnings().catch((err) => {
+      logger.error({ err }, "Hivemind: manual curation keeper failed");
+    });
+
+    logger.info({ decayed, archived, neverUsedArchived }, "Hivemind: manual decay + archival complete, keeper running async");
+
+    res.set("HX-Trigger", JSON.stringify({
+      showToast: `Cleanup done: ${decayed} decayed, ${archived + neverUsedArchived} archived. Keeper curation running in background.`,
+    }));
+    // Refresh the full learnings list
+    const { learnings, total } = await listLearnings({ limit: PAGE_SIZE, offset: 0 });
+    res.send(learningsListPartial(learnings, total, 1));
   } catch (err) {
     next(err);
   }
