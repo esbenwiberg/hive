@@ -220,6 +220,7 @@ export async function reviewChanges(
   worktreeInfo: WorktreeInfo,
   learningIds?: number[],
   reviewFixIssues?: string[],
+  actualVerification?: { buildSucceeded: boolean; testsPassed: boolean; lintClean: boolean; failures: string[]; warnings: string[] },
 ): Promise<ReviewGateResult> {
   const startTime = Date.now();
   const model = getModelFor("review-gate");
@@ -271,6 +272,34 @@ export async function reviewChanges(
     }
 
     const reviewDiff = await truncateDiff(diff, changedFiles, worktreeInfo.path, safeSha);
+
+    // Inject actual build/test verification results so the reviewer sees real data
+    // instead of guessing from the diff.
+    if (actualVerification) {
+      promptSections.push(
+        `## Build & Test Verification (actual results)`,
+        `- **Build**: ${actualVerification.buildSucceeded ? "PASSED" : "FAILED"}`,
+        `- **Tests**: ${actualVerification.testsPassed ? "PASSED" : "FAILED"}`,
+        `- **Lint**: ${actualVerification.lintClean ? "clean" : "warnings present"}`,
+      );
+      if (actualVerification.failures.length > 0) {
+        promptSections.push(
+          `- **Failures**:`,
+          ...actualVerification.failures.map(f => `  - ${f.substring(0, 300)}`),
+        );
+      }
+      if (actualVerification.warnings.length > 0) {
+        promptSections.push(
+          `- **Warnings**:`,
+          ...actualVerification.warnings.map(w => `  - ${w.substring(0, 300)}`),
+        );
+      }
+      promptSections.push(
+        ``,
+        `Use these actual results for the "verification" section of your response — do not guess.`,
+        ``,
+      );
+    }
 
     promptSections.push(
       `## Changed Files`,

@@ -701,9 +701,21 @@ function weeklyReportSection(report: RetrospectiveReport): string {
 export function hivemindPage(data: HivemindPageData, user: SessionUser): string {
   const content = `<div class="space-y-8">
   <!-- Header -->
-  <div>
-    <h2 class="text-xl font-semibold text-slate-50">Hivemind Knowledge Explorer</h2>
-    <p class="mt-1 text-sm text-slate-400">Browse, filter, and inspect the structured learnings that guide autonomous agents.</p>
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h2 class="text-xl font-semibold text-slate-50">Hivemind Knowledge Explorer</h2>
+      <p class="mt-1 text-sm text-slate-400">Browse, filter, and inspect the structured learnings that guide autonomous agents.</p>
+    </div>
+    <button class="inline-flex items-center gap-2 shrink-0 rounded-lg border border-amber-800/50 bg-amber-950/30 px-4 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-900/40"
+            hx-post="/hivemind/curate"
+            hx-target="#learnings-list"
+            hx-swap="innerHTML"
+            hx-confirm="Run a full cleanup cycle? This applies confidence decay, archives stale learnings, and runs the keeper agent for dedup."
+            hx-indicator="#curate-spinner">
+      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" /></svg>
+      <span>Force Cleanup</span>
+      <svg id="curate-spinner" class="htmx-indicator h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+    </button>
   </div>
 
   <!-- Stat cards -->

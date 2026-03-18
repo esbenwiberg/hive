@@ -605,24 +605,60 @@ function docsEnrichmentContent(docs: Record<string, unknown>): string {
  */
 function hivemindEnrichmentContent(hivemind: Record<string, unknown>): string {
   const learnings = Array.isArray(hivemind.learnings) ? hivemind.learnings as Array<Record<string, unknown>> : [];
-  if (learnings.length === 0) return `<span class="text-slate-500">No relevant learnings found</span>`;
+  if (learnings.length === 0) return `<span class="text-slate-500 italic">No relevant learnings found</span>`;
 
-  const rows = learnings.map((l) => {
-    const confidence = l.confidence ?? "?";
-    const scope = l.scope ?? "";
-    const category = l.category ?? "";
+  const confColor = (c: number) => c > 0.7 ? "emerald" : c >= 0.4 ? "amber" : "red";
+  const confBarColor: Record<string, string> = { emerald: "bg-emerald-400", amber: "bg-amber-400", red: "bg-red-400" };
+  const confTextColor: Record<string, string> = { emerald: "text-emerald-400", amber: "text-amber-400", red: "text-red-400" };
+
+  const cards = learnings.map((l, i) => {
+    const conf = typeof l.confidence === "number" ? l.confidence : parseFloat(String(l.confidence ?? "0.5"));
+    const pct = Math.round(conf * 100);
+    const color = confColor(conf);
+    const scope = String(l.scope ?? "");
+    const category = String(l.category ?? "");
     const content = typeof l.content === "string" ? l.content : String(l.content);
-    return `<div class="flex gap-3 py-1.5 border-b border-slate-800 last:border-0">
-      <div class="shrink-0 flex gap-1">
-        <span class="rounded bg-emerald-900/40 px-1.5 py-0.5 text-xs text-emerald-300">${escapeHtml(String(confidence))}</span>
-        ${scope ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">${escapeHtml(String(scope))}</span>` : ""}
-        ${category ? `<span class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">${escapeHtml(String(category))}</span>` : ""}
+    const reinforcements = typeof l.reinforcements === "number" ? l.reinforcements : 0;
+    const contradictions = typeof l.contradictions === "number" ? l.contradictions : 0;
+
+    const scopeColor = scope === "universal" ? "amber" : scope.startsWith("repo:") ? "blue" : scope.startsWith("task:") ? "emerald" : "slate";
+    const scopeColors: Record<string, string> = {
+      amber: "bg-amber-400/10 text-amber-400 ring-amber-400/20",
+      blue: "bg-blue-400/10 text-blue-400 ring-blue-400/20",
+      emerald: "bg-emerald-400/10 text-emerald-400 ring-emerald-400/20",
+      slate: "bg-slate-400/10 text-slate-400 ring-slate-400/20",
+    };
+
+    return `<details class="group rounded-lg border border-slate-700/50 bg-slate-900/50 transition-colors hover:border-slate-600/50" ${i === 0 ? "open" : ""}>
+      <summary class="flex items-center gap-3 px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden select-none">
+        <!-- Confidence pill -->
+        <span class="shrink-0 ${confTextColor[color]} text-sm font-mono font-semibold w-12 text-right">${pct}%</span>
+        <!-- Confidence mini-bar -->
+        <div class="shrink-0 w-16 h-1.5 rounded-full bg-slate-700">
+          <div class="${confBarColor[color]} h-1.5 rounded-full" style="width: ${pct}%"></div>
+        </div>
+        <!-- Badges -->
+        <div class="flex items-center gap-1.5 shrink-0">
+          ${scope ? `<span class="inline-flex items-center rounded-full ${scopeColors[scopeColor]} px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset">${escapeHtml(scope)}</span>` : ""}
+          ${category ? `<span class="inline-flex items-center rounded-full bg-slate-400/10 text-slate-400 ring-slate-400/20 px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset">${escapeHtml(category)}</span>` : ""}
+        </div>
+        <!-- Reinforcement/contradiction counts -->
+        <div class="flex items-center gap-2 ml-auto shrink-0 text-[10px]">
+          ${reinforcements > 0 ? `<span class="text-emerald-400" title="Reinforcements">+${reinforcements}</span>` : ""}
+          ${contradictions > 0 ? `<span class="text-red-400" title="Contradictions">-${contradictions}</span>` : ""}
+        </div>
+        <!-- Expand chevron -->
+        <svg class="h-3.5 w-3.5 text-slate-500 transition-transform group-open:rotate-90 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
+        </svg>
+      </summary>
+      <div class="px-4 pb-3 pt-1">
+        <p class="text-xs text-slate-300 leading-relaxed whitespace-pre-line">${escapeHtml(content)}</p>
       </div>
-      <span class="text-slate-200">${escapeHtml(content)}</span>
-    </div>`;
+    </details>`;
   }).join("");
 
-  return `<div>${rows}</div>`;
+  return `<div class="space-y-1.5">${cards}</div>`;
 }
 
 /**
