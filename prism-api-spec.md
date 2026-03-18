@@ -37,11 +37,11 @@ Return `401` if missing or invalid. A single shared API key is fine to start wit
 
 ---
 
-### `POST /api/projects/:slug/search`
+### `POST /api/projects/:owner/:repo/search`
 
 Semantic search over a project's index. Prism handles embedding internally.
 
-**Path param:** `:slug` is the URL-encoded `owner/repo` string (e.g. `my-org%2Fmy-repo`).
+**Path params:** `:owner/:repo` — the repository owner and name as separate path segments (e.g. `my-org/my-repo`).
 
 **Request body:**
 ```json
@@ -94,11 +94,11 @@ Semantic search over a project's index. Prism handles embedding internally.
 
 ---
 
-### `POST /api/projects/:slug/reindex`
+### `POST /api/projects/:owner/:repo/reindex`
 
 Enqueue a reindex request. Prism processes these on its own schedule.
 
-**Path param:** `:slug` — same URL-encoded `owner/repo`.
+**Path params:** `:owner/:repo` — same separate path segments.
 
 **Request body:**
 ```json

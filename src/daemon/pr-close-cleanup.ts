@@ -22,7 +22,7 @@ function triggerPostMergePrismReindex(repoFullName: string, taskId: string, repo
   if (!apiUrl) return;
 
   const apiKey = process.env.PRISM_API_KEY || prismConfig.apiKey;
-  const slug = encodeURIComponent((repoSettings?.prismSlug as string) || repoFullName);
+  const slug = (repoSettings?.prismSlug as string) || repoFullName;
 
   (async () => {
     try {

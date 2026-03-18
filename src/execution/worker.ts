@@ -558,7 +558,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     ? {
         apiUrl: prismApiUrl,
         apiKey: process.env.PRISM_API_KEY || config.prism?.apiKey,
-        repoSlug: encodeURIComponent(prismSlug),
+        repoSlug: prismSlug,
       }
     : undefined;
 
