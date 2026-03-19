@@ -396,7 +396,7 @@ export async function reviewFix(
   model: string,
   buildSettings?: { system?: string; npmDir?: string },
   buildInfo?: BuildSystemInfo,
-  options?: { skipInstall?: boolean },
+  options?: { skipInstall?: boolean; signal?: AbortSignal },
 ): Promise<ReviewFixResult> {
   const autonomousConfig = getAutonomousConfig();
   const maxIterations = autonomousConfig.reviewFix.maxIterations;
@@ -404,12 +404,14 @@ export async function reviewFix(
   const reviewModel = getModelFor("milestone-review");
   const fixModel = autonomousConfig.models.components["milestone-fix"] ?? model;
 
+  const signal = options?.signal;
   let totalCostUsd = 0;
   const allIssues: string[] = [];
   let passed = false;
   let priorIterationIssues: string[] | undefined;
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
+    if (signal?.aborted) break;
     logger.info({ iteration, maxIterations, worktreePath, reviewModel, fixModel }, "review-fix iteration start");
 
     // Step 1: Run shell verification

@@ -482,7 +482,7 @@ async function executeMilestones(
 
     // ── 3. Review-fix loop ────────────────────────────────────────────────
     await addEvent(task.id, "review_fix_started", "worker", `Review-fix loop for milestone ${i + 1}/${milestones.length}`);
-    const review = await reviewFix(worktreePath, ms.title, model, buildSettings, buildInfo, { skipInstall: true });
+    const review = await reviewFix(worktreePath, ms.title, model, buildSettings, buildInfo, { skipInstall: true, signal });
     totalCostUsd += review.costUsd;
     await addEvent(task.id, "review_fix_complete", "worker", `Review-fix ${review.passed ? "passed" : "failed"} (${review.iterations} iterations, $${review.costUsd.toFixed(2)})`);
     if (review.issues.length > 0) {

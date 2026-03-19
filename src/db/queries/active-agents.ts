@@ -82,3 +82,13 @@ export async function cleanupStale(maxAgeMs: number): Promise<number> {
 
   return deleted.length;
 }
+
+/**
+ * Deletes ALL active agent rows unconditionally.
+ * Used on daemon startup: no worker from a previous process can still be alive,
+ * so every row is orphaned and must be removed before stale-task detection runs.
+ */
+export async function cleanupAll(): Promise<number> {
+  const deleted = await db.delete(activeAgents).returning();
+  return deleted.length;
+}

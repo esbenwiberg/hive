@@ -39,8 +39,10 @@ vi.mock("../../src/db/queries/task-events.js", () => ({
 }));
 
 const mockCleanupStale = vi.fn().mockResolvedValue(0);
+const mockCleanupAll = vi.fn().mockResolvedValue(0);
 vi.mock("../../src/db/queries/active-agents.js", () => ({
   cleanupStale: mockCleanupStale,
+  cleanupAll: mockCleanupAll,
 }));
 
 const mockCheckBudget = vi.fn().mockResolvedValue(50);
@@ -253,13 +255,12 @@ describe("Daemon", () => {
     mockListAll.mockResolvedValue([]);
   });
 
-  it("calls cleanupStale on start", async () => {
+  it("calls cleanupAll on start to wipe orphaned agent rows", async () => {
     const daemon = new Daemon({ pollIntervalMs: 100_000 });
     await daemon.start();
     await daemon.stop();
 
-    expect(mockCleanupStale).toHaveBeenCalledOnce();
-    expect(mockCleanupStale).toHaveBeenCalledWith(1_800_000);
+    expect(mockCleanupAll).toHaveBeenCalledOnce();
   });
 
   it("transitions stale tasks to failed on start", async () => {
@@ -449,7 +450,7 @@ describe("Daemon", () => {
     await daemon.stop();
 
     // No assertion needed — if start/stop don't throw, the test passes
-    expect(mockCleanupStale).toHaveBeenCalledOnce();
+    expect(mockCleanupAll).toHaveBeenCalled();
   });
 
   it("runs producers on schedule when repos exist", async () => {

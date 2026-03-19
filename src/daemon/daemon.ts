@@ -4,7 +4,7 @@ import { resolveGitCredentials } from "../execution/worktree.js";
 import { getGitProvider } from "../execution/git-provider.js";
 import { Scheduler } from "./scheduler.js";
 import { findStaleTasks, STALE_THRESHOLD_MS } from "./stale-tasks.js";
-import { cleanupStale } from "../db/queries/active-agents.js";
+import { cleanupStale, cleanupAll } from "../db/queries/active-agents.js";
 import { list, updateStatus, suspendTask, findSuspended } from "../db/queries/tasks.js";
 import { addEvent } from "../db/queries/task-events.js";
 import { checkBudget } from "../db/queries/costs.js";
@@ -102,10 +102,14 @@ export class Daemon {
   }
 
   async start(): Promise<void> {
-    // Clean up stale active-agent rows from a prior crash
-    const cleaned = await cleanupStale(STALE_THRESHOLD_MS);
+    // Wipe ALL active-agent rows on startup.  No worker from a prior process
+    // can still be alive, so every row is orphaned.  This ensures that
+    // findStaleTasks() below correctly detects executing tasks whose container
+    // died before graceful shutdown could suspend them (fresh heartbeats used
+    // to trick the stale-detection into thinking a worker was still alive).
+    const cleaned = await cleanupAll();
     if (cleaned > 0) {
-      logger.info({ cleaned }, "Daemon: cleaned up stale active-agent rows");
+      logger.info({ cleaned }, "Daemon: cleaned up all active-agent rows from prior process");
     }
 
     // Recover stale tasks stuck in transitional states
