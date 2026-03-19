@@ -82,6 +82,7 @@ export class Daemon {
   private readonly prCloseCleanupScheduler: Scheduler;
   private readonly autoMergeScheduler: Scheduler;
   private readonly prFeedbackPollScheduler: Scheduler;
+  private readonly intervalRefreshScheduler: Scheduler;
   private stopping = false;
 
   constructor(opts?: DaemonOptions) {
@@ -97,6 +98,7 @@ export class Daemon {
     this.prCloseCleanupScheduler = new Scheduler(PR_CLOSE_CLEANUP_INTERVAL_MS, () => cleanupClosedPRPreviews(), { label: "pr-close-cleanup" });
     this.autoMergeScheduler = new Scheduler(PR_CLOSE_CLEANUP_INTERVAL_MS, () => autoMergeDoneTasks(), { label: "auto-merge" });
     this.prFeedbackPollScheduler = new Scheduler(PR_FEEDBACK_POLL_INTERVAL_MS, () => pollPRFeedback(), { label: "pr-feedback-poll" });
+    this.intervalRefreshScheduler = new Scheduler(60_000, () => this._refreshProducerIntervals(), { label: "interval-refresh" });
   }
 
   async start(): Promise<void> {
@@ -239,6 +241,9 @@ export class Daemon {
     // Start PR feedback poll scheduler (15min interval)
     this.prFeedbackPollScheduler.start();
 
+    // Start interval-refresh scheduler to pick up dashboard changes without restart
+    this.intervalRefreshScheduler.start();
+
     const concurrency = getAutonomousConfig().concurrency;
     logger.info(
       {
@@ -264,6 +269,7 @@ export class Daemon {
     await this.prCloseCleanupScheduler.stop();
     await this.autoMergeScheduler.stop();
     await this.prFeedbackPollScheduler.stop();
+    await this.intervalRefreshScheduler.stop();
     await this.scheduler.stop();
 
     // Suspend in-flight tasks in DB so they get resumed on the next start,
@@ -394,6 +400,28 @@ export class Daemon {
           "Daemon: unhandled error in dispatch",
         );
       });
+    }
+  }
+
+  /**
+   * Re-reads per-producer interval overrides from the DB and applies them
+   * to running schedulers so dashboard changes take effect without restart.
+   */
+  private async _refreshProducerIntervals(): Promise<void> {
+    for (let i = 0; i < ALL_PRODUCERS.length; i++) {
+      const producer = ALL_PRODUCERS[i];
+      const scheduler = this.producerSchedulers[i];
+      if (!scheduler) continue;
+
+      try {
+        const stored = await getConfig(`producer.${producer.name}.intervalMs`);
+        const newInterval = (typeof stored === "number" && stored > 0)
+          ? stored
+          : (producer.intervalMs ?? this.producerIntervalMs);
+        scheduler.updateInterval(newInterval);
+      } catch {
+        // Config read failed — keep current interval
+      }
     }
   }
 

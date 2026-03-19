@@ -110,6 +110,10 @@ export class AdoWorkItemsProducer implements Producer {
     let workItemIds: Array<{ id: number }>;
     try {
       workItemIds = await queryWorkItems(org, project, wiql, pat, maxPerRun);
+      logger.info(
+        { org, project, tag, count: workItemIds.length, ids: workItemIds.slice(0, 10).map((w) => w.id) },
+        "ado-work-items: WIQL query completed",
+      );
     } catch (err) {
       result.errors.push(
         `WIQL query failed: ${err instanceof Error ? err.message : String(err)}`,

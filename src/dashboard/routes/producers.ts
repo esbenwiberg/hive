@@ -202,7 +202,7 @@ router.post("/api/producers/:name/interval", requireRole("admin"), async (req: R
 
     res.setHeader(
       "HX-Trigger",
-      JSON.stringify({ showToast: { message: `Poll interval for ${name} set to ${formatIntervalMs(intervalMs)}. Takes effect on next daemon restart.`, type: "success" } }),
+      JSON.stringify({ showToast: { message: `Poll interval for ${name} set to ${formatIntervalMs(intervalMs)}.`, type: "success" } }),
     );
     res.send("");
   } catch (err) {
