@@ -4,6 +4,7 @@ import { createTaskWithDedup } from "./base.js";
 import {
   queryWorkItems,
   getWorkItem,
+  getWorkItemComments,
   updateWorkItemTags,
   extractAttachments,
   downloadAttachment,
@@ -19,7 +20,7 @@ interface AdoWorkItemsConfig {
   acceptanceCriteriaFields?: string[];
 }
 
-const MAX_BODY_CHARS = 10_000;
+const MAX_BODY_CHARS = 20_000;
 const MAX_ATTACHMENTS = 5;
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5 MB per image
 
@@ -151,12 +152,30 @@ export class AdoWorkItemsProducer implements Producer {
           }
         }
 
+        // ── Work item comments (design proposals, context, etc.) ────
+        let commentSections: string[] = [];
+        try {
+          const comments = await getWorkItemComments(org, project, id, pat);
+          commentSections = comments
+            .filter((c) => c.text?.trim())
+            .map((c) => {
+              const md = turndown.turndown(c.text).trim();
+              const date = new Date(c.createdDate).toISOString().slice(0, 10);
+              return `### ${c.author} (${date})\n\n${md}`;
+            });
+        } catch (commentErr) {
+          logger.warn({ workItemId: id, err: commentErr }, "ado-work-items: failed to fetch work item comments");
+        }
+
         // ── Build task body ───────────────────────────────────────────
         const bodyParts: string[] = [];
         if (description) bodyParts.push(description);
         if (systemInfo) bodyParts.push("## System Info\n\n" + systemInfo);
         if (acSections.length > 0) {
           bodyParts.push("---\n\n# Acceptance Criteria\n\n" + acSections.join("\n\n"));
+        }
+        if (commentSections.length > 0) {
+          bodyParts.push("---\n\n# Comments\n\n" + commentSections.join("\n\n---\n\n"));
         }
         bodyParts.push(
           "---",

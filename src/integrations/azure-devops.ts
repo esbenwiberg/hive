@@ -366,6 +366,58 @@ export async function getPRThreadComments(
   return result;
 }
 
+// ── Work Item Comments API ──────────────────────────────────────────────────
+
+export interface WorkItemComment {
+  id: number;
+  text: string;
+  author: string;
+  createdDate: string;
+}
+
+/**
+ * Gets all comments on a work item.
+ * Returns them in chronological order (oldest first).
+ */
+export async function getWorkItemComments(
+  org: string,
+  project: string,
+  workItemId: number,
+  pat: string,
+): Promise<WorkItemComment[]> {
+  return retryWithBackoff(async () => {
+    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/workItems/${workItemId}/comments?api-version=${API_VERSION}-preview.4&$top=50&order=asc`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Azure DevOps get work item comments failed (${response.status}): ${text}`);
+    }
+
+    const data = await response.json() as {
+      comments: Array<{
+        id: number;
+        text: string;
+        createdBy: { displayName: string };
+        createdDate: string;
+      }>;
+    };
+
+    return (data.comments ?? []).map((c) => ({
+      id: c.id,
+      text: c.text,
+      author: c.createdBy?.displayName ?? "unknown",
+      createdDate: c.createdDate,
+    }));
+  }, { label: `ado:getWorkItemComments(${workItemId})` });
+}
+
 // ── Attachment APIs ─────────────────────────────────────────────────────────
 
 /**
