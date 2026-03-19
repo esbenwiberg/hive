@@ -828,15 +828,16 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       : "";
 
     // Rework cycles: lead with retry instructions so Claude focuses on the fix,
-    // not on re-reading the full original task.  The original task body is included
-    // as collapsed context at the end.
+    // but include task body + enrichment so it has full context for creating
+    // new files or understanding domain concepts.
     const isReworkPrompt = (task.reworkCount ?? 0) > 0 && task.retryInstructions;
     const userPrompt = isReworkPrompt
       ? [
-          `## Targeted Fix — Rework Cycle ${task.reworkCount}`,
+          `## Rework Cycle ${task.reworkCount} — Fix Review Findings`,
           ``,
-          `This is a TARGETED FIX. The code in this worktree already has a full implementation.`,
-          `Your ONLY job is to address the specific feedback below. Do NOT redo or rewrite the existing work.`,
+          `The code in this worktree has a full implementation but the review found issues.`,
+          `Your job is to fix the specific feedback below. Do NOT rewrite the existing implementation from scratch,`,
+          `but you MAY create new files, explore the codebase for context, and make substantial edits as needed.`,
           ``,
           retryStr,
           ``,
@@ -850,11 +851,17 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
           ``,
           buildSystemSection,
           ``,
-          `## Original Task (for context only — do NOT re-implement)`,
+          `## Original Task`,
           `Title: ${task.title}`,
           ``,
-          `## Reminder`,
-          `Address ONLY the retry instructions above. Read the relevant files, make minimal targeted edits, and verify with a build.`,
+          task.body,
+          ``,
+          enrichmentStr ? `${enrichmentStr}\n` : "",
+          `## Approach`,
+          `1. Read the retry instructions carefully — each finding is a specific issue to fix.`,
+          `2. Explore the existing codebase to understand interfaces, types, and conventions before creating new files.`,
+          `3. Make the fixes, then run a build to verify everything compiles.`,
+          `4. If a finding asks for a missing file, read similar existing files first to match the project's patterns.`,
         ].join("\n")
       : [
           `## Task: ${task.title}`,
@@ -1129,6 +1136,47 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
           `Soft pass on rework cycle ${reworkCount}: ${reviewResult.findings.length} non-blocking finding(s) remaining`);
         logger.info({ taskId, reworkCount, remainingFindings: reviewResult.findings.length },
           "Review soft-passed — only minor/info findings remain");
+      }
+    }
+
+    // ── Convergence detection: stop early when findings repeat ────────────
+    if (reviewResult.verdict === "rework" && reworkCount >= 2) {
+      const reworkHistory = task.reworkHistory as Array<{
+        cycle: number;
+        findings?: Array<{ severity: string; file: string; message: string }>;
+        securityFindings?: Array<{ severity: string; type: string; description: string }>;
+      }> | null;
+
+      if (reworkHistory && reworkHistory.length >= 2) {
+        // Compare current blocking findings with the previous cycle's
+        const currentBlocking = new Set(
+          reviewResult.findings
+            .filter(f => f.severity === "critical" || f.severity === "major")
+            .map(f => `${f.file}::${f.message.substring(0, 80)}`),
+        );
+        const prevCycle = reworkHistory[reworkHistory.length - 1];
+        const prevBlocking = new Set(
+          (prevCycle.findings ?? [])
+            .filter(f => f.severity === "critical" || f.severity === "major")
+            .map(f => `${f.file}::${f.message.substring(0, 80)}`),
+        );
+
+        // Check if they're essentially the same (80%+ overlap)
+        const overlap = [...currentBlocking].filter(f => prevBlocking.has(f)).length;
+        const maxSize = Math.max(currentBlocking.size, prevBlocking.size);
+        if (maxSize > 0 && overlap / maxSize >= 0.8) {
+          const reason = `Review findings unchanged for 2 consecutive cycles (${overlap}/${maxSize} identical) — worker is stuck, manual intervention required`;
+          await addEvent(taskId, "review_convergence_stuck", "worker",
+            `Convergence detected: ${overlap}/${maxSize} blocking findings identical to previous cycle — stopping`);
+          logger.warn({ taskId, reworkCount, overlap, maxSize },
+            "Convergence detection: findings unchanged — failing task");
+          await db
+            .update(tasks)
+            .set({ failureReason: reason, updatedAt: new Date() })
+            .where(eq(tasks.id, taskId));
+          await updateStatus(taskId, "failed");
+          return { success: false, branch: branchName, reviewResult, error: reason };
+        }
       }
     }
 

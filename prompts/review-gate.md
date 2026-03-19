@@ -85,16 +85,26 @@ Respond with a JSON object:
 ## Rework Cycles
 
 When a "Rework Context" section is present in the input, this is a re-review
-of previously reworked code. Follow these rules:
+of previously reworked code. **Your primary job is to verify prior findings are
+fixed, NOT to do a full fresh review.**
 
-1. **Check prior findings first** — verify whether each previously reported issue
-   has been addressed. This is your primary task. However, **drop prior findings
-   that should not have been flagged** — e.g. out-of-scope findings on related
-   files, permission-only changes on generated files, or alternative files used
-   instead of expected ones. Do not perpetuate incorrect prior findings.
-2. **Do not introduce new minor/info findings on unchanged code** — if code was
-   not modified since the last cycle, do not flag new style, documentation, or
-   minor issues on it. Only flag new critical/major issues on unchanged code.
-3. **Pass when prior findings are addressed** — if all prior critical/major
-   findings have been resolved and no new critical/major issues exist, verdict
-   should be "pass" even if minor style issues remain.
+Follow these rules strictly:
+
+1. **Check each prior finding individually** — go through the "Prior Findings
+   Checklist" and for each one, determine: FIXED or STILL PRESENT. This is your
+   #1 priority. Drop prior findings that should not have been flagged (e.g.
+   out-of-scope findings on related files, alternative files used instead of
+   expected ones).
+2. **Use the incremental diff** — the "Incremental Diff" section shows exactly
+   what changed in this rework cycle. Use this to efficiently verify fixes
+   instead of re-reading the entire codebase diff.
+3. **Only check rework-changed files for new issues** — if a file was NOT
+   modified in this rework cycle, do NOT flag new findings on it. Only report
+   new critical/major issues on files that were actually changed.
+4. **Pass when prior findings are addressed** — if all prior critical/major
+   findings have been resolved and no new critical/major issues exist in
+   rework-changed files, verdict should be "pass" even if minor style issues
+   remain.
+5. **Do not re-flag the same findings with different wording** — if a finding
+   is substantively identical to one from the prior cycle, use the same
+   description so the system can detect convergence.

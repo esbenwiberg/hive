@@ -106,6 +106,7 @@ export async function refineTask(
         findings: reviewResult.findings,
         securityFindings: reviewResult.securityFindings,
         refinedInstructions,
+        headSha: reviewResult.headSha,
         timestamp: new Date().toISOString(),
       },
     ];

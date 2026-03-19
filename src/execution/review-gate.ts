@@ -235,6 +235,15 @@ export async function reviewChanges(
     const diff = await getGitDiff(worktreeInfo.path, safeSha);
     const changedFiles = await getChangedFiles(worktreeInfo.path, safeSha);
 
+    // Capture HEAD SHA for incremental diffs on subsequent rework cycles
+    let currentHeadSha: string | undefined;
+    try {
+      const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreeInfo.path });
+      currentHeadSha = stdout.trim();
+    } catch {
+      logger.warn({ worktreePath: worktreeInfo.path }, "Failed to get HEAD SHA for review");
+    }
+
     // Extract expected file scope from architect blueprint
     const enrichment = task.enrichment as Record<string, unknown> | null;
     const architect = enrichment?.architect as ArchitectBlueprint | undefined;
@@ -318,23 +327,75 @@ export async function reviewChanges(
         cycle: number;
         findings?: Array<{ severity: string; file: string; message: string }>;
         securityFindings?: Array<{ severity: string; type: string; description: string }>;
+        headSha?: string;
       }> | null;
 
       promptSections.push(``, `## Rework Context`);
-      promptSections.push(`This is rework cycle ${reworkCount}. The code has been revised to address prior review findings.`);
+      promptSections.push(`This is rework cycle ${reworkCount}. Your PRIMARY job is to verify whether the prior findings listed below have been fixed.`);
 
+      // Compute incremental diff — what changed since the last review
       if (reworkHistory && reworkHistory.length > 0) {
         const lastCycle = reworkHistory[reworkHistory.length - 1];
+        const prevHeadSha = lastCycle.headSha;
+
+        // Show incremental diff (changes made during this rework cycle only)
+        if (prevHeadSha) {
+          try {
+            const { stdout: incrDiff } = await execFileAsync(
+              "git", ["diff", prevHeadSha, "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS],
+              { cwd: worktreeInfo.path, timeout: 30_000, maxBuffer: 1024 * 1024 },
+            );
+            const { stdout: incrFiles } = await execFileAsync(
+              "git", ["diff", "--name-only", prevHeadSha, "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS],
+              { cwd: worktreeInfo.path, timeout: 30_000 },
+            );
+            const reworkChangedFiles = incrFiles.trim().split("\n").filter(Boolean);
+
+            if (reworkChangedFiles.length > 0) {
+              promptSections.push(
+                ``,
+                `### Files Changed in This Rework Cycle`,
+                reworkChangedFiles.map((f: string) => `- ${f}`).join("\n"),
+                ``,
+                `### Incremental Diff (changes made to fix prior findings)`,
+                "```",
+                incrDiff.substring(0, 200_000) + (incrDiff.length > 200_000 ? "\n...(truncated)" : ""),
+                "```",
+              );
+            } else {
+              promptSections.push(
+                ``,
+                `### WARNING: No files were changed in this rework cycle`,
+                `The worker made no modifications. All prior findings are still unresolved.`,
+              );
+            }
+          } catch (err) {
+            logger.warn({ worktreePath: worktreeInfo.path, prevHeadSha, err }, "Failed to compute incremental diff");
+          }
+        }
+
+        // List prior findings as a checklist for the reviewer
         const priorFindings = [
-          ...(lastCycle.findings ?? []).map(f => `- [${f.severity}] ${f.file}: ${f.message}`),
-          ...(lastCycle.securityFindings ?? []).map(f => `- [${f.severity}] [security/${f.type}]: ${f.description}`),
+          ...(lastCycle.findings ?? [])
+            .filter(f => f.severity === "critical" || f.severity === "major")
+            .map((f, i) => `${i + 1}. [${f.severity}] ${f.file}: ${f.message} → **Check if fixed**`),
+          ...(lastCycle.securityFindings ?? [])
+            .filter(f => f.severity === "critical" || f.severity === "high")
+            .map((f, i) => `${i + 1}. [${f.severity}] [security/${f.type}]: ${f.description} → **Check if fixed**`),
         ];
         if (priorFindings.length > 0) {
-          promptSections.push(``, `### Prior Cycle Findings`, ...priorFindings);
+          promptSections.push(``, `### Prior Findings Checklist (verify each one)`, ...priorFindings);
         }
       }
 
-      promptSections.push(``, `Focus on whether the prior issues have been addressed. Do not introduce new minor/info findings on unchanged code.`);
+      promptSections.push(
+        ``,
+        `### Re-review Rules`,
+        `1. Go through each prior finding above and determine: FIXED or STILL PRESENT.`,
+        `2. Only check files that were changed in this rework cycle for NEW issues.`,
+        `3. Do NOT re-review unchanged files for new minor/info findings.`,
+        `4. If all prior critical/major findings are fixed, verdict should be "pass" even if minor issues remain.`,
+      );
     }
 
     const userPrompt = promptSections.join("\n");
@@ -352,6 +413,7 @@ export async function reviewChanges(
     const result = parseReviewResult(response.text);
     result.costUsd = costUsd;
     result.changedFiles = changedFiles;
+    result.headSha = currentHeadSha;
 
     await recordReview(
       taskId,
