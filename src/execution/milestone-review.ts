@@ -37,7 +37,11 @@ interface ClaudeReviewResponse {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const SHELL_TIMEOUT_MS = 300_000;
-const MAX_DIFF_CHARS = 200_000;
+// Match review-gate's limit — milestone reviews are simpler prompts with less
+// overhead, so we can safely use the same budget.  The old 200K limit was
+// causing frequent truncation that the reviewer couldn't distinguish from
+// incomplete code, leading to phantom "diff is incomplete" findings.
+const MAX_DIFF_CHARS = 600_000;
 
 // Lock / generated / vendored files excluded from milestone review diffs.
 const REVIEW_EXCLUDED_PATHSPECS = [
