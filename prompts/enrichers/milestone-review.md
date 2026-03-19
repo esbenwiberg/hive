@@ -12,6 +12,20 @@ Return a JSON object with a single `issues` array. Each entry should be a concis
 
 If the code is clean, return `{ "issues": [] }`.
 
+## Truncated Diffs
+
+The diff you receive may be truncated by the system due to size limits.
+When this happens the diff ends with `...(truncated)` and/or a stat-only
+summary for omitted files. **This is normal and expected.**
+
+- **Never flag truncation as an issue.** Do not report "the diff is incomplete",
+  "missing call-site", "function defined but not used", or similar if the only
+  reason is that the diff was cut off by the system.
+- Only review code that is **actually present** in the diff. If you can't see
+  enough context to judge correctness, skip it — do not guess or assume problems.
+- Files in the stat-only summary were changed but their full diff was omitted.
+  Do not flag issues on those files.
+
 ## What to Check
 
 ### Correctness (highest priority)

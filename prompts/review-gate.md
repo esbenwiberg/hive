@@ -49,6 +49,21 @@ Respond with a JSON object:
 - **pass**: Changes are correct, secure, and well-structured. Minor style issues are acceptable.
 - **rework**: Changes have any issues — correctness, security, quality, wrong approach, missing tests. All non-passing code should be reworked, never failed outright.
 
+## Truncated Diffs
+
+The diff you receive may be truncated by the system due to size limits.
+When this happens the diff ends with `...(truncated)` and/or a stat-only
+summary for the remaining files. **This is normal and expected.**
+
+- **Never flag truncation as an issue.** Do not report findings like "the diff
+  is incomplete", "missing call-site", or "function defined but not called" if
+  the only reason you can't see it is because the diff was cut off.
+- Only review code that is **actually present** in the diff. If you can't see
+  enough context to judge whether something is correct, skip it — do not guess
+  or assume the worst.
+- Files listed in the stat-only summary were changed but their full diff was
+  omitted. Do not flag issues on those files.
+
 ## Rules
 
 1. Focus on correctness first, then security, then quality

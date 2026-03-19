@@ -301,11 +301,16 @@ export async function reviewChanges(
       );
     }
 
+    const wasTruncated = reviewDiff.length < diff.length;
+
     promptSections.push(
       `## Changed Files`,
       changedFiles.map(f => `- ${f}`).join("\n"),
       ``,
       `## Git Diff`,
+      ...(wasTruncated
+        ? [`**Note: This diff was truncated by the system (${Math.round(diff.length / 1024)}KB → ${Math.round(reviewDiff.length / 1024)}KB). Only review code visible below. Do not flag missing context as an issue.**`]
+        : []),
       "```",
       reviewDiff,
       "```",
