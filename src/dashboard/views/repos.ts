@@ -296,6 +296,18 @@ export function repoDetailPanel(repo: RepoRow): string {
       </div>
     </div>
 
+    <!-- Branch Config -->
+    <details>
+      <summary class="text-sm font-medium text-slate-300 cursor-pointer hover:text-slate-50">Branch Config</summary>
+      <div class="mt-3 space-y-3">
+        <p class="text-xs text-slate-500">Customize the branch naming pattern. Branches are named <code>{prefix}/{verb}-{animal}-{taskId}</code>.</p>
+        ${input(`branchPrefix_${repo.id}`, "Branch Prefix", {
+          value: (settings.branchPrefix as string) ?? "",
+          placeholder: "hive (default)",
+        })}
+      </div>
+    </details>
+
     <!-- Gate & Budget -->
     <details open>
       <summary class="text-sm font-medium text-slate-300 cursor-pointer hover:text-slate-50">Gate & Budget</summary>

@@ -191,7 +191,7 @@ router.get("/api/tasks", requireAuth, async (req: Request, res: Response, next: 
 
 router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { title, body, repoId, type, size, visibility, skipPreview, blueprintMode, blueprintMarkdown } = req.body;
+    const { title, body, repoId, type, size, visibility, skipPreview, blueprintMode, blueprintMarkdown, sourceBranch: rawSourceBranch, targetBranch: rawTargetBranch, branchName: rawBranchName } = req.body;
     const user = req.session.user!;
 
     if (!title || typeof title !== "string" || title.trim().length === 0) {
@@ -307,6 +307,11 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       return;
     }
 
+    // Parse optional branch overrides
+    const parsedSourceBranch = typeof rawSourceBranch === "string" ? rawSourceBranch.trim() : "";
+    const parsedTargetBranch = typeof rawTargetBranch === "string" ? rawTargetBranch.trim() : "";
+    const parsedBranchName = typeof rawBranchName === "string" ? rawBranchName.trim() : "";
+
     const task = await taskQueries.create({
       title: title.trim(),
       body: trimmedBody,
@@ -320,6 +325,9 @@ router.post("/api/tasks", requireAuth, async (req: Request, res: Response, next:
       ...(isBlueprintMode && rawBlueprintMarkdown
         ? { blueprintSource: "user" as const, userBlueprintMarkdown: rawBlueprintMarkdown }
         : {}),
+      ...(parsedSourceBranch ? { sourceBranch: parsedSourceBranch } : {}),
+      ...(parsedTargetBranch ? { targetBranch: parsedTargetBranch } : {}),
+      ...(parsedBranchName ? { branchName: parsedBranchName } : {}),
     });
 
     // Store pasted images in enrichment
@@ -522,7 +530,8 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       // The code is already pushed — just create the PR and transition to done.
       const repo = await repoQueries.getById(task.repoId);
       if (!repo) throw new Error(`Repo ${task.repoId} not found`);
-      const branchName = `hive/${id}`;
+      const branchName = task.branchName ?? `hive/${id}`;
+      const prTarget = task.targetBranch ?? task.sourceBranch ?? repo.defaultBranch ?? "main";
       const creds = await resolveGitCredentials(task.createdBy, repo.provider);
       const gitProvider = getGitProvider(repo.provider);
       const prBody = [
@@ -538,7 +547,7 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       const { url: prUrl } = await gitProvider.createPR(
         repo.fullName,
         branchName,
-        repo.defaultBranch ?? "main",
+        prTarget,
         task.title,
         prBody,
         creds,
@@ -551,7 +560,8 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       // Code is already pushed — create the PR manually despite outstanding findings.
       const repo = await repoQueries.getById(task.repoId);
       if (!repo) throw new Error(`Repo ${task.repoId} not found`);
-      const branchName = `hive/${id}`;
+      const branchName = task.branchName ?? `hive/${id}`;
+      const prTarget = task.targetBranch ?? task.sourceBranch ?? repo.defaultBranch ?? "main";
       const creds = await resolveGitCredentials(task.createdBy, repo.provider);
       const gitProvider = getGitProvider(repo.provider);
       const prBody = [
@@ -567,7 +577,7 @@ router.post("/api/tasks/:id/transition", requireAuth, async (req: Request, res: 
       const { url: prUrl } = await gitProvider.createPR(
         repo.fullName,
         branchName,
-        repo.defaultBranch ?? "main",
+        prTarget,
         task.title,
         prBody,
         creds,
@@ -863,12 +873,13 @@ router.post("/api/tasks/:id/preview/start", requireAuth, async (req: Request, re
     // Create worktree if needed, or recreate if the directory was cleaned up
     let worktreePath = task.worktreePath;
     if (!worktreePath || !existsSync(worktreePath)) {
-      const branchName = `hive/${id}`;
+      const branchName = task.branchName ?? `hive/${id}`;
+      const worktreeSourceBranch = task.sourceBranch ?? repo.defaultBranch ?? "main";
       const worktree = await createWorktree(
         repo.fullName,
         repo.provider,
         branchName,
-        repo.defaultBranch ?? "main",
+        worktreeSourceBranch,
         task.createdBy,
       );
       worktreePath = worktree.path;

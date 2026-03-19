@@ -92,6 +92,17 @@ router.post("/repos/:id", requireRole("admin"), async (req: Request, res: Respon
     const settings: Record<string, unknown> = {};
     const body = req.body as Record<string, string>;
 
+    // Branch prefix
+    const branchPrefixKey = `branchPrefix_${repoId}`;
+    const branchPrefixVal = body[branchPrefixKey]?.trim();
+    if (branchPrefixVal) {
+      if (!/^[a-zA-Z0-9-]{1,30}$/.test(branchPrefixVal)) {
+        res.status(400).send("Branch prefix must be alphanumeric + hyphens, max 30 chars");
+        return;
+      }
+      settings.branchPrefix = branchPrefixVal;
+    }
+
     // Gate mode override
     const gateModeKey = `gateMode_${repoId}`;
     if (body[gateModeKey] && body[gateModeKey] !== "") {
