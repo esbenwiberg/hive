@@ -168,6 +168,18 @@ async function getChangedFiles(worktreePath: string, baseSha: string): Promise<s
 }
 
 /**
+ * Captures the current HEAD SHA of the worktree.
+ */
+async function getHeadSha(worktreePath: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, timeout: 10_000 });
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Parses the Claude response into a ReviewGateResult.
  * Handles markdown code fences around JSON.
  */
@@ -233,8 +245,33 @@ export async function reviewChanges(
     if (!task) throw new Error(`Task ${taskId} not found`);
 
     const safeSha = await validateBaseSha(worktreeInfo.path, worktreeInfo.baseSha);
-    const diff = await getGitDiff(worktreeInfo.path, safeSha);
-    const changedFiles = await getChangedFiles(worktreeInfo.path, safeSha);
+    const headSha = await getHeadSha(worktreeInfo.path);
+
+    // Determine rework state and whether we can narrow the diff
+    const reworkCount = task.reworkCount ?? 0;
+    const reworkHistory = (task.reworkHistory as Array<{
+      cycle: number;
+      findings?: Array<{ severity: string; file: string; message: string }>;
+      securityFindings?: Array<{ severity: string; type: string; description: string }>;
+      reviewHeadSha?: string;
+    }>) ?? [];
+    const lastCycle = reworkCount > 0 && reworkHistory.length > 0
+      ? reworkHistory[reworkHistory.length - 1]
+      : undefined;
+    const lastReviewSha = lastCycle?.reviewHeadSha;
+
+    // On rework with a known prior review SHA, narrow the diff to only what
+    // changed since that review.  This structurally prevents the reviewer from
+    // finding new issues on code it already approved.
+    const isNarrowedRework = reworkCount > 0 && !!lastReviewSha;
+    const diffBaseSha = isNarrowedRework ? lastReviewSha! : safeSha;
+
+    const diff = await getGitDiff(worktreeInfo.path, diffBaseSha);
+    const changedFiles = await getChangedFiles(worktreeInfo.path, diffBaseSha);
+    // Full changed-file list (from branch base) for recording purposes
+    const allChangedFiles = isNarrowedRework
+      ? await getChangedFiles(worktreeInfo.path, safeSha)
+      : changedFiles;
 
     // Extract expected file scope from architect blueprint
     const enrichment = task.enrichment as Record<string, unknown> | null;
@@ -259,7 +296,33 @@ export async function reviewChanges(
       ``,
     ];
 
-    if (expectedFiles.length > 0) {
+    // On narrowed rework, inject the prior findings as a checklist FIRST —
+    // this is the reviewer's primary job.
+    if (isNarrowedRework && lastCycle) {
+      const priorFindings = [
+        ...(lastCycle.findings ?? []).map(f => `- [ ] [${f.severity}] ${f.file}: ${f.message}`),
+        ...(lastCycle.securityFindings ?? []).map(f => `- [ ] [${f.severity}] [security/${f.type}]: ${f.description}`),
+      ];
+
+      promptSections.push(
+        `## Rework Review — Cycle ${reworkCount}`,
+        ``,
+        `This is a **narrowed rework review**. The diff below shows ONLY changes made since the last review.`,
+        ``,
+        `### Prior Findings Checklist`,
+        `Verify whether each finding was addressed:`,
+        ...priorFindings,
+        ``,
+        `### Your Job`,
+        `1. Check each prior finding above — was it fixed?`,
+        `2. Check the delta diff below for new bugs or regressions introduced by the fix`,
+        `3. Do NOT review code outside this delta — it was already approved`,
+        `4. If all prior findings are addressed and the fix is clean, verdict is "pass"`,
+        ``,
+      );
+    }
+
+    if (!isNarrowedRework && expectedFiles.length > 0) {
       const outOfScope = changedFiles.filter(f => !expectedFiles.includes(f));
       promptSections.push(
         `## Expected File Scope (rough guide — not a strict boundary)`,
@@ -272,7 +335,7 @@ export async function reviewChanges(
       );
     }
 
-    const reviewDiff = await truncateDiff(diff, changedFiles, worktreeInfo.path, safeSha);
+    const reviewDiff = await truncateDiff(diff, changedFiles, worktreeInfo.path, diffBaseSha);
 
     // Inject actual build/test verification results so the reviewer sees real data
     // instead of guessing from the diff.
@@ -305,10 +368,10 @@ export async function reviewChanges(
     const wasTruncated = reviewDiff.length < diff.length;
 
     promptSections.push(
-      `## Changed Files`,
+      `## Changed Files${isNarrowedRework ? " (since last review)" : ""}`,
       changedFiles.map(f => `- ${f}`).join("\n"),
       ``,
-      `## Git Diff`,
+      `## Git Diff${isNarrowedRework ? " (delta since last review)" : ""}`,
       ...(wasTruncated
         ? [`**Note: This diff was truncated by the system (${Math.round(diff.length / 1024)}KB → ${Math.round(reviewDiff.length / 1024)}KB). Only review code visible below. Do not flag missing context as an issue.**`]
         : []),
@@ -317,33 +380,29 @@ export async function reviewChanges(
       "```",
     );
 
-    // Inject rework context so the reviewer is aware of prior cycles
-    const reworkCount = task.reworkCount ?? 0;
-    if (reworkCount > 0) {
-      const reworkHistory = task.reworkHistory as Array<{
-        cycle: number;
-        findings?: Array<{ severity: string; file: string; message: string }>;
-        securityFindings?: Array<{ severity: string; type: string; description: string }>;
-      }> | null;
-
+    // On non-narrowed rework (no reviewHeadSha available), fall back to the
+    // old approach: full diff + rework context section.
+    if (reworkCount > 0 && !isNarrowedRework && lastCycle) {
       promptSections.push(``, `## Rework Context`);
       promptSections.push(`This is rework cycle ${reworkCount}. The code has been revised to address prior review findings.`);
 
-      if (reworkHistory && reworkHistory.length > 0) {
-        const lastCycle = reworkHistory[reworkHistory.length - 1];
-        const priorFindings = [
-          ...(lastCycle.findings ?? []).map(f => `- [${f.severity}] ${f.file}: ${f.message}`),
-          ...(lastCycle.securityFindings ?? []).map(f => `- [${f.severity}] [security/${f.type}]: ${f.description}`),
-        ];
-        if (priorFindings.length > 0) {
-          promptSections.push(``, `### Prior Cycle Findings`, ...priorFindings);
-        }
+      const priorFindings = [
+        ...(lastCycle.findings ?? []).map(f => `- [${f.severity}] ${f.file}: ${f.message}`),
+        ...(lastCycle.securityFindings ?? []).map(f => `- [${f.severity}] [security/${f.type}]: ${f.description}`),
+      ];
+      if (priorFindings.length > 0) {
+        promptSections.push(``, `### Prior Cycle Findings`, ...priorFindings);
       }
 
       promptSections.push(``, `Focus on whether the prior issues have been addressed. Do not introduce new minor/info findings on unchanged code.`);
     }
 
     const userPrompt = promptSections.join("\n");
+
+    logger.info(
+      { taskId, reworkCount, isNarrowedRework, diffBaseSha, diffChars: diff.length, changedFileCount: changedFiles.length },
+      "Review gate prompt built",
+    );
 
     const response = await callClaudeWithTools({
       prompt: userPrompt,
@@ -360,7 +419,8 @@ export async function reviewChanges(
 
     const result = parseReviewResult(response.text);
     result.costUsd = costUsd;
-    result.changedFiles = changedFiles;
+    result.changedFiles = allChangedFiles;
+    result.reviewHeadSha = headSha;
 
     await recordReview(
       taskId,

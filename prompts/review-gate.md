@@ -114,8 +114,28 @@ After investigation, respond with the JSON output as specified.
 
 ## Rework Cycles
 
-When a "Rework Context" section is present in the input, this is a re-review
-of previously reworked code. Follow these rules:
+### Narrowed Rework Review
+
+When the input contains a "Rework Review — Cycle N" section with a "Prior
+Findings Checklist", the diff has been **narrowed to only changes since the
+last review**. This is your most constrained mode:
+
+1. **Work through the checklist** — for each prior finding, verify whether it
+   was addressed. Drop findings that should not have been flagged in the first
+   place (out-of-scope, permission-only, etc.).
+2. **Review the delta only** — check the narrowed diff for new bugs or
+   regressions introduced by the fix. Do NOT flag issues on code outside this
+   delta — it was already approved in a prior review.
+3. **Do not introduce new minor/info findings** — only flag new critical or
+   major issues discovered in the delta.
+4. **Pass when the checklist is clear** — if all prior critical/major findings
+   are resolved and the delta introduces no new critical/major issues, verdict
+   is "pass".
+
+### Legacy Rework Context
+
+When a "Rework Context" section is present (without a narrowed diff), this is
+a full re-review of previously reworked code. Follow these rules:
 
 1. **Check prior findings first** — verify whether each previously reported issue
    has been addressed. This is your primary task. However, **drop prior findings
