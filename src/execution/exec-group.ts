@@ -11,8 +11,8 @@ import { totalmem } from "node:os";
 import { getAutonomousConfig } from "../domain/autonomous-config.js";
 
 const HIVE_RESERVE_MB = 768;
-const MIN_HEAP_MB = 2560;
-const MAX_HEAP_MB = 4096;
+const MIN_HEAP_MB = 4096;
+const MAX_HEAP_MB = 8192;
 
 /**
  * Computes --max-old-space-size for child Node processes (target-repo builds).

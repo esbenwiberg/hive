@@ -36,7 +36,7 @@ interface ClaudeReviewResponse {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const SHELL_TIMEOUT_MS = 120_000;
+const SHELL_TIMEOUT_MS = 300_000;
 const MAX_DIFF_CHARS = 200_000;
 
 // Lock / generated / vendored files excluded from milestone review diffs.
@@ -414,10 +414,21 @@ export async function reviewFix(
 
     // Step 1: Run shell verification
     const verify = await quickVerify(worktreePath, buildSettings, options);
-    // Include warnings (lint) in issues for Claude to attempt fixing,
-    // but they don't block verify.passed.
-    const shellIssues = [...verify.failures, ...verify.warnings];
     logger.info({ iteration, passed: verify.passed, failureCount: verify.failures.length, warningCount: verify.warnings.length, worktreePath }, "review-fix quickVerify done");
+
+    // Filter lint warnings to only include issues that reference files Hive
+    // actually changed — pre-existing lint errors in untouched files are noise
+    // that Claude cannot fix (e.g. missing ESLint plugin rules).
+    const changedFiles = await getChangedFiles(worktreePath);
+    const relevantWarnings = changedFiles.length > 0
+      ? verify.warnings.filter(w => changedFiles.some(f => w.includes(f)))
+      : verify.warnings;
+    const droppedWarnings = verify.warnings.length - relevantWarnings.length;
+    if (droppedWarnings > 0) {
+      logger.info({ iteration, droppedWarnings, worktreePath }, "review-fix: dropped pre-existing lint warnings in unchanged files");
+    }
+
+    const shellIssues = [...verify.failures, ...relevantWarnings];
 
     let reviewIssues: string[] = [];
 
@@ -442,7 +453,7 @@ export async function reviewFix(
       break;
     }
 
-    // Include ALL issues (blocking + lint warnings) in fix attempt so Claude
+    // Include blocking + relevant lint warnings in fix attempt so Claude
     // fixes them opportunistically, but only blocking issues drive the loop.
     const iterationIssues = [...shellIssues, ...reviewIssues];
     allIssues.push(...iterationIssues);
@@ -451,9 +462,6 @@ export async function reviewFix(
       { iteration, issueCount: iterationIssues.length, worktreePath },
       "review-fix found issues, requesting fix",
     );
-
-    // Step 3: Ask Claude to fix
-    const changedFiles = await getChangedFiles(worktreePath);
     logger.info({ iteration, issueCount: iterationIssues.length, changedFileCount: changedFiles.length, worktreePath }, "review-fix calling claudeFix");
     const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, fixModel, fixMaxTurns, buildInfo);
     totalCostUsd += fix.costUsd;
