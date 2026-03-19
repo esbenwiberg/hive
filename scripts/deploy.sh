@@ -4,7 +4,7 @@ set -euo pipefail
 ACR_NAME="thehivehnv7pb"
 IMAGE_NAME="hive"
 RESOURCE_GROUP="the-hive"
-CONTAINER_APP_NAME="the-hive"
+CONTAINER_APP_NAME="the-hive-large"
 TAG="${1:-$(git rev-parse --short HEAD)}"
 
 FULL_IMAGE="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${TAG}"

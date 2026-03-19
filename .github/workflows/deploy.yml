@@ -11,7 +11,7 @@ env:
   ACR_NAME: ${{ vars.ACR_NAME }}
   IMAGE_NAME: hive
   RESOURCE_GROUP: the-hive
-  CONTAINER_APP_NAME: the-hive
+  CONTAINER_APP_NAME: the-hive-large
 
 jobs:
   test:
