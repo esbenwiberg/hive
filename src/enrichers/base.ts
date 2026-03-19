@@ -7,11 +7,16 @@ import type { TaskRow } from "../db/schema.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+/** Default enricher timeout: 5 minutes. Architect/scorer make Claude calls that can hang. */
+const DEFAULT_ENRICHER_TIMEOUT_MS = 5 * 60 * 1000;
+
 export interface EnricherConfig {
   enabled: boolean;
   model?: string;
   maxTurns?: number;
   budget?: number;
+  /** Per-enricher timeout in milliseconds. Default: 300 000 (5 min). */
+  timeout?: number;
 }
 
 export interface EnrichmentResult {
@@ -63,7 +68,13 @@ export async function runEnrichers(
       await addEvent(task.id, "enricher_started", enricher.name, `Starting ${enricher.name} enricher`);
       await heartbeat(task.id);
 
-      const result = await enricher.run(task, repoDir, { ...merged }, enricherConfig);
+      const timeoutMs = enricherConfig.timeout ?? DEFAULT_ENRICHER_TIMEOUT_MS;
+      const result = await Promise.race([
+        enricher.run(task, repoDir, { ...merged }, enricherConfig),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Enricher ${enricher.name} timed out after ${timeoutMs}ms`)), timeoutMs),
+        ),
+      ]);
 
       // Record successful run
       await recordRun(

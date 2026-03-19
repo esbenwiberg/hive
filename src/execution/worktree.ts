@@ -18,7 +18,7 @@ function escapeXml(s: string): string {
 
 export const WORKTREE_BASE = "/tmp/hive-worktrees";
 
-const MIN_FREE_DISK_GB = 5;
+const MIN_FREE_DISK_GB = 10;
 
 /** Returns free disk space in GB for the given path, or null if check fails. */
 function getFreeDiskGB(mountPath: string): number | null {
