@@ -172,6 +172,8 @@ export interface ReviewGateResult {
   costUsd: number;
   /** Files actually changed in the worktree (relative paths from git diff). */
   changedFiles?: string[];
+  /** HEAD SHA at the time of this review — used to narrow the diff on rework cycles. */
+  reviewHeadSha?: string;
 }
 
 export interface GitCredentials {

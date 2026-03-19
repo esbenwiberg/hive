@@ -37,7 +37,11 @@ interface ClaudeReviewResponse {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const SHELL_TIMEOUT_MS = 300_000;
-const MAX_DIFF_CHARS = 200_000;
+// Match review-gate's limit — milestone reviews are simpler prompts with less
+// overhead, so we can safely use the same budget.  The old 200K limit was
+// causing frequent truncation that the reviewer couldn't distinguish from
+// incomplete code, leading to phantom "diff is incomplete" findings.
+const MAX_DIFF_CHARS = 2_000_000;
 
 // Lock / generated / vendored files excluded from milestone review diffs.
 const REVIEW_EXCLUDED_PATHSPECS = [
@@ -236,10 +240,10 @@ async function getDiff(worktreePath: string): Promise<string> {
   // changes are still uncommitted. HEAD~1 would pull in the previous committed milestone,
   // causing the reviewer to see a growing compound diff and flag already-reviewed code.
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], {
+    const { stdout } = await execFileAsync("git", ["diff", "-U10", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], {
       cwd: worktreePath,
       timeout: SHELL_TIMEOUT_MS,
-      maxBuffer: 2 * 1024 * 1024,
+      maxBuffer: 5 * 1024 * 1024,
     });
     return stdout || "(no diff available)";
   } catch {
@@ -289,16 +293,56 @@ function parseReviewJson(text: string): ClaudeReviewResponse {
  * When `priorIssues` is provided, the prompt focuses on verifying those are fixed + new issues.
  * Returns the list of issues and cost in USD.
  */
+/**
+ * Truncates a diff at file boundaries so the reviewer never sees a half-cut file.
+ * Files that don't fit are listed by name so the reviewer knows they exist.
+ */
+function truncateDiff(diff: string): string {
+  if (diff.length <= MAX_DIFF_CHARS) return diff;
+
+  const fileDiffs = diff.split(/(?=^diff --git )/m).filter(Boolean);
+
+  let result = "";
+  const includedFiles: string[] = [];
+  const excludedFiles: string[] = [];
+
+  for (const fileDiff of fileDiffs) {
+    if (result.length + fileDiff.length > MAX_DIFF_CHARS) {
+      // If nothing included yet, hard-truncate the first chunk
+      if (result.length === 0) {
+        result = fileDiff.substring(0, MAX_DIFF_CHARS) + "\n...(truncated)";
+        const match = fileDiff.match(/^diff --git a\/(.+?) b\//);
+        if (match) includedFiles.push(match[1]);
+      }
+      // Track excluded files
+      const match = fileDiff.match(/^diff --git a\/(.+?) b\//);
+      if (match && !includedFiles.includes(match[1])) excludedFiles.push(match[1]);
+      continue;
+    }
+    result += fileDiff;
+    const match = fileDiff.match(/^diff --git a\/(.+?) b\//);
+    if (match) includedFiles.push(match[1]);
+  }
+
+  if (excludedFiles.length > 0) {
+    result += `\n\n(diff truncated — ${excludedFiles.length} additional file(s) changed but not shown:\n${excludedFiles.map(f => `  ${f}`).join("\n")}\n)`;
+  }
+
+  return result;
+}
+
 async function claudeReview(
   diff: string,
   model: string,
   priorIssues?: string[],
 ): Promise<{ issues: string[]; costUsd: number }> {
-  const truncatedDiff = diff.length > MAX_DIFF_CHARS
-    ? diff.substring(0, MAX_DIFF_CHARS) + "\n...(truncated)"
-    : diff;
+  const truncatedDiff = truncateDiff(diff);
+  const wasTruncated = truncatedDiff.length < diff.length;
+  const truncationNote = wasTruncated
+    ? `**Note: This diff was truncated by the system (${Math.round(diff.length / 1024)}KB → ${Math.round(truncatedDiff.length / 1024)}KB). Only review code visible below. Do not flag missing context as an issue.**\n\n`
+    : "";
 
-  let prompt = truncatedDiff;
+  let prompt = truncationNote + truncatedDiff;
   if (priorIssues && priorIssues.length > 0) {
     const issueList = priorIssues.map((i) => `- ${i}`).join("\n");
     prompt = [
