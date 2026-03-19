@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import logger from "../logger.js";
-import { callClaude, extractJson } from "../agents/sdk.js";
+import { callClaudeWithTools, extractJson } from "../agents/sdk.js";
 import { getById } from "../db/queries/tasks.js";
 import { getById as getRepoById } from "../db/queries/repos.js";
 import { recordReview } from "../db/queries/code-reviews.js";
@@ -12,6 +12,7 @@ import { estimateCostUsd } from "../agents/cost-utils.js";
 import { fireAndForgetFeedback } from "../agents/feedback-loop.js";
 import { analyzeReviewPatterns } from "../agents/code-quality-analyst.js";
 import { loadPrompt } from "../prompt-cache.js";
+import { REVIEW_TOOLS, createWorktreeToolExecutor } from "./worker-tools.js";
 import type { ReviewGateResult, SecurityFinding, VerificationResult, WorktreeInfo } from "../domain/types.js";
 import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
@@ -89,7 +90,7 @@ export async function validateBaseSha(worktreePath: string, baseSha: string): Pr
  */
 async function getGitDiff(worktreePath: string, baseSha: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("git", ["diff", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000, maxBuffer: 2 * 1024 * 1024 });
+    const { stdout } = await execFileAsync("git", ["diff", "-U10", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000, maxBuffer: 5 * 1024 * 1024 });
     return stdout;
   } catch (err) {
     logger.warn({ worktreePath, baseSha, err }, "Failed to get git diff for review");
@@ -102,14 +103,14 @@ async function getGitDiff(worktreePath: string, baseSha: string): Promise<string
  */
 async function getFileStat(worktreePath: string, baseSha: string, files: string[]): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "--stat", baseSha, "--", ...files], { cwd: worktreePath, timeout: 30_000 });
+    const { stdout } = await execFileAsync("git", ["diff", "--stat", baseSha, "--", ...files], { cwd: worktreePath, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
     return stdout.trim();
   } catch {
     return files.map(f => `  ${f} (stat unavailable)`).join("\n");
   }
 }
 
-const MAX_REVIEW_DIFF_CHARS = 600_000;
+const MAX_REVIEW_DIFF_CHARS = 2_000_000;
 
 /**
  * Truncates a diff at file boundaries. Files that don't fit get a stat-only
@@ -158,7 +159,7 @@ async function truncateDiff(
  */
 async function getChangedFiles(worktreePath: string, baseSha: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000 });
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", baseSha, "--", ...REVIEW_EXCLUDED_PATHSPECS], { cwd: worktreePath, timeout: 120_000, maxBuffer: 5 * 1024 * 1024 });
     return stdout.trim().split("\n").filter(Boolean);
   } catch (err) {
     logger.warn({ worktreePath, baseSha, err }, "Failed to get changed files for review");
@@ -344,11 +345,14 @@ export async function reviewChanges(
 
     const userPrompt = promptSections.join("\n");
 
-    const response = await callClaude({
+    const response = await callClaudeWithTools({
       prompt: userPrompt,
       model,
-      maxTokens: 8192,
+      maxTokens: 16384,
       systemPrompt: getReviewPrompt(),
+      tools: REVIEW_TOOLS,
+      executeTool: createWorktreeToolExecutor(worktreeInfo.path, undefined, undefined, { readOnly: true }),
+      maxTurns: 5,
     });
 
     const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
@@ -369,7 +373,7 @@ export async function reviewChanges(
       changedFiles,
     );
 
-    await recordCost(taskId, task.createdBy, "review-gate", model, costUsd, 1, durationMs);
+    await recordCost(taskId, task.createdBy, "review-gate", model, costUsd, response.turns, durationMs);
 
     // Fire-and-forget feedback loop — never blocks or throws
     const gateFindings = result.findings

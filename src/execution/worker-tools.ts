@@ -144,6 +144,11 @@ export const WORKER_TOOLS: Tool[] = [
   },
 ];
 
+/** Read-only subset of worker tools for the review gate. */
+export const REVIEW_TOOLS: Tool[] = WORKER_TOOLS.filter(
+  t => t.name === "read_file" || t.name === "list_directory",
+);
+
 /**
  * Returns the worker tool list, including `search_codebase` when prism is configured.
  */
@@ -164,7 +169,9 @@ export function createWorktreeToolExecutor(
   worktreePath: string,
   prismConfig?: PrismConfig,
   buildInfo?: BuildSystemInfo,
+  options?: { readOnly?: boolean },
 ): (name: string, input: Record<string, unknown>) => Promise<string> {
+  const readOnly = options?.readOnly ?? false;
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
     switch (name) {
       case "read_file": {
@@ -184,6 +191,7 @@ export function createWorktreeToolExecutor(
       }
 
       case "write_file": {
+        if (readOnly) throw new Error("write_file is not available in read-only mode");
         const filePath = safePath(worktreePath, input.path as string);
         const dir = resolve(filePath, "..");
         await mkdir(dir, { recursive: true });
@@ -192,6 +200,7 @@ export function createWorktreeToolExecutor(
       }
 
       case "edit_file": {
+        if (readOnly) throw new Error("edit_file is not available in read-only mode");
         const filePath = safePath(worktreePath, input.path as string);
         const oldStr = input.old_string as string;
         const newStr = input.new_string as string;
@@ -214,6 +223,7 @@ export function createWorktreeToolExecutor(
       }
 
       case "run_command": {
+        if (readOnly) throw new Error("run_command is not available in read-only mode");
         const command = input.command as string;
 
         // Claude sometimes sends args as a single string instead of an array;

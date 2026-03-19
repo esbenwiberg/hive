@@ -41,7 +41,7 @@ const SHELL_TIMEOUT_MS = 300_000;
 // overhead, so we can safely use the same budget.  The old 200K limit was
 // causing frequent truncation that the reviewer couldn't distinguish from
 // incomplete code, leading to phantom "diff is incomplete" findings.
-const MAX_DIFF_CHARS = 600_000;
+const MAX_DIFF_CHARS = 2_000_000;
 
 // Lock / generated / vendored files excluded from milestone review diffs.
 const REVIEW_EXCLUDED_PATHSPECS = [
@@ -240,10 +240,10 @@ async function getDiff(worktreePath: string): Promise<string> {
   // changes are still uncommitted. HEAD~1 would pull in the previous committed milestone,
   // causing the reviewer to see a growing compound diff and flag already-reviewed code.
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], {
+    const { stdout } = await execFileAsync("git", ["diff", "-U10", "HEAD", "--", ...REVIEW_EXCLUDED_PATHSPECS], {
       cwd: worktreePath,
       timeout: SHELL_TIMEOUT_MS,
-      maxBuffer: 2 * 1024 * 1024,
+      maxBuffer: 5 * 1024 * 1024,
     });
     return stdout || "(no diff available)";
   } catch {
