@@ -334,7 +334,8 @@ describe("executeTask", () => {
 
     expect(result.success).toBe(true);
     expect(result.prUrl).toBe("https://github.com/acme/widget/pull/1");
-    expect(result.branch).toBe(`hive/${task.id}`);
+    // Branch name is now auto-generated: {prefix}/{verb}-{animal}-{taskId}
+    expect(result.branch).toMatch(new RegExp(`^hive/[a-z]+-[a-z]+-${task.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
     expect(result.reviewResult?.verdict).toBe("pass");
 
     // Verify final state is done

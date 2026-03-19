@@ -35,6 +35,9 @@ export async function create(data: {
   skipPreview?: boolean;
   blueprintSource?: BlueprintSourceValue;
   userBlueprintMarkdown?: string | null;
+  sourceBranch?: string;
+  targetBranch?: string;
+  branchName?: string;
 }) {
   const id = generateTaskId();
 
@@ -55,6 +58,9 @@ export async function create(data: {
       status: "pending",
       blueprintSource: data.blueprintSource ?? "architect",
       userBlueprintMarkdown: data.userBlueprintMarkdown ?? null,
+      sourceBranch: data.sourceBranch ?? null,
+      targetBranch: data.targetBranch ?? null,
+      branchName: data.branchName ?? null,
     })
     .returning();
 
@@ -241,6 +247,7 @@ export async function updateStatus(
     updates.completedMilestones = 0;
     updates.worktreePath = null;
     updates.worktreeBaseSha = null;
+    updates.branchName = null;
   }
 
   // Clear failure state when continuing a failed task (preserve milestone progress)
@@ -430,6 +437,7 @@ export async function resetTask(id: string) {
       suspendedFrom: null,
       worktreePath: null,
       worktreeBaseSha: null,
+      branchName: null,
       completedMilestones: 0,
       updatedAt: new Date(),
     })

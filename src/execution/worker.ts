@@ -22,6 +22,7 @@ import { reviewFix, quickVerify } from "./milestone-review.js";
 import { detectBuildSystem } from "./build-system.js";
 import type { BuildSystemInfo } from "./build-system.js";
 import { refineTask } from "../agents/refiner.js";
+import { generateBranchNameWithRetry } from "../domain/branch-names.js";
 import { parseHiveYaml, parseHiveTimeoutConfig, parseHiveExecutionConfig } from "../hive-yaml.js";
 import type { PreviewConfig, BasePreviewConfig, ComposePreviewConfig, TestcontainersPreviewConfig, ProcessPreviewConfig, HiveTimeoutConfig } from "../hive-yaml.js";
 import { previewManager, getExternalPreviewUrl, getLocalPreviewUrl } from "./preview/manager.js";
@@ -576,7 +577,29 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
 
   // Always use the configured worker model from autonomous config
   const model = getModelFor("worker");
-  const branchName = `hive/${taskId}`;
+
+  // ── Branch naming ─────────────────────────────────────────────────────
+  const repoSettingsForBranch = (repo.settings ?? {}) as Record<string, unknown>;
+  const branchPrefix = (repoSettingsForBranch.branchPrefix as string) ?? "hive";
+  const sourceBranch = task.sourceBranch ?? repo.defaultBranch ?? "main";
+  const prTargetBranch = task.targetBranch ?? sourceBranch;
+
+  // Use stored branch name (from previous execution or manual override), or generate one
+  let branchName: string;
+  if (task.branchName) {
+    branchName = task.branchName;
+  } else {
+    // existsCheck is a best-effort collision avoidance — with 3840+ combinations
+    // plus the unique task ID, collisions are near-zero even without the check.
+    const existsCheck = async (_name: string) => false;
+    branchName = await generateBranchNameWithRetry(branchPrefix, taskId, existsCheck);
+    // Persist generated name so rework cycles reuse the same branch
+    await db
+      .update(tasks)
+      .set({ branchName, updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+  }
+
   let worktree: WorktreeInfo | undefined;
   const allReviewFixIssues: string[] = [];
 
@@ -617,7 +640,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         repo.fullName,
         repo.provider,
         branchName,
-        repo.defaultBranch ?? "main",
+        sourceBranch,
         task.createdBy,
         { repoId: repo.id, settings: (repo.settings ?? {}) as Record<string, unknown> },
         { depth: 50 },
@@ -1354,7 +1377,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     const prResult = await gitProvider.createPR(
       repo.fullName,
       branchName,
-      repo.defaultBranch ?? "main",
+      prTargetBranch,
       task.title,
       prBody,
       creds,

@@ -2604,6 +2604,18 @@ export function taskCreateForm(repos: RepoRow[], user?: SessionUser, selfRepoFul
         <span class="text-xs text-slate-500">(don't spin up a preview environment)</span>
       </label>
     </div>
+
+    <!-- Advanced Branch Options -->
+    <details class="group">
+      <summary class="text-sm font-medium text-slate-400 cursor-pointer hover:text-slate-300">
+        Advanced branch options
+      </summary>
+      <div class="mt-3 space-y-3">
+        ${input("sourceBranch", "Source Branch", { placeholder: "main (repo default)" })}
+        ${input("targetBranch", "PR Target Branch", { placeholder: "main (same as source)" })}
+        ${input("branchName", "Branch Name", { placeholder: "auto-generated (e.g. hive/swift-otter-HIVE-...)" })}
+      </div>
+    </details>
     <script>
       var _previewRepoIds = ${JSON.stringify(previewRepoIds)};
       function toggleSkipPreview(repoId) {
