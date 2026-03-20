@@ -332,6 +332,7 @@ async function executeMilestones(
   buildInfo?: BuildSystemInfo,
   signal?: AbortSignal,
   imageBlocks?: ImageBlockParam[],
+  contextWindow?: number,
 ): Promise<{ totalCostUsd: number; reviewFixIssues: string[] }> {
   const milestones = blueprint.milestones!;
   let totalCostUsd = 0;
@@ -434,6 +435,7 @@ async function executeMilestones(
       tools: getWorkerTools(prismConfig),
       executeTool: createWorktreeToolExecutor(worktreePath, prismConfig, buildInfo),
       onTurnComplete: () => heartbeat(task.id),
+      contextWindow,
       maxNudges: 2,
       midLoopNudge: ({ toolsCalled, turns }) => {
         if (msHasWritten(toolsCalled)) return null;
@@ -484,7 +486,7 @@ async function executeMilestones(
 
     // ── 3. Review-fix loop ────────────────────────────────────────────────
     await addEvent(task.id, "review_fix_started", "worker", `Review-fix loop for milestone ${i + 1}/${milestones.length}`);
-    const review = await reviewFix(worktreePath, ms.title, model, buildSettings, buildInfo, { skipInstall: true, signal });
+    const review = await reviewFix(worktreePath, ms.title, model, buildSettings, buildInfo, { skipInstall: true, signal, contextWindow });
     totalCostUsd += review.costUsd;
     await addEvent(task.id, "review_fix_complete", "worker", `Review-fix ${review.passed ? "passed" : "failed"} (${review.iterations} iterations, $${review.costUsd.toFixed(2)})`);
     if (review.issues.length > 0) {
@@ -749,6 +751,11 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       learningsStr = `\n## Relevant Learnings\n\nThese learnings come from past tasks. Apply them where relevant:\n\n${items}`;
     }
 
+    // Resolve effective context window: .hive.yaml > DB repo settings > global config
+    const effectiveContextWindow = yamlExecution?.contextWindow
+      ?? (typeof dbExecution.contextWindow === "number" ? dbExecution.contextWindow : undefined)
+      ?? config.execution.contextWindow;
+
     // Build enrichment string for the worker prompt.
     // For trivial/small tasks the architect blueprint already digests all enricher
     // data, so passing raw codebase/docs/git-history/dependencies is redundant noise.
@@ -808,8 +815,11 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(enrichmentWithoutImages, null, 2)}`;
       }
 
-      // Guard against context overflow regardless of task size
-      const INPUT_CHAR_BUDGET = 170_000 * 4;
+      // Guard against context overflow regardless of task size.
+      // Derive budget from the effective context window (repo override > global default),
+      // reserving headroom for system prompt, tools, task body, and output tokens.
+      const CONTEXT_HEADROOM_TOKENS = 30_000; // system prompt + tools + task body + output buffer
+      const INPUT_CHAR_BUDGET = Math.max(50_000, (effectiveContextWindow - CONTEXT_HEADROOM_TOKENS)) * 4;
       if (enrichmentStr.length > INPUT_CHAR_BUDGET * 0.8) {
         enrichmentStr = `\n## Enrichment Context\n${JSON.stringify(enrichmentWithoutImages)}`;
         logger.info({ taskId, chars: enrichmentStr.length }, "Compacted enrichment JSON (removed pretty-print)");
@@ -941,7 +951,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         await milestoneGitProvider.push(worktree!.path, branchName, milestoneCreds);
       };
 
-      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings, buildInfo, signal, imageBlocks);
+      const { totalCostUsd, reviewFixIssues } = await executeMilestones(task, worktree.path, architectData!, model, learningsStr, startFrom, pushFn, prismConfig, buildSystemSection, buildSettings, buildInfo, signal, imageBlocks, effectiveContextWindow);
       implCostUsd = totalCostUsd;
       allReviewFixIssues.push(...reviewFixIssues);
     } else {
@@ -1012,6 +1022,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         executeTool: loggingExecutor,
         onTurnComplete: () => heartbeat(taskId),
         maxTurns,
+        contextWindow: effectiveContextWindow,
         maxNudges: 2,
         midLoopNudge: ({ toolsCalled, turns }) => {
           if (hasWritten(toolsCalled)) return null;
