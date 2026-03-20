@@ -1,5 +1,5 @@
 import logger from "../logger.js";
-import { callClaude } from "./sdk.js";
+import { callClaudeWithTools } from "./sdk.js";
 import { loadPrompt } from "../prompt-cache.js";
 import { getById } from "../db/queries/tasks.js";
 import { recordCost } from "../db/queries/costs.js";
@@ -9,11 +9,14 @@ import { estimateCostUsd } from "./cost-utils.js";
 import { db } from "../db/connection.js";
 import { tasks } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { REVIEW_TOOLS, createWorktreeToolExecutor } from "../execution/worker-tools.js";
 import type { ReviewGateResult } from "../domain/types.js";
 import type { ArchitectBlueprint } from "../enrichers/architect.js";
 
 /**
  * Refines a task for rework based on review feedback.
+ * Uses read-only tool access to inspect the actual code and produce
+ * specific, actionable retry instructions.
  * Updates the task's retryInstructions, reworkCount, and reworkHistory.
  * Returns the refined instructions.
  */
@@ -83,19 +86,47 @@ export async function refineTask(
       ``,
       `## Rework Cycle: ${(task.reworkCount ?? 0) + 1}`,
       ``,
+      `You have read-only access to the codebase via read_file and list_directory.`,
+      `Use them to inspect the actual code referenced in findings so you can produce`,
+      `specific, line-level retry instructions (e.g. "change line 42 from X to Y").`,
+      ``,
       `Produce refined instructions that address the review feedback above.`,
     ].filter(Boolean).join("\n");
 
-    const response = await callClaude({
-      prompt: userPrompt,
-      model,
-      systemPrompt: loadPrompt("refiner"),
-    });
+    // Use agentic loop with read-only tools so the refiner can inspect actual code
+    const worktreePath = task.worktreePath;
+    const hasWorktree = !!worktreePath;
 
-    const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+    let refinedInstructions: string;
+    let costUsd: number;
+    let turnCount: number;
+
+    if (hasWorktree) {
+      const response = await callClaudeWithTools({
+        prompt: userPrompt,
+        model,
+        systemPrompt: loadPrompt("refiner"),
+        tools: REVIEW_TOOLS,
+        executeTool: createWorktreeToolExecutor(worktreePath!, undefined, undefined, { readOnly: true }),
+        maxTurns: 5,
+      });
+      costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+      turnCount = response.turns;
+      refinedInstructions = response.text.trim();
+    } else {
+      // No worktree available — fall back to non-agentic call
+      const { callClaude } = await import("./sdk.js");
+      const response = await callClaude({
+        prompt: userPrompt,
+        model,
+        systemPrompt: loadPrompt("refiner"),
+      });
+      costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
+      turnCount = 1;
+      refinedInstructions = response.text.trim();
+    }
+
     const durationMs = Date.now() - startTime;
-
-    const refinedInstructions = response.text.trim();
 
     // Update task: retryInstructions, reworkCount, reworkHistory
     const currentHistory = (task.reworkHistory as Array<Record<string, unknown>>) ?? [];
@@ -121,9 +152,9 @@ export async function refineTask(
       })
       .where(eq(tasks.id, taskId));
 
-    await recordCost(taskId, task.createdBy, "refiner", model, costUsd, 1, durationMs);
+    await recordCost(taskId, task.createdBy, "refiner", model, costUsd, turnCount, durationMs);
 
-    logger.info({ taskId, reworkCount: (task.reworkCount ?? 0) + 1, costUsd }, "Task refined");
+    logger.info({ taskId, reworkCount: (task.reworkCount ?? 0) + 1, costUsd, turns: turnCount }, "Task refined");
 
     return refinedInstructions;
   } finally {

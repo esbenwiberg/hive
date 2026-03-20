@@ -411,7 +411,7 @@ export async function reviewChanges(
       systemPrompt: getReviewPrompt(),
       tools: REVIEW_TOOLS,
       executeTool: createWorktreeToolExecutor(worktreeInfo.path, undefined, undefined, { readOnly: true }),
-      maxTurns: 5,
+      maxTurns: 10,
     });
 
     const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);

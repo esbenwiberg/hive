@@ -124,6 +124,19 @@ export const WORKER_TOOLS: Tool[] = [
     },
   },
   {
+    name: "grep_files",
+    description: "Search for a pattern across files in the working directory. Returns matching lines with file paths and line numbers. Use this to discover naming conventions, find usages, locate implementations, or understand patterns before writing code.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        pattern: { type: "string", description: "The regex pattern to search for (e.g. 'public.*OrderId', 'class.*Service', 'import.*from')" },
+        file_type: { type: "string", description: "Optional file extension filter without dot (e.g. 'cs', 'ts', 'py'). Omit to search all files." },
+        max_results: { type: "number", description: "Maximum number of matching lines to return (default: 50, max: 200)" },
+      },
+      required: ["pattern"],
+    },
+  },
+  {
     name: "run_command",
     description: "Run a command in the working directory. Use for build, test, lint, git, etc. " +
       "Commands are executed directly (not through a shell) — do NOT use shell syntax like " +
@@ -319,6 +332,55 @@ export function createWorktreeToolExecutor(
           return output.slice(0, MAX_CMD_OUTPUT_CHARS) + "\n\n... (output truncated — exceeded 100 KB)";
         }
         return output;
+      }
+
+      case "grep_files": {
+        const pattern = input.pattern as string;
+        const fileType = input.file_type as string | undefined;
+        const maxResults = Math.min(Math.max(1, (input.max_results as number) || 50), 200);
+
+        const args = ["-rn", "--max-count=5"];
+        if (fileType) {
+          args.push(`--include=*.${fileType}`);
+        }
+        // Exclude common noise directories and generated files
+        args.push(
+          "--exclude-dir=node_modules",
+          "--exclude-dir=.git",
+          "--exclude-dir=dist",
+          "--exclude-dir=build",
+          "--exclude-dir=obj",
+          "--exclude-dir=bin",
+          "--exclude-dir=vendor",
+          "--exclude-dir=__pycache__",
+          "--exclude=*.min.js",
+          "--exclude=*.min.css",
+          "--exclude=*.map",
+          "--exclude=package-lock.json",
+          "--exclude=yarn.lock",
+          "--exclude=pnpm-lock.yaml",
+        );
+        args.push("-E", pattern, ".");
+
+        try {
+          const { stdout, stderr } = await execInGroup("grep", args, {
+            cwd: worktreePath,
+            timeout: 30_000,
+            maxBuffer: 2 * 1024 * 1024,
+          });
+          const output = (stdout || stderr || "").trim();
+          if (!output) return "No matches found.";
+          const lines = output.split("\n");
+          if (lines.length > maxResults) {
+            return lines.slice(0, maxResults).join("\n") + `\n\n...(${lines.length - maxResults} more matches truncated)`;
+          }
+          return output;
+        } catch (err) {
+          // grep exits 1 when no matches — that's not an error
+          const code = (err as { code?: number }).code;
+          if (code === 1) return "No matches found.";
+          throw err;
+        }
       }
 
       case "search_codebase": {

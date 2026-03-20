@@ -90,6 +90,19 @@ export interface ReviewFixConfig {
   fixMaxTurns: number;
 }
 
+export interface ExecutionConfig {
+  /** Context window limit in tokens. Default: 500_000. */
+  contextWindow: number;
+  /** Turn at which proactive compaction of older tool results starts. Default: 8. */
+  compactionStartTurn: number;
+  /** Max chars preserved per tool result during compaction. Default: 800. */
+  compactionMaxChars: number;
+  /** Max chars for project instruction files (CLAUDE.md etc). Default: 24_000. */
+  maxInstructionsChars: number;
+  /** Per-size turn caps. Keys: trivial, small, medium, large. */
+  turnCaps: Record<string, number>;
+}
+
 export interface AutonomousConfig {
   provider: ProviderConfig;
   classification: ClassificationConfig;
@@ -102,6 +115,7 @@ export interface AutonomousConfig {
   concurrency: ConcurrencyConfig;
   prism: PrismConfig;
   reviewFix: ReviewFixConfig;
+  execution: ExecutionConfig;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -139,6 +153,13 @@ const DEFAULTS: AutonomousConfig = {
   concurrency: { maxConcurrent: 5, maxPerUser: 2 },
   prism: { apiUrl: "", apiKey: "", maxTokens: 48_000 },
   reviewFix: { maxIterations: 2, fixMaxTurns: 20 },
+  execution: {
+    contextWindow: 500_000,
+    compactionStartTurn: 8,
+    compactionMaxChars: 800,
+    maxInstructionsChars: 24_000,
+    turnCaps: { trivial: 8, small: 15, medium: 30, large: 45 },
+  },
 };
 
 // ── Model helpers ────────────────────────────────────────────────────────────
@@ -256,6 +277,14 @@ export function loadConfig(
       ...DEFAULTS.reviewFix,
       ...(raw.reviewFix as Partial<ReviewFixConfig> | undefined),
     },
+    execution: {
+      ...DEFAULTS.execution,
+      ...(raw.execution as Partial<ExecutionConfig> | undefined),
+      turnCaps: {
+        ...DEFAULTS.execution.turnCaps,
+        ...((raw.execution as Record<string, unknown> | undefined)?.turnCaps as Record<string, number> | undefined),
+      },
+    },
   };
 
   return config;
@@ -275,6 +304,7 @@ export interface ConfigOverrides {
   concurrency?: Partial<ConcurrencyConfig>;
   prism?: Partial<PrismConfig>;
   reviewFix?: Partial<ReviewFixConfig>;
+  execution?: Partial<ExecutionConfig>;
 }
 
 const CONFIG_DB_KEY = "autonomous";
@@ -338,6 +368,13 @@ function mergeOverrides(
     concurrency: { ...base.concurrency, ...overrides.concurrency },
     prism: { ...base.prism, ...overrides.prism },
     reviewFix: { ...base.reviewFix, ...overrides.reviewFix },
+    execution: overrides.execution
+      ? {
+          ...base.execution,
+          ...overrides.execution,
+          turnCaps: { ...base.execution.turnCaps, ...overrides.execution.turnCaps },
+        }
+      : base.execution,
   };
 }
 

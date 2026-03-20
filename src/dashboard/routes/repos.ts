@@ -227,15 +227,80 @@ router.post("/repos/:id", requireRole("admin"), async (req: Request, res: Respon
       settings.timeouts = timeouts;
     }
 
-    // Execution config (max rework cycles)
-    const maxReworkVal = body[`maxReworkCycles_${repoId}`]?.trim();
-    if (maxReworkVal && maxReworkVal !== "") {
-      const num = Number(maxReworkVal);
-      if (!Number.isInteger(num) || num < 1 || num > 20) {
-        res.status(400).send("Max rework cycles must be an integer between 1 and 20");
-        return;
+    // Execution config
+    {
+      const exec: Record<string, unknown> = {};
+
+      const maxReworkVal = body[`maxReworkCycles_${repoId}`]?.trim();
+      if (maxReworkVal && maxReworkVal !== "") {
+        const num = Number(maxReworkVal);
+        if (!Number.isInteger(num) || num < 1 || num > 20) {
+          res.status(400).send("Max rework cycles must be an integer between 1 and 20");
+          return;
+        }
+        exec.maxReworkCycles = num;
       }
-      settings.execution = { maxReworkCycles: num };
+
+      const contextWindowVal = body[`contextWindow_${repoId}`]?.trim();
+      if (contextWindowVal && contextWindowVal !== "") {
+        const num = Number(contextWindowVal);
+        if (!Number.isInteger(num) || num < 100_000 || num > 2_000_000) {
+          res.status(400).send("Context window must be between 100,000 and 2,000,000 tokens");
+          return;
+        }
+        exec.contextWindow = num;
+      }
+
+      const maxInstructionsVal = body[`maxInstructionsChars_${repoId}`]?.trim();
+      if (maxInstructionsVal && maxInstructionsVal !== "") {
+        const num = Number(maxInstructionsVal);
+        if (!Number.isInteger(num) || num < 1_000 || num > 100_000) {
+          res.status(400).send("Project instructions cap must be between 1,000 and 100,000 chars");
+          return;
+        }
+        exec.maxInstructionsChars = num;
+      }
+
+      const compactionStartVal = body[`compactionStartTurn_${repoId}`]?.trim();
+      if (compactionStartVal && compactionStartVal !== "") {
+        const num = Number(compactionStartVal);
+        if (!Number.isInteger(num) || num < 1 || num > 50) {
+          res.status(400).send("Compaction start turn must be between 1 and 50");
+          return;
+        }
+        exec.compactionStartTurn = num;
+      }
+
+      const compactionCharsVal = body[`compactionMaxChars_${repoId}`]?.trim();
+      if (compactionCharsVal && compactionCharsVal !== "") {
+        const num = Number(compactionCharsVal);
+        if (!Number.isInteger(num) || num < 50 || num > 5_000) {
+          res.status(400).send("Compaction max chars must be between 50 and 5,000");
+          return;
+        }
+        exec.compactionMaxChars = num;
+      }
+
+      // Turn caps per size
+      const turnCaps: Record<string, number> = {};
+      for (const size of ["trivial", "small", "medium", "large"]) {
+        const val = body[`turnCap_${size}_${repoId}`]?.trim();
+        if (val && val !== "") {
+          const num = Number(val);
+          if (!Number.isInteger(num) || num < 1 || num > 100) {
+            res.status(400).send(`Turn cap for ${size} must be between 1 and 100`);
+            return;
+          }
+          turnCaps[size] = num;
+        }
+      }
+      if (Object.keys(turnCaps).length > 0) {
+        exec.turnCaps = turnCaps;
+      }
+
+      if (Object.keys(exec).length > 0) {
+        settings.execution = exec;
+      }
     }
 
     // Preview settings
