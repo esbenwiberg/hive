@@ -154,7 +154,7 @@ const DEFAULTS: AutonomousConfig = {
   prism: { apiUrl: "", apiKey: "", maxTokens: 48_000 },
   reviewFix: { maxIterations: 2, fixMaxTurns: 20 },
   execution: {
-    contextWindow: 500_000,
+    contextWindow: 200_000,
     compactionStartTurn: 8,
     compactionMaxChars: 800,
     maxInstructionsChars: 24_000,

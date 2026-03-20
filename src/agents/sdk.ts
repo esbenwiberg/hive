@@ -213,6 +213,24 @@ function compactMessages(
   return compacted;
 }
 
+/**
+ * Drops the oldest assistant+user turn pairs from the conversation to shed tokens.
+ * Always preserves message[0] (the initial user prompt) and the most recent turns.
+ * Returns the number of messages removed.
+ */
+function dropOldTurns(messages: MessageParam[], turnsToDrop: number): number {
+  // messages[0] = initial prompt. Turn pairs start at index 1: [assistant, user, assistant, user, ...]
+  // Each turn pair is 2 messages. We must keep at least the initial prompt + the last turn pair.
+  const maxDroppable = Math.floor((messages.length - 3) / 2); // -1 for initial, -2 for last pair
+  const actualDrop = Math.min(turnsToDrop, Math.max(0, maxDroppable));
+  if (actualDrop <= 0) return 0;
+
+  const removeCount = actualDrop * 2;
+  // Remove from index 1 (right after the initial user prompt)
+  messages.splice(1, removeCount);
+  return removeCount;
+}
+
 // ── Client (lazy singleton) ──────────────────────────────────────────────────
 
 let client: Anthropic | undefined;
@@ -353,6 +371,8 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
   const toolsCalled: string[] = [];
   let nudgesUsed = 0;
   const maxNudges = req.maxNudges ?? 1;
+  // Discovered context limit — updated if the API tells us the real cap (e.g. Foundry 200k)
+  let discoveredContextLimit: number | undefined;
 
   const caching = isCachingSupported();
   const system = req.systemPrompt
@@ -412,6 +432,9 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
       const parsed = parseContextLimitError(err);
       if (!parsed) throw err;
 
+      // Learn the actual context limit from the API (e.g. Foundry may cap at 200k)
+      discoveredContextLimit = parsed.contextLimit;
+
       const msgCount = messages.length;
       const toolResultCount = messages
         .filter((m) => m.role === "user" && Array.isArray(m.content))
@@ -423,13 +446,31 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
 
       const reduced = parsed.contextLimit - parsed.inputLength - 100;
       if (reduced >= MIN_OUTPUT_TOKENS) {
+        // Case 1: input fits but max_tokens was too generous — just shrink output
         logger.warn({ turn: turns, requested: effectiveMaxTokens, reduced }, "Reducing max_tokens to fit context window");
         effectiveMaxTokens = reduced;
         message = await getClient().messages.create({ ...createParams, max_tokens: effectiveMaxTokens });
-      } else if (turns > 1 && compactMessages(messages)) {
-        logger.warn({ turn: turns, inputLength: parsed.inputLength, contextLimit: parsed.contextLimit }, "Compacting conversation to fit context window");
-        effectiveMaxTokens = MIN_OUTPUT_TOKENS;
-        message = await getClient().messages.create({ ...createParams, max_tokens: effectiveMaxTokens });
+      } else if (turns > 1) {
+        // Case 2: input itself exceeds limit — need to shed tokens from conversation
+        // First try truncating tool results
+        const didCompact = compactMessages(messages, 1, 100);
+        // Then progressively drop oldest turns until we fit
+        const excess = parsed.inputLength - parsed.contextLimit + MIN_OUTPUT_TOKENS + 1000;
+        // Rough estimate: each dropped turn pair ~= excess / (turns * 0.5) tokens
+        // Start by dropping 1/3 of turns, retry, and escalate if needed
+        const initialDrop = Math.max(1, Math.ceil(turns / 3));
+        const dropped = dropOldTurns(messages, initialDrop);
+        if (didCompact || dropped > 0) {
+          logger.warn(
+            { turn: turns, inputLength: parsed.inputLength, contextLimit: parsed.contextLimit, droppedMessages: dropped, didCompact, excess },
+            "Emergency recovery: compacted + dropped old turns to fit context window",
+          );
+          // Also update our in-memory context limit so proactive compaction uses the real value
+          effectiveMaxTokens = MIN_OUTPUT_TOKENS;
+          message = await getClient().messages.create({ ...createParams, max_tokens: effectiveMaxTokens });
+        } else {
+          throw err;
+        }
       } else {
         throw err;
       }
@@ -548,19 +589,27 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
 
     // Proactively shrink max_tokens for next turn as context fills up.
     // Estimate: this turn's input + output + tool result chars (÷4 for tokens).
+    // Use discovered limit (from API error) if lower than config — handles Foundry/proxy caps.
     const toolResultTokens = Math.ceil(toolResultChars / 4);
     const estimatedNextInput = turnUsage.input_tokens + turnUsage.output_tokens + toolResultTokens;
-    const contextLimit = getAutonomousConfig().execution.contextWindow;
+    const configContextLimit = getAutonomousConfig().execution.contextWindow;
+    const contextLimit = discoveredContextLimit
+      ? Math.min(discoveredContextLimit, configContextLimit)
+      : configContextLimit;
     if (estimatedNextInput + effectiveMaxTokens > contextLimit) {
       effectiveMaxTokens = Math.max(MIN_OUTPUT_TOKENS, contextLimit - estimatedNextInput - 1000);
     }
 
-    // Emergency compaction: if even MIN_OUTPUT_TOKENS won't fit, compact aggressively
+    // Emergency compaction: if even MIN_OUTPUT_TOKENS won't fit, compact + drop old turns
     if (estimatedNextInput + MIN_OUTPUT_TOKENS > contextLimit) {
-      if (compactMessages(messages, 1, 100)) {
+      compactMessages(messages, 1, 100);
+      const dropped = dropOldTurns(messages, Math.max(1, Math.ceil(turns / 4)));
+      if (dropped > 0) {
+        logger.warn({ turn: turns, estimatedNextInput, contextLimit, droppedMessages: dropped }, "Emergency compaction — dropped old turns to fit context window");
+      } else {
         logger.warn({ turn: turns, estimatedNextInput, contextLimit }, "Emergency compaction — conversation near context limit");
-        effectiveMaxTokens = MIN_OUTPUT_TOKENS;
       }
+      effectiveMaxTokens = MIN_OUTPUT_TOKENS;
     }
   }
 
