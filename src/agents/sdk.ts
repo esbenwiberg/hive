@@ -386,6 +386,18 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
       }
     }
 
+    // Safety net: ensure no message has empty content before API call.
+    // Catches edge cases (empty tool results, compaction artifacts, etc.)
+    for (const msg of messages) {
+      if (typeof msg.content === "string" && msg.content === "") {
+        logger.warn({ turn: turns, role: msg.role }, "Patching empty string content in %s message", msg.role);
+        (msg as { content: string }).content = "(empty)";
+      } else if (Array.isArray(msg.content) && msg.content.length === 0) {
+        logger.warn({ turn: turns, role: msg.role }, "Patching empty array content in %s message", msg.role);
+        (msg as { content: unknown[] }).content = [{ type: "text", text: "(empty)" }];
+      }
+    }
+
     const createParams = {
       model,
       ...(system ? { system } : {}),
@@ -486,10 +498,14 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
         const resultLen = typeof result === "string" ? result.length : JSON.stringify(result).length;
         toolResultChars += resultLen;
         logger.debug({ turn: turns, tool: toolUse.name, input: inputSummary, resultLen }, "Tool call succeeded");
+        // Guard empty results: empty strings are falsy, but empty arrays [] are truthy
+        const safeContent = typeof result === "string"
+          ? (result || "(empty)")
+          : (Array.isArray(result) && result.length === 0 ? "(empty)" : result);
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: result || "(empty)",
+          content: safeContent,
         });
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -497,12 +513,18 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: errorMsg,
+          content: errorMsg || "(error)",
           is_error: true,
         });
       }
     }
 
+    // Guard: never push an empty user message — API rejects content: []
+    // This can happen if stop_reason is "tool_use" but content has no tool_use blocks
+    if (toolResults.length === 0) {
+      logger.warn({ turn: turns, stopReason: message.stop_reason }, "No tool results despite tool_use stop reason — breaking loop");
+      break;
+    }
     messages.push({ role: "user", content: toolResults });
 
     // Mid-loop nudge: append guidance to the tool-results message while Claude
