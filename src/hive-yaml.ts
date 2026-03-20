@@ -112,6 +112,16 @@ export function parseHiveTimeoutConfig(worktreePath: string): HiveTimeoutConfig 
 export interface HiveExecutionConfig {
   /** Max review→rework cycles before failing. Default: 3 */
   maxReworkCycles?: number;
+  /** Per-size turn cap overrides. Keys: trivial, small, medium, large. */
+  maxTurns?: Record<string, number>;
+  /** Context window limit in tokens. Default: 500_000. */
+  contextWindow?: number;
+  /** Turn at which proactive compaction starts. Default: 8. */
+  compactionStartTurn?: number;
+  /** Max chars preserved per tool result during compaction. Default: 800. */
+  compactionMaxChars?: number;
+  /** Max chars for project instruction files. Default: 24_000. */
+  maxInstructionsChars?: number;
 }
 
 /**
@@ -143,6 +153,25 @@ export function parseHiveExecutionConfig(worktreePath: string): HiveExecutionCon
 
   if (typeof raw.max_rework_cycles === "number" && raw.max_rework_cycles > 0) {
     result.maxReworkCycles = raw.max_rework_cycles;
+  }
+  if (raw.max_turns && typeof raw.max_turns === "object") {
+    const caps: Record<string, number> = {};
+    for (const [k, v] of Object.entries(raw.max_turns as Record<string, unknown>)) {
+      if (typeof v === "number" && v > 0) caps[k] = v;
+    }
+    if (Object.keys(caps).length > 0) result.maxTurns = caps;
+  }
+  if (typeof raw.context_window === "number" && raw.context_window > 0) {
+    result.contextWindow = raw.context_window;
+  }
+  if (typeof raw.compaction_start_turn === "number" && raw.compaction_start_turn > 0) {
+    result.compactionStartTurn = raw.compaction_start_turn;
+  }
+  if (typeof raw.compaction_max_chars === "number" && raw.compaction_max_chars > 0) {
+    result.compactionMaxChars = raw.compaction_max_chars;
+  }
+  if (typeof raw.max_instructions_chars === "number" && raw.max_instructions_chars > 0) {
+    result.maxInstructionsChars = raw.max_instructions_chars;
   }
 
   return Object.keys(result).length > 0 ? result : null;

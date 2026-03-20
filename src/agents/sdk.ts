@@ -513,8 +513,9 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
       }
     }
 
-    // Proactive compaction: after 4+ turns, compact older tool results
-    if (turns >= 4 && compactMessages(messages)) {
+    // Proactive compaction: after N turns, compact older tool results
+    const execConfig = getAutonomousConfig().execution;
+    if (turns >= execConfig.compactionStartTurn && compactMessages(messages, 3, execConfig.compactionMaxChars)) {
       logger.debug({ turn: turns }, "Proactively compacted old tool results");
     }
 
@@ -522,7 +523,7 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
     // Estimate: this turn's input + output + tool result chars (÷4 for tokens).
     const toolResultTokens = Math.ceil(toolResultChars / 4);
     const estimatedNextInput = turnUsage.input_tokens + turnUsage.output_tokens + toolResultTokens;
-    const contextLimit = 200_000;
+    const contextLimit = getAutonomousConfig().execution.contextWindow;
     if (estimatedNextInput + effectiveMaxTokens > contextLimit) {
       effectiveMaxTokens = Math.max(MIN_OUTPUT_TOKENS, contextLimit - estimatedNextInput - 1000);
     }

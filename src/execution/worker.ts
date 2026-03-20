@@ -113,9 +113,10 @@ function buildSystemPromptSection(info: BuildSystemInfo, repoDir: string): strin
  * string if none are found. Capped to prevent context overflow.
  */
 const PROJECT_INSTRUCTION_FILES = ["CLAUDE.md", ".cursorrules"] as const;
-const MAX_INSTRUCTIONS_CHARS = 12_000;
+const DEFAULT_MAX_INSTRUCTIONS_CHARS = 24_000;
 
-async function readProjectInstructions(worktreePath: string): Promise<string> {
+async function readProjectInstructions(worktreePath: string, maxChars?: number): Promise<string> {
+  const cap = maxChars ?? DEFAULT_MAX_INSTRUCTIONS_CHARS;
   const sections: string[] = [];
   let totalChars = 0;
 
@@ -124,11 +125,11 @@ async function readProjectInstructions(worktreePath: string): Promise<string> {
       const content = await readFile(`${worktreePath}/${fileName}`, "utf-8");
       if (!content.trim()) continue;
 
-      const trimmed = content.slice(0, MAX_INSTRUCTIONS_CHARS - totalChars);
+      const trimmed = content.slice(0, cap - totalChars);
       sections.push(`### ${fileName}\n\n${trimmed}`);
       totalChars += trimmed.length;
 
-      if (totalChars >= MAX_INSTRUCTIONS_CHARS) break;
+      if (totalChars >= cap) break;
     } catch {
       // File doesn't exist — expected
     }
@@ -836,7 +837,8 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       : "";
 
     // Read project-level instructions (CLAUDE.md, .cursorrules) from the worktree
-    const projectInstructions = await readProjectInstructions(worktree.path);
+    const instructionsCap = yamlExecution?.maxInstructionsChars ?? config.execution.maxInstructionsChars;
+    const projectInstructions = await readProjectInstructions(worktree.path, instructionsCap);
 
     // For small/trivial tasks, put structured plan BEFORE raw task body so the
     // agent sees exact file paths and actionable steps first, not discovery prose.
@@ -853,6 +855,25 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
     // Rework cycles: lead with retry instructions so Claude focuses on the fix,
     // not on re-reading the full original task.  The original task body is included
     // as collapsed context at the end.
+    // Build rework context sections from architect blueprint
+    const reworkContextSections: string[] = [];
+    if (bpForHint && !bpForHint.skipped) {
+      if (bpForHint.keyFiles?.length) {
+        reworkContextSections.push(
+          `## Files to Focus On`,
+          bpForHint.keyFiles.map(f => `- \`${f}\``).join("\n"),
+          ``,
+        );
+      }
+      if (bpForHint.approach) {
+        reworkContextSections.push(
+          `## Implementation Context`,
+          bpForHint.approach,
+          ``,
+        );
+      }
+    }
+
     const isReworkPrompt = (task.reworkCount ?? 0) > 0 && task.retryInstructions;
     const userPrompt = isReworkPrompt
       ? [
@@ -863,6 +884,7 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
           ``,
           retryStr,
           ``,
+          ...reworkContextSections,
           projectInstructions,
           ``,
           `## Working Directory`,
@@ -970,12 +992,13 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         }
       };
 
-      // Per-size turn caps
-      const turnCaps: Record<string, number> = { trivial: 8, small: 15, medium: 25, large: 30 };
-      const maxTurns = turnCaps[taskSize] ?? 30;
-
-      // Per-size write deadlines (terminate if no writes by this turn)
-      const writeDeadline = (taskSize === "trivial" || taskSize === "small") ? 12 : 20;
+      // Per-size turn caps — configurable via autonomous config + per-repo .hive.yaml overrides
+      const globalTurnCaps = config.execution.turnCaps;
+      const repoTurnCaps = yamlExecution?.maxTurns;
+      const effectiveTurnCaps = repoTurnCaps
+        ? { ...globalTurnCaps, ...repoTurnCaps }
+        : globalTurnCaps;
+      const maxTurns = effectiveTurnCaps[taskSize] ?? 30;
 
       const response = await callClaudeWithTools({
         prompt: userPrompt,
@@ -1000,12 +1023,9 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
           }
           return null;
         },
-        shouldTerminate: async ({ toolsCalled, turns }) => {
+        shouldTerminate: async ({ turns }) => {
           if (signal?.aborted) {
             return "Aborted: daemon shutdown";
-          }
-          if (turns >= writeDeadline && !hasWritten(toolsCalled)) {
-            return `Terminated: ${turns} turns without any write — exploration spiral detected (size: ${taskSize}, deadline: ${writeDeadline})`;
           }
           if (turns % 5 === 0) {
             const taskCost = await getTotalCostForTask(taskId);

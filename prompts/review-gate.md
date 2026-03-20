@@ -76,8 +76,9 @@ Only use tools when you need to verify something the diff doesn't show:
 - The signature of an existing function being called by new code
 - Whether a file mentioned in the diff actually exists
 
-Do NOT read every changed file or explore broadly. Limit to 2-3 tool calls max.
-After investigation, respond with the JSON output as specified.
+Use tools as needed to verify correctness — read files referenced in findings,
+check call sites, verify interfaces. Don't hold back on tool use when it helps
+you make a confident verdict.
 
 ## Rules
 
