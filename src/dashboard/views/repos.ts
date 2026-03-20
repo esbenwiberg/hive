@@ -440,6 +440,22 @@ export function repoDetailPanel(repo: RepoRow): string {
           <p class="text-xs font-medium text-slate-400">Rework Limits</p>
           ${input(`maxReworkCycles_${repo.id}`, "Max Rework Cycles", { type: "number", value: execution.maxReworkCycles != null ? String(execution.maxReworkCycles) : "", placeholder: "3 (default)" })}
         </div>
+        <div class="space-y-3 pt-2 border-t border-slate-700/50">
+          <p class="text-xs font-medium text-slate-400">Agent Tuning</p>
+          ${input(`contextWindow_${repo.id}`, "Context Window (tokens)", { type: "number", value: execution.contextWindow != null ? String(execution.contextWindow) : "", placeholder: "500000 (default)" })}
+          ${input(`maxInstructionsChars_${repo.id}`, "Project Instructions Cap (chars)", { type: "number", value: execution.maxInstructionsChars != null ? String(execution.maxInstructionsChars) : "", placeholder: "24000 (default)" })}
+          ${input(`compactionStartTurn_${repo.id}`, "Compaction Start Turn", { type: "number", value: execution.compactionStartTurn != null ? String(execution.compactionStartTurn) : "", placeholder: "8 (default)" })}
+          ${input(`compactionMaxChars_${repo.id}`, "Compaction Max Chars", { type: "number", value: execution.compactionMaxChars != null ? String(execution.compactionMaxChars) : "", placeholder: "800 (default)" })}
+        </div>
+        <div class="space-y-3 pt-2 border-t border-slate-700/50">
+          <p class="text-xs font-medium text-slate-400">Turn Caps (per task size)</p>
+          ${(() => {
+            const tc = (execution.turnCaps ?? {}) as Record<string, unknown>;
+            return ["trivial", "small", "medium", "large"].map(size =>
+              input(`turnCap_${size}_${repo.id}`, size.charAt(0).toUpperCase() + size.slice(1), { type: "number", value: tc[size] != null ? String(tc[size]) : "", placeholder: { trivial: "8", small: "15", medium: "30", large: "45" }[size] + " (default)" })
+            ).join("\n");
+          })()}
+        </div>
       </div>
     </details>`;
     })()}

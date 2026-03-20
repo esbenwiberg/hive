@@ -837,7 +837,11 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
       : "";
 
     // Read project-level instructions (CLAUDE.md, .cursorrules) from the worktree
-    const instructionsCap = yamlExecution?.maxInstructionsChars ?? config.execution.maxInstructionsChars;
+    // Priority: .hive.yaml > DB repo settings > global config
+    const dbExecTyped = dbExecution as Record<string, unknown>;
+    const instructionsCap = yamlExecution?.maxInstructionsChars
+      ?? (typeof dbExecTyped.maxInstructionsChars === "number" ? dbExecTyped.maxInstructionsChars : undefined)
+      ?? config.execution.maxInstructionsChars;
     const projectInstructions = await readProjectInstructions(worktree.path, instructionsCap);
 
     // For small/trivial tasks, put structured plan BEFORE raw task body so the
@@ -992,12 +996,11 @@ export async function executeTask(taskId: string, signal?: AbortSignal): Promise
         }
       };
 
-      // Per-size turn caps — configurable via autonomous config + per-repo .hive.yaml overrides
+      // Per-size turn caps — priority: .hive.yaml > DB repo settings > global config
       const globalTurnCaps = config.execution.turnCaps;
+      const dbTurnCaps = (dbExecTyped.turnCaps ?? {}) as Record<string, number>;
       const repoTurnCaps = yamlExecution?.maxTurns;
-      const effectiveTurnCaps = repoTurnCaps
-        ? { ...globalTurnCaps, ...repoTurnCaps }
-        : globalTurnCaps;
+      const effectiveTurnCaps = { ...globalTurnCaps, ...dbTurnCaps, ...repoTurnCaps };
       const maxTurns = effectiveTurnCaps[taskSize] ?? 30;
 
       const response = await callClaudeWithTools({
