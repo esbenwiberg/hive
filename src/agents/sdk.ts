@@ -451,6 +451,11 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
         const lastMsg = messages[messages.length - 1];
         if (lastMsg.role === "assistant" && Array.isArray(lastMsg.content)) {
           lastMsg.content = lastMsg.content.filter((b) => b.type !== "tool_use");
+          // If stripping left the assistant message empty, inject a placeholder so the
+          // API never sees content: [] (which triggers "must have non-empty content").
+          if (lastMsg.content.length === 0) {
+            lastMsg.content = [{ type: "text", text: "(response truncated)" }];
+          }
         }
       }
       if (req.postCompletionNudge && nudgesUsed < maxNudges) {
@@ -484,7 +489,7 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: result,
+          content: result || "(empty)",
         });
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
