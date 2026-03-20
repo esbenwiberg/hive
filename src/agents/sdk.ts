@@ -67,6 +67,8 @@ export interface AgenticRequest {
    * Use this as a hard kill switch (e.g. no writes by turn N).
    */
   shouldTerminate?: (context: { toolsCalled: string[]; turns: number }) => string | null | Promise<string | null>;
+  /** Override context window limit (tokens). Falls back to global config if not set. */
+  contextWindow?: number;
 }
 
 export interface AgenticResponse {
@@ -592,7 +594,7 @@ export async function callClaudeWithTools(req: AgenticRequest): Promise<AgenticR
     // Use discovered limit (from API error) if lower than config — handles Foundry/proxy caps.
     const toolResultTokens = Math.ceil(toolResultChars / 4);
     const estimatedNextInput = turnUsage.input_tokens + turnUsage.output_tokens + toolResultTokens;
-    const configContextLimit = getAutonomousConfig().execution.contextWindow;
+    const configContextLimit = req.contextWindow ?? getAutonomousConfig().execution.contextWindow;
     const contextLimit = discoveredContextLimit
       ? Math.min(discoveredContextLimit, configContextLimit)
       : configContextLimit;

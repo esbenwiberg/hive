@@ -384,6 +384,7 @@ async function claudeFix(
   model: string,
   maxTurns: number,
   buildInfo?: BuildSystemInfo,
+  contextWindow?: number,
 ): Promise<{ costUsd: number }> {
   const prompt = [
     "## Milestone",
@@ -408,6 +409,7 @@ async function claudeFix(
     tools: WORKER_TOOLS,
     executeTool: createWorktreeToolExecutor(worktreePath, undefined, buildInfo),
     maxTurns,
+    contextWindow,
   });
 
   const { cost } = response;
@@ -440,7 +442,7 @@ export async function reviewFix(
   model: string,
   buildSettings?: { system?: string; npmDir?: string },
   buildInfo?: BuildSystemInfo,
-  options?: { skipInstall?: boolean; signal?: AbortSignal },
+  options?: { skipInstall?: boolean; signal?: AbortSignal; contextWindow?: number },
 ): Promise<ReviewFixResult> {
   const autonomousConfig = getAutonomousConfig();
   const maxIterations = autonomousConfig.reviewFix.maxIterations;
@@ -509,7 +511,7 @@ export async function reviewFix(
       "review-fix found issues, requesting fix",
     );
     logger.info({ iteration, issueCount: iterationIssues.length, changedFileCount: changedFiles.length, worktreePath }, "review-fix calling claudeFix");
-    const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, fixModel, fixMaxTurns, buildInfo);
+    const fix = await claudeFix(worktreePath, milestoneSummary, iterationIssues, changedFiles, fixModel, fixMaxTurns, buildInfo, options?.contextWindow);
     totalCostUsd += fix.costUsd;
     logger.info({ iteration, costUsd: fix.costUsd, worktreePath }, "review-fix claudeFix done");
 
