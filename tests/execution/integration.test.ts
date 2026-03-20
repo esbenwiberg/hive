@@ -45,6 +45,16 @@ const mockConfig = {
     docker_host: { ip: "", port: 2376, tls_cert_vault_secret: "", tls_key_vault_secret: "", tls_ca_vault_secret: "", ssh_key_vault_secret: "", ssh_user: "" },
     port_range: [4001, 4099],
   },
+  concurrency: { maxConcurrent: 5, maxPerUser: 2 },
+  prism: { apiUrl: "", apiKey: "", maxTokens: 48_000 },
+  reviewFix: { maxIterations: 2, fixMaxTurns: 20 },
+  execution: {
+    contextWindow: 500_000,
+    compactionStartTurn: 8,
+    compactionMaxChars: 800,
+    maxInstructionsChars: 24_000,
+    turnCaps: { trivial: 8, small: 15, medium: 30, large: 45 },
+  },
 };
 
 vi.mock("../../src/domain/autonomous-config.js", () => ({
