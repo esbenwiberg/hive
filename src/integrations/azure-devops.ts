@@ -36,11 +36,17 @@ export async function createPullRequest(
 ): Promise<{ id: number; url: string }> {
   const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests?api-version=${API_VERSION}`;
 
+  const ADO_DESCRIPTION_LIMIT = 4000;
+  const truncatedDescription =
+    description.length > ADO_DESCRIPTION_LIMIT
+      ? description.slice(0, ADO_DESCRIPTION_LIMIT - 50) + "\n\n---\n_Description truncated (ADO 4000-char limit)_"
+      : description;
+
   const body = {
     sourceRefName: `refs/heads/${sourceBranch.replace(/^refs\/heads\//, "")}`,
     targetRefName: `refs/heads/${targetBranch.replace(/^refs\/heads\//, "")}`,
     title,
-    description,
+    description: truncatedDescription,
   };
 
   const response = await fetch(url, {
