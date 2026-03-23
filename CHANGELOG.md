@@ -1,6 +1,71 @@
 # Changelog
 
+## 2026-03-13
+- fix: swap github-issues label to hive:grabbed after ingestion and restore NODE_ENV for previews
+
+## 2026-03-12
+- Merge pull request #37 from esbenwiberg/feature/wild-newt
+- feat: add configurable poll interval per producer via dashboard
+- Merge pull request #36 from esbenwiberg/feature/quiet-pelican
+- feat: add github-issues producer with per-producer interval support
+- fix: align preview manager test assertions with export PORT shell prefix (#35)
+- fix: preview process PORT handling and .hive.yaml protection (#34)
+
+## 2026-03-11
+- fix: add trailing-slash redirect to preview proxy for relative asset paths
+- fix: scope rework summaries to feedback and prioritize retry instructions in prompt
+- fix: add getNodeHeapLimitMB to exec-group test mocks
+- fix: raise Node heap floor to 2560MB so large Vite builds stop OOMing
+
+## 2026-03-10
+- fix: compute Node heap limit dynamically from system memory and concurrency
+- Revert "fix: bump Node heap limit from 1.5GB to 3GB for target-repo builds"
+- fix: bump Node heap limit from 1.5GB to 3GB for target-repo builds
+- feat: add Azure AI Foundry as configurable alternative API provider
+- fix: show tail of build output and strip ANSI codes so actual errors are visible
+- fix: increase maxBuffer to 10MB and force vitest --run to prevent watch mode
+- fix: make lint non-blocking in quickVerify to prevent rework loops on vendor/dist files
+- fix: ADO push/PR creation fails because sanitized remote URL lacks @ for regex match
+- fix: prevent cleartext NuGet credentials from being committed in tracked nuget.config
+
+## 2026-03-09
+- fix: cap child process heap to 1.5GB and recover rework tasks after crash
+- fix: remove baseline quickVerify and cap child process memory to prevent OOM
+- fix: remove baseline quickVerify and cap child process memory to prevent OOM
+- fix: inject NuGet credentials for all private feeds instead of URL matching
+- fix: use valid XML encoding for NuGet credential element names and escape values
+- Merge pull request #33 from esbenwiberg/feature/jubjcwrg
+- fix: merge NuGet credentials into existing nuget.config instead of skipping
+- fix: disable NuGet audit during dotnet restore to prevent false failures
+- fix: include stderr/stdout in dep install failure events
+- fix: kill entire process group on timeout and surface dep install failures
+
+## 2026-03-07
+- fix: use SIGKILL for execFile timeouts to prevent worker stalls
+- feat: make task ID clickable link to detail page
+- feat: add full task detail page at /tasks/:id
+- feat: show preview logs on task detail panel
+- fix: update worker test for proxy-based preview URL
+- fix: add db/schema/drizzle mocks to pr-close-cleanup test
+- fix: upgrade preview process logging to info level for visibility
+- fix: route process preview URLs through Hive's reverse proxy
+- fix: use docker host IP for preview URL, localhost only for health check
+- fix: health-check process previews on localhost, not docker host
+- fix: run npm install before starting preview from dashboard
+- fix: add preview process diagnostics (stdout/stderr/exit logging)
+- docs: update changelog with recent entries
+- fix: recreate worktree when directory is missing for preview start
+- fix: stop review gate from reinforcing bad out-of-scope findings
+- fix: soften review-gate file scope enforcement
+- fix: set max-old-space-size=4096 for target-repo child processes
+
 ## 2026-03-06
+- fix: add trailing newlines to test diff so git headers split correctly
+- fix: handle single-chunk diffs exceeding truncation limit
+- fix: update review-gate test to match new 400k diff cap
+- fix: raise review diff caps to use available context window
+- fix: improve review diff handling (smart truncation, vendored dir exclusion)
+- fix: allow user-supplied blueprints without milestones for small/trivial tasks
 - fix: exclude lock/generated files from worker reads and review diffs
 - fix: improve worker execution reliability (CI=true, shell args, baseline verify)
 - fix: add global unhandledRejection/uncaughtException handlers
