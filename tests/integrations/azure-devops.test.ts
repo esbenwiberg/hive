@@ -154,6 +154,39 @@ describe("createPullRequest", () => {
     expect(url).toContain("my%20repo");
   });
 
+  it("truncates description longer than 4000 chars", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        pullRequestId: 1,
+        repository: { webUrl: "" },
+      }),
+    });
+
+    const longDesc = "x".repeat(5000);
+    await createPullRequest("org", "proj", "repo", "branch", "main", "T", longDesc, "pat");
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.description.length).toBeLessThanOrEqual(4000);
+    expect(body.description).toContain("_(truncated)_");
+  });
+
+  it("does not truncate description at exactly 4000 chars", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        pullRequestId: 1,
+        repository: { webUrl: "" },
+      }),
+    });
+
+    const exactDesc = "y".repeat(4000);
+    await createPullRequest("org", "proj", "repo", "branch", "main", "T", exactDesc, "pat");
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.description).toBe(exactDesc);
+  });
+
   it("throws on non-2xx response", async () => {
     mockFetch.mockResolvedValue({
       ok: false,
