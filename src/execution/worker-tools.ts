@@ -157,10 +157,75 @@ export const WORKER_TOOLS: Tool[] = [
   },
 ];
 
-/** Read-only subset of worker tools for the review gate. */
-export const REVIEW_TOOLS: Tool[] = WORKER_TOOLS.filter(
-  t => t.name === "read_file" || t.name === "list_directory",
-);
+/** Tool for submitting structured review results instead of free-form JSON text. */
+const SUBMIT_REVIEW_TOOL: Tool = {
+  name: "submit_review",
+  description:
+    "Submit your final code review result. You MUST call this tool exactly once as the last action " +
+    "of your review. Do NOT output the review as raw JSON text — always use this tool.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      verdict: {
+        type: "string",
+        enum: ["pass", "rework"],
+        description: "pass = changes are correct & secure; rework = issues found that need fixing",
+      },
+      findings: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            severity: { type: "string", enum: ["critical", "major", "minor", "info"] },
+            file: { type: "string", description: "File path (relative)" },
+            line: { type: "number", description: "Line number (optional)" },
+            message: { type: "string", description: "Description of the issue" },
+            category: {
+              type: "string",
+              enum: ["correctness", "style", "performance", "maintainability", "documentation", "security"],
+            },
+          },
+          required: ["severity", "file", "message", "category"],
+        },
+        description: "List of code review findings",
+      },
+      securityFindings: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            severity: { type: "string", enum: ["critical", "high", "medium", "low"] },
+            type: { type: "string", enum: ["xss", "injection", "auth", "secrets", "deserialization", "other"] },
+            description: { type: "string" },
+            file: { type: "string" },
+            advisory: { type: "boolean", description: "True if this is an advisory observation, not a concrete vulnerability" },
+          },
+          required: ["severity", "type", "description"],
+        },
+        description: "Security-specific findings",
+      },
+      verification: {
+        type: "object",
+        properties: {
+          testsRun: { type: "boolean" },
+          testsPassed: { type: "boolean" },
+          lintClean: { type: "boolean" },
+          buildSucceeded: { type: "boolean" },
+          notes: { type: "array", items: { type: "string" } },
+        },
+        required: ["testsRun", "testsPassed", "lintClean", "buildSucceeded", "notes"],
+        description: "Build/test verification status",
+      },
+    },
+    required: ["verdict", "findings", "securityFindings", "verification"],
+  },
+};
+
+/** Read-only subset of worker tools for the review gate, plus submit_review. */
+export const REVIEW_TOOLS: Tool[] = [
+  ...WORKER_TOOLS.filter(t => t.name === "read_file" || t.name === "list_directory"),
+  SUBMIT_REVIEW_TOOL,
+];
 
 /**
  * Returns the worker tool list, including `search_codebase` when prism is configured.
@@ -182,7 +247,7 @@ export function createWorktreeToolExecutor(
   worktreePath: string,
   prismConfig?: PrismConfig,
   buildInfo?: BuildSystemInfo,
-  options?: { readOnly?: boolean },
+  options?: { readOnly?: boolean; onSubmitReview?: (data: Record<string, unknown>) => void },
 ): (name: string, input: Record<string, unknown>) => Promise<string> {
   const readOnly = options?.readOnly ?? false;
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
@@ -424,6 +489,13 @@ export function createWorktreeToolExecutor(
             return `${i + 1}. ${r.filePath ?? "(unknown)"}${symbol}\n   ${r.summary} [score: ${r.score.toFixed(2)}]`;
           })
           .join("\n");
+      }
+
+      case "submit_review": {
+        if (options?.onSubmitReview) {
+          options.onSubmitReview(input);
+        }
+        return "Review submitted successfully.";
       }
 
       default:

@@ -11,38 +11,7 @@ You will receive:
 
 ## Output Format
 
-Respond with a JSON object:
-
-```json
-{
-  "verdict": "pass | rework | fail",
-  "findings": [
-    {
-      "severity": "critical | major | minor | info",
-      "file": "src/Services/OrderService.cs",
-      "line": 42,
-      "message": "Description of the issue",
-      "category": "correctness | style | performance | maintainability | documentation | security"
-    }
-  ],
-  "securityFindings": [
-    {
-      "severity": "critical | high | medium | low",
-      "type": "xss | injection | auth | secrets | deserialization | other",
-      "description": "Description of the security issue",
-      "file": "src/Controllers/AuthController.cs",
-      "advisory": false
-    }
-  ],
-  "verification": {
-    "testsRun": true,
-    "testsPassed": true,
-    "lintClean": true,
-    "buildSucceeded": true,
-    "notes": ["All 42 tests passed", "No lint warnings"]
-  }
-}
-```
+You MUST submit your review by calling the `submit_review` tool. Do NOT output raw JSON text — always use the tool. Call it exactly once as the last action of your review.
 
 ## Verdict Guidelines
 
@@ -69,8 +38,9 @@ summary for the remaining files. **This is normal and expected.**
 You have read-only access to the codebase:
 - `read_file` — read a file's contents (path relative to working directory)
 - `list_directory` — list files in a directory
+- `submit_review` — **required** — submit your final review result (call exactly once at the end)
 
-**Use tools sparingly.** Most reviews should be completable from the diff alone.
+**Use read tools sparingly.** Most reviews should be completable from the diff alone.
 Only use tools when you need to verify something the diff doesn't show:
 - A call site or import referenced but not visible in the diff
 - The signature of an existing function being called by new code

@@ -404,20 +404,29 @@ export async function reviewChanges(
       "Review gate prompt built",
     );
 
+    // Capture structured review data if Claude uses the submit_review tool
+    let submittedReview: Record<string, unknown> | undefined;
+
     const response = await callClaudeWithTools({
       prompt: userPrompt,
       model,
       maxTokens: 16384,
       systemPrompt: getReviewPrompt(),
       tools: REVIEW_TOOLS,
-      executeTool: createWorktreeToolExecutor(worktreeInfo.path, undefined, undefined, { readOnly: true }),
+      executeTool: createWorktreeToolExecutor(worktreeInfo.path, undefined, undefined, {
+        readOnly: true,
+        onSubmitReview: (data) => { submittedReview = data; },
+      }),
       maxTurns: 10,
     });
 
     const costUsd = estimateCostUsd(response.cost.inputTokens, response.cost.outputTokens);
     const durationMs = Date.now() - startTime;
 
-    const result = parseReviewResult(response.text);
+    // Prefer structured tool submission over free-form text parsing
+    const result = submittedReview
+      ? parseReviewResult(JSON.stringify(submittedReview))
+      : parseReviewResult(response.text);
     result.costUsd = costUsd;
     result.changedFiles = allChangedFiles;
     result.reviewHeadSha = headSha;
