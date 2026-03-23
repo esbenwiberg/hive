@@ -37,9 +37,10 @@ export async function createPullRequest(
   const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests?api-version=${API_VERSION}`;
 
   const ADO_DESCRIPTION_LIMIT = 4000;
+  const TRUNCATION_SUFFIX = "\n\n---\n_(truncated)_";
   const truncatedDescription =
     description.length > ADO_DESCRIPTION_LIMIT
-      ? description.slice(0, ADO_DESCRIPTION_LIMIT - 50) + "\n\n---\n_Description truncated (ADO 4000-char limit)_"
+      ? description.slice(0, ADO_DESCRIPTION_LIMIT - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX
       : description;
 
   const body = {
